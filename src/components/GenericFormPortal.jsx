@@ -29,7 +29,7 @@ export default function GenericFormPortal() {
 
     
 
-    const t = isArabic ? translations.ar : translations.en;
+    const t = isArabic ? translations.GenericFormPortal.ar : translations.GenericFormPortal.en;
 
     useEffect(() => {
         const load = async () => {

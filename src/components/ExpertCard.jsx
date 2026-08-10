@@ -8,8 +8,9 @@ import ExpandableText from './ExpandableText';
 import { useState } from 'react';
 import { translations } from '../lib/translations';
 
-const ExpertCard = ({ expert, config, customColor = '#1a27c9', viewMode = 'grid', onEdit, onDelete, previewMode = false, priority = false }) => {
+const ExpertCard = ({ expert, config, customColor = '#1a27c9', viewMode = 'grid', onEdit, onDelete, previewMode = false, priority = false, forceExpanded = false }) => {
     const [expanded, setExpanded] = useState(false);
+    const isExpanded = forceExpanded || expanded;
     const {
         attributes,
         listeners,
@@ -318,7 +319,7 @@ const ExpertCard = ({ expert, config, customColor = '#1a27c9', viewMode = 'grid'
 
                 {/* Mobile Read More Toggle */}
                 <div className="md:hidden w-full px-1">
-                    {!expanded ? (
+                    {!isExpanded ? (
                         <button 
                             onClick={(e) => { e.stopPropagation(); setExpanded(true); }}
                             className="w-full py-2 bg-slate-50 hover:bg-slate-100 text-[#1a27c9] rounded-xl text-[9px] font-black uppercase tracking-widest flex items-center justify-center gap-1 border border-slate-100 transition-colors"
@@ -329,7 +330,7 @@ const ExpertCard = ({ expert, config, customColor = '#1a27c9', viewMode = 'grid'
                 </div>
 
                 {/* Desktop always visible, Mobile conditionally visible */}
-                <div className={`px-2 md:px-4 w-full transition-all duration-300 ${expanded ? 'block mt-3' : 'hidden md:block'}`}>
+                <div className={`px-2 md:px-4 w-full transition-all duration-300 ${isExpanded ? 'block mt-3' : 'hidden md:block'}`}>
                     <h3 className={`text-lg md:text-2xl font-black text-[#0d0e0e] tracking-tight mb-1 leading-none group-hover:text-[#1a27c9] transition-colors duration-500 ${!isRtl ? 'uppercase' : ''}`}>
                         {name}
                     </h3>
@@ -341,7 +342,7 @@ const ExpertCard = ({ expert, config, customColor = '#1a27c9', viewMode = 'grid'
                 </div>
             </div>
 
-            <div className={`flex-1 px-2 md:px-4 z-10 w-full flex-col justify-between ${expanded ? 'flex' : 'hidden md:flex'}`}>
+            <div className={`flex-1 px-2 md:px-4 z-10 w-full flex-col justify-between ${isExpanded ? 'flex' : 'hidden md:flex'}`}>
                 {show_bio && (
                     <ExpandableText 
                         text={isRtl && expert.bio_ar ? expert.bio_ar : expert.bio || t.fallbackBio}

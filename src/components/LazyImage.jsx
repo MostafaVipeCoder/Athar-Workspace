@@ -83,27 +83,28 @@ const LazyImage = ({
     }, [rootMargin, priority]);
 
     const handleError = () => {
-        // Only log warning for the first failure, then just log fallbacks to avoid console spam
+        // Log only once per image (when first URL fails)
         if (urlIndex === 0) {
-            console.warn(`❌ Image Load Failed [${alt || 'Unknown'}]:`, currentSrc);
+            console.warn(`⚠️ Image unavailable [${alt || 'Unknown'}]:`, currentSrc);
         }
 
-        // If this URL was previously cached as "working", evict it from cache because it's now failing
+        // If this URL was previously cached as "working", evict it
         try {
             const cachedUrl = localStorage.getItem(`WorkingImg_${primaryKey}`);
             if (cachedUrl === currentSrc) {
-                console.log(`🧹 Evicting stale URL from cache for [${alt || 'Unknown'}]`);
+                console.log(`🧹 Evicting stale cache for [${alt || 'Unknown'}]`);
                 localStorage.removeItem(`WorkingImg_${primaryKey}`);
             }
         } catch (_e) { /* ignore localStorage errors */ }
 
         if (urlIndex + 1 < urlsToTry.length) {
-            // Log fallback attempt
-            console.log(`🔄 [${alt || 'Unknown'}] Trying Fallback #${urlIndex + 2}/${urlsToTry.length}`);
             setUrlIndex(i => i + 1);
             setLoaded(false);
         } else {
-            console.error(`🚨 ALL ${urlsToTry.length} image fallbacks failed for [${alt || 'Unknown'}]`);
+            // Downgrade to warn — this is a gracefully handled UX state (fallback UI shown)
+            if (urlsToTry.length > 1) {
+                console.warn(`⚠️ All ${urlsToTry.length} image sources failed for [${alt || 'Unknown'}] — showing fallback`);
+            }
             setUrlIndex(urlsToTry.length); // triggers allFailed
         }
     };

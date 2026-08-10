@@ -1,11 +1,12 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
-import { Calendar, Users, Rocket, ArrowLeft, ExternalLink, Settings, LayoutGrid, Inbox, RefreshCw, FileSpreadsheet, Palette, ClipboardList, BarChart3, Edit2, Check, X, Briefcase, ChevronDown, ChevronUp, Save, BookOpen, Copy, Loader2 } from 'lucide-react';
+import { Calendar, Users, Rocket, ArrowLeft, ExternalLink, Settings, LayoutGrid, Inbox, RefreshCw, FileSpreadsheet, Palette, ClipboardList, BarChart3, Edit2, Check, X, Briefcase, ChevronDown, ChevronUp, Save, BookOpen, Copy, Loader2, Users2 } from 'lucide-react';
 import { getEvent, updateEvent, duplicateEvent } from '../lib/api';
 import { prefetch } from '../App';
 import SyncButton from './SyncButton';
 import { usePresence } from '../hooks/usePresence';
 import ActiveUsers from './ActiveUsers';
+import { supabase } from '../lib/supabase';
 
 export default function EventDashboard() {
     const { eventId } = useParams();
@@ -31,6 +32,11 @@ export default function EventDashboard() {
     const [isSavingUrl, setIsSavingUrl] = useState(false);
     const [selectionProcessGsheetsUrl, setSelectionProcessGsheetsUrl] = useState('');
     const [isSavingSelectionProcessUrl, setIsSavingSelectionProcessUrl] = useState(false);
+    // Google Settings
+    const [googleServiceAccountKey, setGoogleServiceAccountKey] = useState('');
+    const [googleCalendarId, setGoogleCalendarId] = useState('primary');
+    const [isSavingGoogleSettings, setIsSavingGoogleSettings] = useState(false);
+    const [googleSettings, setGoogleSettings] = useState(null);
 
     // Duplicate Event State
     const [isDuplicateModalOpen, setIsDuplicateModalOpen] = useState(false);
@@ -38,8 +44,64 @@ export default function EventDashboard() {
     const [newDuplicateName, setNewDuplicateName] = useState('');
 
 
+    const loadGoogleSettings = async () => {
+        try {
+            const { data, error } = await supabase
+                .from('google_settings')
+                .select('*')
+                .eq('event_id', eventId)
+                .limit(1)
+                .maybeSingle();
+
+            if (error) {
+                console.error('Error loading Google Settings:', error);
+                return;
+            }
+            if (data) {
+                setGoogleSettings(data);
+                setGoogleServiceAccountKey(data.service_account_key || '');
+                setGoogleCalendarId(data.calendar_id || 'primary');
+            }
+        } catch (error) {
+            console.error('Error loading Google Settings:', error);
+        }
+    };
+
+    const handleSaveGoogleSettings = async () => {
+        try {
+            setIsSavingGoogleSettings(true);
+
+            // Try to upsert
+            const { data, error } = await supabase
+                .from('google_settings')
+                .upsert({
+                    event_id: eventId,
+                    service_account_key: googleServiceAccountKey,
+                    calendar_id: googleCalendarId,
+                    updated_at: new Date().toISOString()
+                }, { onConflict: 'event_id' })
+                .select()
+                .single();
+
+            if (error) {
+                console.error('Error saving Google Settings:', error);
+                alert('Failed to save Google Settings');
+                return;
+            }
+
+            setGoogleSettings(data);
+            alert('Google Settings saved successfully!');
+        } catch (error) {
+            console.error('Error saving Google Settings:', error);
+            alert('Failed to save Google Settings');
+        } finally {
+            setIsSavingGoogleSettings(false);
+        }
+    };
+
     useEffect(() => {
         loadEventDetails();
+        loadGoogleSettings();
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [eventId]);
 
@@ -140,7 +202,7 @@ export default function EventDashboard() {
     if (loading) {
         return (
             <div className="flex flex-col items-center justify-center min-h-screen bg-background text-foreground font-manrope relative overflow-hidden animate-in fade-in">
-                <div 
+                <div
                     className="absolute inset-0 opacity-20 mix-blend-soft-light pointer-events-none z-0 dark:opacity-10"
                     style={{ backgroundImage: `url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.65' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)'/%3E%3C/svg%3E")` }}
                 ></div>
@@ -153,7 +215,7 @@ export default function EventDashboard() {
     if (!event || event.error) {
         return (
             <div className="flex flex-col items-center justify-center min-h-screen gap-6 bg-background font-manrope relative overflow-hidden animate-in fade-in">
-                <div 
+                <div
                     className="absolute inset-0 opacity-20 mix-blend-soft-light pointer-events-none z-0 dark:opacity-10"
                     style={{ backgroundImage: `url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.65' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)'/%3E%3C/svg%3E")` }}
                 ></div>
@@ -170,55 +232,62 @@ export default function EventDashboard() {
     }
 
     const modules = [
-    {
-      title: "Agenda Builder",
-      icon: <Calendar size={32} className="text-primary" />,
-      manageLink: `/event/${eventId}/agenda`,
-      previewLink: `/agenda/${eventId}`,
-      prefetchKey: 'agenda',
-      accent: "hsl(var(--primary))",
-    },
-    {
-      title: "Lists",
-      icon: <LayoutGrid size={32} className="text-emerald-600" />,
-      manageLink: `/event/${eventId}/lists`,
-      prefetchKey: 'lists',
-      accent: "#059669",
-    },
-    {
-      title: "Form Builder",
-      icon: <Inbox size={32} className="text-primary" />,
-      manageLink: `/event/${eventId}/forms`,
-      prefetchKey: 'forms',
-      accent: "hsl(var(--primary))",
-    },
-    {
-      title: "Mentor Booking",
-      icon: <Users size={32} className="text-purple-600" />,
-      manageLink: `/event/${eventId}/mentor-booking`,
-      prefetchKey: 'mentor-booking',
-      accent: "#9333ea",
-    },
-    {
-      title: "Selection Process",
-      icon: <ClipboardList size={32} className="text-primary" />,
-      manageLink: `/event/${eventId}/selection`,
-      prefetchKey: 'selection',
-      accent: "hsl(var(--primary))",
-    },
-    {
-      title: "Library",
-      icon: <BookOpen size={32} className="text-blue-600" />,
-      manageLink: `/event/${eventId}/library`,
-      prefetchKey: 'library',
-      accent: "#2563eb",
-    },
-  ];
+        {
+            title: "Agenda Builder",
+            icon: <Calendar size={32} className="text-primary" />,
+            manageLink: `/event/${eventId}/agenda`,
+            previewLink: `/agenda/${eventId}`,
+            prefetchKey: 'agenda',
+            accent: "hsl(var(--primary))",
+        },
+        {
+            title: "Lists",
+            icon: <LayoutGrid size={32} className="text-emerald-600" />,
+            manageLink: `/event/${eventId}/lists`,
+            prefetchKey: 'lists',
+            accent: "#059669",
+        },
+        {
+            title: "Form Builder",
+            icon: <Inbox size={32} className="text-primary" />,
+            manageLink: `/event/${eventId}/forms`,
+            prefetchKey: 'forms',
+            accent: "hsl(var(--primary))",
+        },
+        {
+            title: "Mentor Booking",
+            icon: <Users size={32} className="text-purple-600" />,
+            manageLink: `/event/${eventId}/mentor-booking`,
+            prefetchKey: 'mentor-booking',
+            accent: "#9333ea",
+        },
+        {
+            title: "Selection Process",
+            icon: <ClipboardList size={32} className="text-primary" />,
+            manageLink: `/event/${eventId}/selection`,
+            prefetchKey: 'selection',
+            accent: "hsl(var(--primary))",
+        },
+        {
+            title: "Library",
+            icon: <BookOpen size={32} className="text-blue-600" />,
+            manageLink: `/event/${eventId}/library`,
+            prefetchKey: 'library',
+            accent: "#2563eb",
+        },
+        {
+            title: "Mentoring Distribution",
+            icon: <Users2 size={32} className="text-orange-500" />,
+            manageLink: `/event/${eventId}/mentoring-distribution`,
+            prefetchKey: 'mentoringDistribution',
+            accent: "#f97316",
+        },
+    ];
 
     return (
         <div className="min-h-screen bg-background font-manrope text-foreground pb-24 relative overflow-hidden">
             {/* Background Grain & Glow */}
-            <div 
+            <div
                 className="absolute inset-0 z-0 pointer-events-none mix-blend-soft-light opacity-20 dark:opacity-10"
                 style={{ backgroundImage: `url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.65' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)'/%3E%3C/svg%3E")` }}
             ></div>
@@ -272,10 +341,10 @@ export default function EventDashboard() {
                             <div className="hidden sm:block">
                                 <ActiveUsers users={activeUsers} />
                             </div>
-                            
+
                             <div className="flex items-center gap-2 sm:gap-4 sm:border-l border-border sm:pl-6">
                                 <SyncButton eventId={eventId} onSyncComplete={() => window.location.reload()} />
-                                <button 
+                                <button
                                     onClick={() => {
                                         setNewDuplicateName(`${event.event_name} (Copy)`);
                                         setIsDuplicateModalOpen(true);
@@ -296,8 +365,8 @@ export default function EventDashboard() {
 
             {/* Public Access Hub - NEW SECTION (Solid Branding) */}
             <div className="bg-gradient-to-br from-athar-blue to-athar-black text-white py-10 relative z-30 animate-in fade-in slide-in-from-top-2">
-                <div 
-                    className="absolute inset-0 opacity-20 mix-blend-soft-light pointer-events-none" 
+                <div
+                    className="absolute inset-0 opacity-20 mix-blend-soft-light pointer-events-none"
                     style={{ backgroundImage: `url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.65' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)'/%3E%3C/svg%3E")` }}
                 />
                 <div className="max-w-[1600px] mx-auto px-4 sm:px-6 lg:px-8 relative">
@@ -309,16 +378,16 @@ export default function EventDashboard() {
                         <div className="flex flex-wrap gap-4 items-center">
                             {/* English Links Dropdown */}
                             <div className="relative">
-                                <button 
+                                <button
                                     onClick={() => setOpenDropdown(openDropdown === 'en' ? null : 'en')}
                                     className="px-4 py-3 bg-white/10 hover:bg-white/20 border border-white/20 text-white rounded-lg text-xs font-semibold uppercase tracking-wider backdrop-blur-md transition-all duration-300 flex items-center justify-center gap-2"
                                 >
                                     English Links <ChevronDown size={16} className={`transition-transform duration-300 ${openDropdown === 'en' ? 'rotate-180' : ''}`} />
                                 </button>
-                                
+
                                 {openDropdown === 'en' && (
                                     <div className="absolute top-full mt-2 left-0 sm:left-auto sm:right-0 w-56 bg-card border border-border rounded-xl shadow-2xl p-2 flex flex-col gap-1 z-[100]">
-                                        <button 
+                                        <button
                                             onClick={(e) => {
                                                 const link = `${window.location.origin}${window.location.pathname}?agenda=${eventId}&lang=en`;
                                                 navigator.clipboard.writeText(link);
@@ -331,7 +400,7 @@ export default function EventDashboard() {
                                         >
                                             <ClipboardList size={16} className="text-muted-foreground" /> Full Link
                                         </button>
-                                        <button 
+                                        <button
                                             onClick={(e) => {
                                                 const link = `${window.location.origin}${window.location.pathname}?agenda=${eventId}&lang=en&mode=agenda_experts`;
                                                 navigator.clipboard.writeText(link);
@@ -344,7 +413,7 @@ export default function EventDashboard() {
                                         >
                                             <ClipboardList size={16} className="text-muted-foreground" /> Agenda & Experts
                                         </button>
-                                        <button 
+                                        <button
                                             onClick={(e) => {
                                                 const link = `${window.location.origin}${window.location.pathname}?agenda=${eventId}&lang=en&mode=agenda_only`;
                                                 navigator.clipboard.writeText(link);
@@ -358,9 +427,9 @@ export default function EventDashboard() {
                                             <ClipboardList size={16} className="text-muted-foreground" /> Agenda Only
                                         </button>
                                         <div className="h-px bg-border my-1" />
-                                        <a 
-                                            href={`${window.location.origin}${window.location.pathname}?agenda=${eventId}&lang=en`} 
-                                            target="_blank" 
+                                        <a
+                                            href={`${window.location.origin}${window.location.pathname}?agenda=${eventId}&lang=en`}
+                                            target="_blank"
                                             className="px-3 py-2 text-sm font-bold text-athar-yellow hover:bg-secondary rounded-lg flex items-center gap-2 text-left transition-colors"
                                             onClick={() => setOpenDropdown(null)}
                                         >
@@ -373,16 +442,16 @@ export default function EventDashboard() {
 
                             {/* Arabic Links Dropdown */}
                             <div className="relative">
-                                <button 
+                                <button
                                     onClick={() => setOpenDropdown(openDropdown === 'ar' ? null : 'ar')}
                                     className="px-4 py-3 bg-white/10 hover:bg-white/20 border border-white/20 text-white rounded-lg text-xs font-semibold uppercase tracking-wider backdrop-blur-md transition-all duration-300 flex items-center justify-center gap-2 font-arabic"
                                 >
                                     الروابط العربية <ChevronDown size={16} className={`transition-transform duration-300 ${openDropdown === 'ar' ? 'rotate-180' : ''}`} />
                                 </button>
-                                
+
                                 {openDropdown === 'ar' && (
                                     <div className="absolute top-full mt-2 right-0 sm:right-0 sm:left-auto w-56 bg-card border border-border rounded-xl shadow-2xl p-2 flex flex-col gap-1 z-[100] font-arabic" dir="rtl">
-                                        <button 
+                                        <button
                                             onClick={(e) => {
                                                 const link = `${window.location.origin}${window.location.pathname}?agenda=${eventId}&lang=ar`;
                                                 navigator.clipboard.writeText(link);
@@ -395,7 +464,7 @@ export default function EventDashboard() {
                                         >
                                             <ClipboardList size={16} className="text-muted-foreground" /> المنصة كاملة
                                         </button>
-                                        <button 
+                                        <button
                                             onClick={(e) => {
                                                 const link = `${window.location.origin}${window.location.pathname}?agenda=${eventId}&lang=ar&mode=agenda_experts`;
                                                 navigator.clipboard.writeText(link);
@@ -408,7 +477,7 @@ export default function EventDashboard() {
                                         >
                                             <ClipboardList size={16} className="text-muted-foreground" /> الأجندة والخبراء
                                         </button>
-                                        <button 
+                                        <button
                                             onClick={(e) => {
                                                 const link = `${window.location.origin}${window.location.pathname}?agenda=${eventId}&lang=ar&mode=agenda_only`;
                                                 navigator.clipboard.writeText(link);
@@ -422,9 +491,9 @@ export default function EventDashboard() {
                                             <ClipboardList size={16} className="text-muted-foreground" /> الأجندة فقط
                                         </button>
                                         <div className="h-px bg-border my-1" />
-                                        <a 
-                                            href={`${window.location.origin}${window.location.pathname}?agenda=${eventId}&lang=ar`} 
-                                            target="_blank" 
+                                        <a
+                                            href={`${window.location.origin}${window.location.pathname}?agenda=${eventId}&lang=ar`}
+                                            target="_blank"
                                             className="px-3 py-2 text-sm font-bold text-athar-yellow hover:bg-secondary rounded-lg flex items-center gap-2 text-right transition-colors"
                                             onClick={() => setOpenDropdown(null)}
                                         >
@@ -443,7 +512,7 @@ export default function EventDashboard() {
                 {/* Cloud Sync Configuration */}
                 <div className="mb-12 bg-card rounded-xl border border-border overflow-hidden shadow-sm animate-in fade-in slide-in-from-bottom-8">
                     {/* Header - Clickable for mobile accordion */}
-                    <div 
+                    <div
                         className="p-6 md:p-8 relative group cursor-pointer md:cursor-default"
                         onClick={() => setIsSyncOpen(!isSyncOpen)}
                     >
@@ -538,6 +607,7 @@ export default function EventDashboard() {
                         </div>
                     </div>
                 </div>
+
 
                 <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-3 gap-4 sm:gap-6 md:gap-8 mb-16">
                     {modules.map((module, index) => (

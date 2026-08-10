@@ -1,11 +1,12 @@
 import { supabase } from './supabase';
+import { notifyGoogleAppsScript } from './api';
 
 // Fetch event details
 export const getEvent = async (eventId) => {
     const { data, error } = await supabase
         .from('events')
-        .select('name, admin_email')
-        .eq('id', eventId)
+        .select('event_name, admin_email, interview_admin_emails, interview_cc_emails')
+        .eq('event_id', eventId)
         .single();
     if (error) throw error;
     return data;
@@ -203,10 +204,16 @@ export const createBooking = async (bookingData) => {
     if (slotError) throw slotError;
     if (!slot.is_available) throw new Error('Slot is no longer available');
 
-    // Create booking
+    // Create booking with start_time, end_time, mentor_name, mentor_email
     const { data: booking, error: bookingError } = await supabase
         .from('bookings')
-        .insert([bookingData])
+        .insert([{
+            ...bookingData,
+            start_time: slot.start_time,
+            end_time: slot.end_time,
+            mentor_name: slot.mentors.name,
+            mentor_email: slot.mentors.email
+        }])
         .select();
     
     if (bookingError) throw bookingError;
@@ -214,31 +221,38 @@ export const createBooking = async (bookingData) => {
     // Mark slot as unavailable
     await updateSlot(bookingData.slot_id, { is_available: false });
 
-    // Fetch event details to get admin email and event name
+    // Notify Google Apps Script to process the booking
     try {
-        const event = await getEvent(bookingData.event_id);
-        
-        // Call Edge Function to send notifications
-        await supabase.functions.invoke('send-booking-notifications', {
-            body: {
-                booking_id: booking[0].id,
-                slot_id: bookingData.slot_id,
-                mentor_id: bookingData.mentor_id,
-                event_id: bookingData.event_id,
-                company_name: bookingData.company_name,
-                booker_email: bookingData.booker_email,
-                start_time: slot.start_time,
-                end_time: slot.end_time,
-                mentor_name: slot.mentors?.name,
-                mentor_email: slot.mentors?.email,
-                mentor_photo_url: slot.mentors?.photo_url,
-                event_name: event?.name,
-                admin_email: event?.admin_email
-            }
-        });
+      console.log('[Mentor Booking] Notifying Google Apps Script via Edge Function...');
+      
+      let result = null;
+      let retries = 3;
+      let lastError = null;
+      
+      while (retries > 0 && !result) {
+        try {
+          result = await notifyGoogleAppsScript(booking[0].id, false);
+          
+          if (result.success) {
+            console.log('[Mentor Booking] Google Apps Script notified successfully.');
+          } else {
+            console.error('[Mentor Booking] Google Apps Script returned error:', result.error);
+          }
+        } catch (notificationError) {
+          lastError = notificationError;
+          retries--;
+          console.error(`[Mentor Booking] Error (retries left: ${retries}):`, notificationError);
+          if (retries > 0) {
+            await new Promise(resolve => setTimeout(resolve, 1000));
+          }
+        }
+      }
+      
+      if (!result && lastError) {
+        console.error('[Mentor Booking] Final Error: Failed to notify Google Apps Script after retries:', lastError);
+      }
     } catch (notificationError) {
-        console.error('Failed to send booking notifications:', notificationError);
-        // Don't fail the booking just because notifications failed
+      console.error('[Mentor Booking] Failed to notify Google Apps Script:', notificationError);
     }
 
     return booking[0];
@@ -266,4 +280,244 @@ export const deleteBooking = async (id) => {
     await updateSlot(booking.slot_id, { is_available: true });
 
     return true;
+};
+
+// ------------------------------
+// Day-by-Day Schedule Config
+// ------------------------------
+
+export const getMentorDayConfigs = async (eventId) => {
+    const { data, error } = await supabase
+        .from('mentor_day_config')
+        .select('*')
+        .eq('event_id', eventId)
+        .order('day_number', { ascending: true });
+    if (error) throw error;
+    return data || [];
+};
+
+export const saveMentorDayConfig = async (config) => {
+    const { id, event_id, day_number, day_date, session_start_time, session_end_time, slot_duration_minutes, break_between_slots_minutes } = config;
+    const payload = {
+        event_id,
+        day_number,
+        day_date: day_date || null,
+        session_start_time,
+        session_end_time,
+        slot_duration_minutes,
+        break_between_slots_minutes: break_between_slots_minutes ?? 0,
+    };
+
+    const { data, error } = await supabase
+        .from('mentor_day_config')
+        .upsert(payload, { onConflict: 'event_id,day_number' })
+        .select()
+        .single();
+    if (error) throw error;
+    return data;
+};
+
+export const deleteMentorDayConfig = async (configId) => {
+    const { error } = await supabase
+        .from('mentor_day_config')
+        .delete()
+        .eq('id', configId);
+    if (error) throw error;
+    return true;
+};
+
+// ------------------------------
+// Bulk Slots + Generation Engine
+// ------------------------------
+
+export const bulkCreateMentorSlots = async (slots) => {
+    if (!slots || slots.length === 0) return [];
+    const { data, error } = await supabase
+        .from('mentor_slots')
+        .insert(slots)
+        .select();
+    if (error) throw error;
+    return data || [];
+};
+
+export const bulkDeleteMentorSlots = async (slotIds) => {
+    if (!slotIds || slotIds.length === 0) return true;
+    const { error } = await supabase
+        .from('mentor_slots')
+        .delete()
+        .in('id', slotIds);
+    if (error) throw error;
+    return true;
+};
+
+const parseTimeToMinutes = (timeStr) => {
+    if (!timeStr) return 0;
+    const parts = timeStr.split(':');
+    const h = parseInt(parts[0], 10) || 0;
+    const m = parseInt(parts[1], 10) || 0;
+    return h * 60 + m;
+};
+
+const minutesToTimeStr = (totalMinutes) => {
+    const h = Math.floor(totalMinutes / 60) % 24;
+    const m = totalMinutes % 60;
+    return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
+};
+
+const combineDateAndTime = (dateStr, timeStr) => {
+    const baseDate = new Date(dateStr + 'T00:00:00');
+    const [hh, mm] = timeStr.split(':').map(Number);
+    baseDate.setHours(hh, mm, 0, 0);
+    return baseDate;
+};
+
+export const calculateDaySlotTimes = (config) => {
+    const { session_start_time, session_end_time, slot_duration_minutes, break_between_slots_minutes = 0 } = config;
+
+    const startMin = parseTimeToMinutes(session_start_time);
+    const endMin = parseTimeToMinutes(session_end_time);
+
+    const slots = [];
+    if (endMin <= startMin || slot_duration_minutes <= 0) return slots;
+
+    let cursor = startMin;
+    while (cursor + slot_duration_minutes <= endMin) {
+        const slotStartMin = cursor;
+        const slotEndMin = cursor + slot_duration_minutes;
+        slots.push({
+            start_time: minutesToTimeStr(slotStartMin),
+            end_time: minutesToTimeStr(slotEndMin),
+            start_minutes: slotStartMin,
+            end_minutes: slotEndMin,
+        });
+        cursor = slotEndMin + break_between_slots_minutes;
+    }
+
+    const totalMinutes = Math.max(0, endMin - startMin);
+    return {
+        slotTimes: slots,
+        slotsCount: slots.length,
+        totalMinutes,
+        totalHours: (totalMinutes / 60).toFixed(1),
+    };
+};
+
+export const buildMentorSlotsPayload = ({ config, mentorIds, eventId, dayDate = null }) => {
+    if (!mentorIds || mentorIds.length === 0) return [];
+    const { slotTimes } = calculateDaySlotTimes(config);
+    const payload = [];
+
+    for (const mentorId of mentorIds) {
+        for (const slot of slotTimes) {
+            let startISO;
+            let endISO;
+            if (dayDate) {
+                startISO = combineDateAndTime(dayDate, slot.start_time).toISOString();
+                endISO = combineDateAndTime(dayDate, slot.end_time).toISOString();
+            } else {
+                const today = new Date().toISOString().slice(0, 10);
+                startISO = combineDateAndTime(today, slot.start_time).toISOString();
+                endISO = combineDateAndTime(today, slot.end_time).toISOString();
+            }
+            payload.push({
+                mentor_id: mentorId,
+                event_id: eventId,
+                start_time: startISO,
+                end_time: endISO,
+                is_available: true,
+            });
+        }
+    }
+    return payload;
+};
+
+export const detectMentorSlotConflicts = ({ existingSlots, newPayload, dayDate = null }) => {
+    const conflicts = [];
+    const existingByMentor = new Map();
+    for (const s of existingSlots || []) {
+        const mentorId = s.mentor_id;
+        if (!existingByMentor.has(mentorId)) existingByMentor.set(mentorId, []);
+        existingByMentor.get(mentorId).push(s);
+    }
+
+    for (const candidate of newPayload) {
+        const mentorSlots = existingByMentor.get(candidate.mentor_id) || [];
+        const candStart = new Date(candidate.start_time).getTime();
+        const candEnd = new Date(candidate.end_time).getTime();
+        for (const existing of mentorSlots) {
+            const exStart = new Date(existing.start_time).getTime();
+            const exEnd = new Date(existing.end_time).getTime();
+            if (candStart < exEnd && candEnd > exStart) {
+                conflicts.push({
+                    mentor_id: candidate.mentor_id,
+                    existing_slot_id: existing.id,
+                    existing_start_time: existing.start_time,
+                    existing_end_time: existing.end_time,
+                    new_start_time: candidate.start_time,
+                    new_end_time: candidate.end_time,
+                    has_booking: !!existing.bookings || !existing.is_available ? true : false,
+                });
+            }
+        }
+    }
+    return conflicts;
+};
+
+export const generateMentorSlotsForDay = async ({ config, mentorIds, eventId, dayDate = null, overwriteMode = 'skip' }) => {
+    const { slotTimes } = calculateDaySlotTimes(config);
+    if (slotTimes.length === 0) {
+        throw new Error('No slots could be calculated: check start time, end time, and slot duration.');
+    }
+    if (!mentorIds || mentorIds.length === 0) {
+        throw new Error('Please select at least one mentor before generating slots.');
+    }
+
+    const effectiveDate = dayDate || config.day_date;
+    const existing = await getSlots(eventId);
+    const payload = buildMentorSlotsPayload({ config, mentorIds, eventId, dayDate: effectiveDate });
+    const conflicts = detectMentorSlotConflicts({ existingSlots: existing, newPayload: payload, dayDate: effectiveDate });
+
+    let candidates = payload;
+
+    if (overwriteMode === 'skip') {
+        const conflictedSignatures = new Set(
+            conflicts.map(c => `${c.mentor_id}|${c.new_start_time}|${c.new_end_time}`)
+        );
+        candidates = payload.filter(p => {
+            const sig = `${p.mentor_id}|${p.start_time}|${p.end_time}`;
+            return !conflictedSignatures.has(sig);
+        });
+    } else if (overwriteMode === 'replace_all_for_day') {
+        const dayDateStart = effectiveDate ? new Date(effectiveDate + 'T00:00:00').getTime() : null;
+        const dayDateEnd = effectiveDate ? new Date(effectiveDate + 'T23:59:59').getTime() : null;
+        const slotIdsToDelete = [];
+        for (const s of existing) {
+            if (!mentorIds.includes(s.mentor_id)) continue;
+            if (dayDateStart != null) {
+                const t = new Date(s.start_time).getTime();
+                if (t < dayDateStart || t > dayDateEnd) continue;
+            }
+            slotIdsToDelete.push(s.id);
+        }
+        if (slotIdsToDelete.length > 0) {
+            await bulkDeleteMentorSlots(slotIdsToDelete);
+        }
+        candidates = payload;
+    } else if (overwriteMode === 'replace_if_conflict') {
+        const idsToDelete = conflicts.map(c => c.existing_slot_id);
+        const dedup = [...new Set(idsToDelete)];
+        if (dedup.length > 0) {
+            await bulkDeleteMentorSlots(dedup);
+        }
+    }
+
+    const created = candidates.length > 0 ? await bulkCreateMentorSlots(candidates) : [];
+
+    return {
+        created,
+        skipped: payload.length - candidates.length,
+        conflicts,
+        totalSlotsRequested: payload.length,
+        slotsPerMentor: slotTimes.length,
+    };
 };

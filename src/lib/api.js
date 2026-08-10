@@ -1,6 +1,28 @@
 import { supabase } from './supabase';
 import { fetchAndParseGoogleSheet, fetchAndParseGenericGoogleSheet } from './excel';
 
+// Notify via Edge Function to avoid CORS issues
+export const notifyGoogleAppsScript = async (bookingId, isAtherTeam) => {
+  try {
+    const { data, error } = await supabase.functions.invoke('process-booking', {
+      body: {
+        booking_id: bookingId,
+        is_ather_team: isAtherTeam
+      }
+    });
+
+    if (error) {
+      console.error('[notifyGoogleAppsScript] Error:', error);
+      throw error;
+    }
+
+    return data;
+  } catch (err) {
+    console.error('[notifyGoogleAppsScript] Failed to notify:', err);
+    throw err;
+  }
+};
+
 // ==========================================
 // CONFIG & BRANDING
 // ==========================================
@@ -1537,6 +1559,66 @@ export const submitToForm = async (formId, eventId, targetModule, formData) => {
     throw new Error(`Unknown target_module: ${targetModule}`);
 };
 
+export const extractPrimaryEmail = (additionalData) => {
+    if (!additionalData || typeof additionalData !== 'object') return null;
+
+    const columnOrder = additionalData._column_order;
+    
+    // 1. Try using column order to locate the email right after the founder's name
+    if (Array.isArray(columnOrder)) {
+        // Find index of founder name column
+        const founderNameIdx = columnOrder.findIndex((header) => {
+            const lower = header.toLowerCase();
+            return (lower.includes('full name') || lower.includes('الاسم بالكامل') || lower.includes('اسمك بالكامل')) &&
+                   !lower.includes('second') && !lower.includes('العضو الثاني');
+        });
+
+        if (founderNameIdx !== -1) {
+            // Find the first email column after the founder name column
+            for (let i = founderNameIdx + 1; i < columnOrder.length; i++) {
+                const header = columnOrder[i];
+                const lower = header.toLowerCase();
+                if ((lower.includes('email') || lower.includes('البريد الإلكتروني') || lower.includes('البريد الالكتروني')) &&
+                    !lower.includes('second') && !lower.includes('العضو الثاني')) {
+                    const val = additionalData[header];
+                    if (typeof val === 'string' && val.includes('@') && val.includes('.')) {
+                        const match = val.match(/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/);
+                        if (match) return match[0].trim();
+                    }
+                }
+            }
+        }
+    }
+
+    // 2. Fallback: Search all keys, prioritizing keys containing "email" or "البريد الإلكتروني" and ignoring "second member"
+    for (const [key, val] of Object.entries(additionalData)) {
+        const lowerKey = key.toLowerCase();
+        if (lowerKey.includes('second') || lowerKey.includes('العضو الثاني')) {
+            continue;
+        }
+        if (lowerKey.includes('email') || lowerKey.includes('البريد الإلكتروني') || lowerKey.includes('البريد الالكتروني') || lowerKey.includes('البريد')) {
+            if (typeof val === 'string' && val.includes('@') && val.includes('.')) {
+                const match = val.match(/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/);
+                if (match) return match[0].trim();
+            }
+        }
+    }
+
+    // 3. Last resort: Any email-like string in the object that is not a second member key
+    for (const [key, val] of Object.entries(additionalData)) {
+        const lowerKey = key.toLowerCase();
+        if (lowerKey.includes('second') || lowerKey.includes('العضو الثاني')) {
+            continue;
+        }
+        if (typeof val === 'string' && val.includes('@') && val.includes('.')) {
+            const match = val.match(/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/);
+            if (match) return match[0].trim();
+        }
+    }
+
+    return null;
+};
+
 /**
  * Syncs company submissions from a generic Google Sheet.
  */
@@ -1576,9 +1658,52 @@ export const syncSubmissionsFromSheet = async (eventId, url) => {
 
         if (fetchError) throw fetchError;
 
-        // 2. Identify incoming submissions
-        const incomingSubmissions = rows.map(row => {
-            const startup_name = findField(row, ['name', 'startup', 'company']) || 'Unknown Startup';
+        // 2. Helper to extract key fields for comparison from a submission database record
+        const getSubmissionKeys = (sub) => {
+            let email = sub.email || sub.contact_email;
+            let startupName = sub.startup_name;
+            let founderName = sub.founder_name || sub.startup_name;
+
+            if (sub.additional_data && typeof sub.additional_data === 'object') {
+                const extractedEmail = extractPrimaryEmail(sub.additional_data);
+                if (extractedEmail) email = extractedEmail;
+
+                for (const [key, val] of Object.entries(sub.additional_data)) {
+                    const lowerKey = key.toLowerCase();
+                    if ((lowerKey.includes('full name') || lowerKey.includes('اسمك بالكامل') || lowerKey.includes('founder name')) && typeof val === 'string' && val.trim()) {
+                        founderName = val.trim();
+                        break;
+                    }
+                }
+            }
+
+            return {
+                email: email ? email.toLowerCase().trim() : null,
+                startupName: startupName ? startupName.toLowerCase().trim() : null,
+                founderName: founderName ? founderName.toLowerCase().trim() : null
+            };
+        };
+
+        const existingKeysList = existingSubmissions.map(s => ({
+            id: s.submission_id,
+            keys: getSubmissionKeys(s)
+        }));
+
+        // 3. Process and diff incoming rows
+        const toInsert = [];
+
+        for (const row of rows) {
+            let startup_name = null;
+            const startupNameEntry = Object.entries(row).find(([key]) => 
+                key.toLowerCase().includes('startup name') || 
+                key.toLowerCase().includes('اسم الشركة')
+            );
+            if (startupNameEntry) {
+                startup_name = startupNameEntry[1];
+            } else {
+                startup_name = findField(row, ['startup', 'company', 'name']);
+            }
+            startup_name = startup_name || 'Unknown Startup';
             const industry = findField(row, ['industry', 'sector']) || null;
             const location = findField(row, ['location', 'city', 'governorate', 'address']) || null;
             const logo_url = findField(row, ['logo']) || null;
@@ -1588,30 +1713,48 @@ export const syncSubmissionsFromSheet = async (eventId, url) => {
                 _column_order: headers
             };
 
-            return {
-                event_id: eventId,
-                startup_name,
-                logo_url,
-                industry,
-                location,
-                additional_data: additionalData,
-                status: 'screening'
-            };
-        });
+            // Extract incoming email and founder name from sheet row using extractPrimaryEmail helper
+            const incomingEmail = extractPrimaryEmail(additionalData)?.toLowerCase() || null;
+            let incomingFounderName = null;
 
-        // 3. Diffing logic: Insert vs Delete
-        const existingNames = new Set(existingSubmissions.map(s => s.startup_name.toLowerCase().trim()));
-        const incomingNames = new Set(incomingSubmissions.map(s => s.startup_name.toLowerCase().trim()));
+            for (const [key, val] of Object.entries(row)) {
+                const lowerKey = key.toLowerCase();
+                if ((lowerKey.includes('full name') || lowerKey.includes('اسمك بالكامل') || lowerKey.includes('founder name')) && typeof val === 'string' && val.trim()) {
+                    incomingFounderName = val.trim().toLowerCase();
+                    break;
+                }
+            }
 
-        const toInsert = incomingSubmissions.filter(s =>
-            !existingNames.has(s.startup_name.toLowerCase().trim())
-        );
+            const incomingStartupName = startup_name.toLowerCase().trim();
 
-        const toDeleteIds = existingSubmissions
-            .filter(s => !incomingNames.has(s.startup_name.toLowerCase().trim()))
-            .map(s => s.submission_id);
+            // Match against existing records in database to check for duplication
+            const isDuplicate = existingKeysList.some(existing => {
+                if (incomingEmail && existing.keys.email && incomingEmail === existing.keys.email) {
+                    return true;
+                }
+                if (incomingStartupName && existing.keys.startupName && incomingStartupName === existing.keys.startupName) {
+                    return true;
+                }
+                if (incomingFounderName && existing.keys.founderName && incomingFounderName === existing.keys.founderName) {
+                    return true;
+                }
+                return false;
+            });
 
-        let results = { success: true, count: incomingSubmissions.length, inserted: 0, deleted: 0 };
+            if (!isDuplicate) {
+                toInsert.push({
+                    event_id: eventId,
+                    startup_name,
+                    logo_url,
+                    industry,
+                    location,
+                    additional_data: additionalData,
+                    status: 'screening'
+                });
+            }
+        }
+
+        let results = { success: true, count: rows.length, inserted: 0, deleted: 0 };
 
         // 4. Execute Insertion
         if (toInsert.length > 0) {
@@ -1621,19 +1764,6 @@ export const syncSubmissionsFromSheet = async (eventId, url) => {
             if (insertError) throw insertError;
             results.inserted = toInsert.length;
         }
-
-        // 5. Execute Deletion
-        if (toDeleteIds.length > 0) {
-            const { error: deleteError } = await supabase
-                .from('company_submissions')
-                .delete()
-                .in('submission_id', toDeleteIds);
-            if (deleteError) throw deleteError;
-            results.deleted = toDeleteIds.length;
-        }
-
-        // 6. Execute Updates for existing (optional, but keeps data fresh)
-        // For simplicity, we mostly care about add/remove per user request
 
         return results;
     } catch (error) {
@@ -1712,16 +1842,103 @@ export const updateSlotsOrder = async (slots) => {
 
 export const bulkUpdateExperts = async (updates) => {
     console.log('[Supabase] Bulk updating experts sort order:', updates.length);
-    const { error } = await supabase
-        .from('experts')
-        .upsert(updates, { onConflict: 'expert_id' });
-    if (error) throw error;
+    const sanitizedUpdates = updates
+        .map(({ expert_id, id, sort_order }) => ({
+            expert_id: expert_id || id,
+            sort_order
+        }))
+        .filter(update => update.expert_id);
+
+    if (sanitizedUpdates.length !== updates.length) {
+        throw new Error('Some experts are missing expert_id, so sort order could not be saved.');
+    }
+
+    const results = await Promise.all(
+        sanitizedUpdates.map(({ expert_id, sort_order }) =>
+            supabase
+                .from('experts')
+                .update({ sort_order })
+                .eq('expert_id', expert_id)
+        )
+    );
+
+    const failedResult = results.find(result => result.error);
+    if (failedResult?.error) throw failedResult.error;
 };
 
 export const bulkUpdateCompanies = async (updates) => {
     console.log('[Supabase] Bulk updating companies sort order:', updates.length);
+    const sanitizedUpdates = updates.map(({ company_id, id, sort_order }) => ({
+        company_id: company_id || id,
+        sort_order
+    }));
+
     const { error } = await supabase
         .from('companies')
-        .upsert(updates, { onConflict: 'company_id' });
+        .upsert(sanitizedUpdates, { onConflict: 'company_id' });
     if (error) throw error;
+};
+
+// ==========================================
+// PROGRAMS (Hierarchical container for events)
+// ==========================================
+
+export const getPrograms = () => withCache('programs', async () => {
+    console.log('[Supabase] Fetching all programs');
+    const { data, error } = await supabase
+        .from('programs')
+        .select('*')
+        .order('created_at', { ascending: true });
+    if (error) {
+        console.error('[Supabase Error] getPrograms:', error);
+        throw error;
+    }
+    return data || [];
+});
+
+export const createProgram = async (name, description = '') => {
+    console.log('[Supabase] Creating program:', name);
+    const { data, error } = await supabase
+        .from('programs')
+        .insert({ name: name.trim(), description })
+        .select()
+        .single();
+    if (error) {
+        console.error('[Supabase Error] createProgram:', error);
+        throw error;
+    }
+    return data;
+};
+
+export const updateProgram = async (programId, updates) => {
+    const { data, error } = await supabase
+        .from('programs')
+        .update(updates)
+        .eq('program_id', programId)
+        .select()
+        .single();
+    if (error) throw error;
+    return data;
+};
+
+export const deleteProgram = async (programId) => {
+    // Events with this program_id will have program_id set to NULL (ON DELETE SET NULL)
+    const { error } = await supabase
+        .from('programs')
+        .delete()
+        .eq('program_id', programId);
+    if (error) throw error;
+    return { success: true };
+};
+
+export const assignEventToProgram = async (eventId, programId) => {
+    // programId can be null to unassign
+    const { data, error } = await supabase
+        .from('events')
+        .update({ program_id: programId })
+        .eq('event_id', eventId)
+        .select()
+        .single();
+    if (error) throw error;
+    return data;
 };

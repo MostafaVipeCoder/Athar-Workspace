@@ -27,6 +27,11 @@ const LibraryViewer = lazy(() => import('./components/LibraryViewer'));
 const MentorBookingAdmin = lazy(() => import('./components/MentorBookingAdmin'));
 const MentorBookingPage = lazy(() => import('./components/MentorBookingPage'));
 const MentorDetails = lazy(() => import('./components/MentorDetails'));
+const AtherTeamBookingAdmin = lazy(() => import('./components/AtherTeamBookingAdmin'));
+const AtherTeamBookingPage = lazy(() => import('./components/AtherTeamBookingPage'));
+const MentoringDistributionAdmin = lazy(() => import('./components/MentoringDistributionAdmin'));
+const MentoringLiveView = lazy(() => import('./components/MentoringLiveView'));
+const MentoringMatrixView = lazy(() => import('./components/MentoringMatrixView'));
 
 // ─── Prefetch helpers (call on hover to warm up JS chunks) ──────────────────
 // Each function triggers a dynamic import which caches the chunk immediately.
@@ -204,6 +209,23 @@ function App() {
               </ProtectedRoute>
             } />
             <Route path="/book/:mentorId" element={<MentorBookingPage />} />
+
+            {/* Ather Team Booking Routes */}
+            <Route path="/event/:eventId/ather-team-booking" element={
+              <ProtectedRoute>
+                <AtherTeamBookingAdmin />
+              </ProtectedRoute>
+            } />
+            <Route path="/ather-team-book/:memberId" element={<AtherTeamBookingPage />} />
+
+            {/* Mentoring Distribution Routes */}
+            <Route path="/event/:eventId/mentoring-distribution" element={
+              <ProtectedRoute>
+                <MentoringDistributionAdmin />
+              </ProtectedRoute>
+            } />
+            <Route path="/view/:eventId/mentoring/live" element={<MentoringLiveView />} />
+            <Route path="/view/:eventId/mentoring/matrix" element={<MentoringMatrixView />} />
           </Routes>
         </Suspense>
       </Router>

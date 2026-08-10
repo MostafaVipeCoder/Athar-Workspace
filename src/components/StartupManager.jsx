@@ -290,7 +290,7 @@ const StartupManager = ({ isEmbedded = false }) => {
 
             try {
                 const updates = newCompanies.map((c, index) => ({
-                    ...c,
+                    company_id: c.company_id || c.id,
                     sort_order: index + 1
                 }));
                 await bulkUpdateCompanies(updates);
@@ -707,7 +707,7 @@ const StartupManager = ({ isEmbedded = false }) => {
                             }}
                             className="absolute top-4 right-4 sm:top-8 sm:right-8 p-2 bg-slate-50 hover:bg-rose-50 rounded-xl text-slate-400 hover:text-rose-500 transition-all z-10"
                         >
-                            <X size={20} />
+                            <CloseIcon size={20} />
                         </button>
 
                         <div className="mb-6 sm:mb-10">

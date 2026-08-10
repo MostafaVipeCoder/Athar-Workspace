@@ -13,6 +13,7 @@ export default function MentorBookingPage() {
   const [selectedSlot, setSelectedSlot] = useState(null);
   const [showForm, setShowForm] = useState(false);
   const [bookingSuccess, setBookingSuccess] = useState(false);
+  const [bookingLoading, setBookingLoading] = useState(false);
   const [formData, setFormData] = useState({ company_name: '', booker_email: '' });
 
   useEffect(() => {
@@ -40,6 +41,7 @@ export default function MentorBookingPage() {
 
   const handleSubmitBooking = async (e) => {
     e.preventDefault();
+    setBookingLoading(true);
     try {
       await createBooking({
         slot_id: selectedSlot.id,
@@ -50,6 +52,8 @@ export default function MentorBookingPage() {
       setBookingSuccess(true);
     } catch (error) {
       alert('Booking failed: ' + error.message);
+    } finally {
+      setBookingLoading(false);
     }
   };
 
@@ -187,9 +191,17 @@ export default function MentorBookingPage() {
 
               <button
                 type="submit"
-                className="w-full bg-blue-600 text-white font-bold py-4 rounded-xl hover:bg-blue-700 transition-colors"
+                disabled={bookingLoading}
+                className="w-full bg-blue-600 text-white font-bold py-4 rounded-xl hover:bg-blue-700 transition-colors disabled:opacity-70 disabled:cursor-not-allowed flex items-center justify-center gap-2"
               >
-                Confirm Booking
+                {bookingLoading ? (
+                  <>
+                    <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                    جاري تاكيد الحجز...
+                  </>
+                ) : (
+                  'Confirm Booking'
+                )}
               </button>
             </form>
           </div>
@@ -231,7 +243,7 @@ export default function MentorBookingPage() {
             </div>
           ) : (
             <div className="space-y-8">
-              {Object.keys(groupedSlots).sort().map((dateKey) => (
+              {Object.keys(groupedSlots).sort((a, b) => new Date(a) - new Date(b)).map((dateKey) => (
                 <div key={dateKey}>
                   <h3 className="text-lg font-bold text-gray-800 mb-4 flex items-center gap-2">
                     <Calendar size={20} />

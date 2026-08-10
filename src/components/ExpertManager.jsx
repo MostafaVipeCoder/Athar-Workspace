@@ -6,7 +6,8 @@ import SyncButton from './SyncButton';
 import { 
     getExperts, createExpert, updateExpert, deleteExpert, 
     uploadImage, getSubmissions, approveSubmission, rejectSubmission,
-    bulkUpdateExperts, getFormConfig, saveFormConfig, getMasterExperts
+    bulkUpdateExperts, getFormConfig, saveFormConfig, getMasterExperts,
+    getEvent, updateEvent
 } from '../lib/api';
 import { getGoogleDriveFallbackUrls } from '../lib/utils';
 import LazyImage from './LazyImage';
@@ -54,6 +55,12 @@ const ExpertManager = ({ isEmbedded = false }) => {
     const [libraryLoading, setLibraryLoading] = useState(false);
     const [isSearchExpanded, _setIsSearchExpanded] = useState(false);
 
+    // Event custom settings states
+    const [event, setEvent] = useState(null);
+    const [tempLabel, setTempLabel] = useState('');
+    const [tempLabelAr, setTempLabelAr] = useState('');
+    const [tempHideTitle, setTempHideTitle] = useState(false);
+
     // Form State
     const [formData, setFormData] = useState({
         name: '',
@@ -90,9 +97,10 @@ const ExpertManager = ({ isEmbedded = false }) => {
     const loadData = async () => {
         try {
             setLoading(true);
-            const [expertsData, configData] = await Promise.all([
+            const [expertsData, configData, eventData] = await Promise.all([
                 activeTab === 'curated' ? getExperts(eventId) : getSubmissions(eventId, 'expert', 'pending'),
-                getFormConfig(eventId, 'expert')
+                getFormConfig(eventId, 'expert'),
+                getEvent(eventId)
             ]);
             
             if (activeTab === 'curated') {
@@ -101,6 +109,7 @@ const ExpertManager = ({ isEmbedded = false }) => {
                 setSubmissions(expertsData || []);
             }
             setFormConfig(configData || []);
+            setEvent(eventData);
             setError(null);
         } catch (err) {
             console.error('Error loading data:', err);
@@ -114,6 +123,16 @@ const ExpertManager = ({ isEmbedded = false }) => {
         loadData();
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [eventId, activeTab]);
+
+    // Initialize custom event settings when settings modal opens
+    useEffect(() => {
+        if (showSettingsModal && event) {
+            const hs = event.header_settings || {};
+            setTempLabel(hs.customExpertsLabel || '');
+            setTempLabelAr(hs.customExpertsLabelAr || '');
+            setTempHideTitle(!!hs.hideExpertListTitle);
+        }
+    }, [showSettingsModal, event]);
 
     const handleEdit = (expert) => {
         setEditingExpert(expert);
@@ -304,7 +323,7 @@ const ExpertManager = ({ isEmbedded = false }) => {
 
         // Persist to database
         const updates = newExperts.map((expert, index) => ({
-            ...expert,
+            expert_id: expert.expert_id || expert.id,
             sort_order: index + 1
         }));
 
@@ -495,10 +514,57 @@ const ExpertManager = ({ isEmbedded = false }) => {
                                         </div>
                                     </div>
                                 ))}
+                                
+                                {/* Custom Tab & Title settings */}
+                                <div className="space-y-4 pt-6 border-t border-slate-100 mt-6">
+                                    <h3 className="text-xs font-black text-slate-400 uppercase tracking-widest ml-1">Tab & Header Customization</h3>
+                                    
+                                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                                        <div className="space-y-2">
+                                            <label className="block text-xs font-black text-slate-400 uppercase tracking-widest ml-1">Custom Tab Name (EN)</label>
+                                            <input
+                                                type="text"
+                                                value={tempLabel}
+                                                onChange={(e) => setTempLabel(e.target.value)}
+                                                placeholder="e.g. Experts, Speakers, Mentors"
+                                                className="w-full px-5 py-3.5 bg-slate-50 border border-slate-200 rounded-2xl focus:outline-none focus:ring-2 focus:ring-[#1a27c9] focus:bg-white transition-premium font-bold text-slate-700 text-sm"
+                                            />
+                                        </div>
+                                        <div className="space-y-2">
+                                            <label className="block text-xs font-black text-slate-400 uppercase tracking-widest ml-1 text-right">الاسم المخصص للتبويب (AR)</label>
+                                            <input
+                                                type="text"
+                                                value={tempLabelAr}
+                                                onChange={(e) => setTempLabelAr(e.target.value)}
+                                                placeholder="مثال: الخبراء، المتحدثين، الموجهين"
+                                                dir="rtl"
+                                                className="w-full px-5 py-3.5 bg-slate-50 border border-slate-200 rounded-2xl focus:outline-none focus:ring-2 focus:ring-[#1a27c9] focus:bg-white transition-premium font-bold text-slate-700 text-sm text-right"
+                                            />
+                                        </div>
+                                    </div>
+
+                                    <div className="flex items-center justify-between p-6 bg-slate-50 rounded-3xl border border-slate-100 group hover:border-[#1a27c9]/30 transition-all mt-4">
+                                        <div className="flex items-center gap-4">
+                                            <div className="w-12 h-12 bg-white rounded-2xl border border-slate-100 flex items-center justify-center text-slate-400 group-hover:text-[#1a27c9] transition-colors">
+                                                <Eye size={20} />
+                                            </div>
+                                            <div>
+                                                <h4 className="font-bold text-[#0d0e0e]">Hide 'EXPERT LIST' Header</h4>
+                                                <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Do not display the section title header on the public view</p>
+                                            </div>
+                                        </div>
+                                        <button
+                                            onClick={() => setTempHideTitle(!tempHideTitle)}
+                                            className={`w-12 h-6 rounded-full transition-all relative ${tempHideTitle ? 'bg-[#1a27c9]' : 'bg-slate-200'}`}
+                                        >
+                                            <div className={`absolute top-1 w-4 h-4 bg-white rounded-full transition-all ${tempHideTitle ? 'right-1' : 'left-1'}`} />
+                                        </button>
+                                    </div>
+                                </div>
                             </div>
                         </div>
 
-                        <div className="p-8 border-t border-slate-100 bg-slate-50/50 flex items-center justify-end gap-4">
+                        <div className="p-8 border-t border-slate-100 bg-slate-50/50 flex items-center justify-end gap-4 font-manrope">
                             <button
                                 onClick={() => setShowSettingsModal(false)}
                                 className="px-6 py-3 text-[10px] font-black uppercase tracking-widest text-slate-400 hover:text-slate-600 transition-all font-manrope"
@@ -509,7 +575,19 @@ const ExpertManager = ({ isEmbedded = false }) => {
                                 onClick={async () => {
                                     try {
                                         setSettingsSaving(true);
+                                        // Save form configuration
                                         await saveFormConfig(eventId, 'expert', formConfig);
+                                        
+                                        // Save custom event settings
+                                        const updatedHeaderSettings = {
+                                            ...(event?.header_settings || {}),
+                                            customExpertsLabel: tempLabel.trim(),
+                                            customExpertsLabelAr: tempLabelAr.trim(),
+                                            hideExpertListTitle: tempHideTitle,
+                                        };
+                                        const updatedEvent = await updateEvent(eventId, { header_settings: updatedHeaderSettings });
+                                        setEvent(updatedEvent);
+
                                         alert('Card settings synchronized! 🚀');
                                         setShowSettingsModal(false);
                                     } catch (err) {

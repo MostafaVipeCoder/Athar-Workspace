@@ -343,14 +343,25 @@ export const fetchAndParseGenericGoogleSheet = async (url) => {
     const spreadsheetId = match[1];
 
     const exportUrl = `https://docs.google.com/spreadsheets/d/${spreadsheetId}/export?format=xlsx`;
-    const response = await fetch(exportUrl);
+    
+    try {
+        const response = await fetch(exportUrl);
 
-    if (!response.ok) throw new Error('Failed to fetch Google Sheet.');
+        if (!response.ok) {
+            throw new Error('Failed to fetch Google Sheet. Please check if the spreadsheet is private.');
+        }
 
-    const buffer = await response.arrayBuffer();
-    const workbook = XLSX.read(buffer, { type: 'array' });
+        const buffer = await response.arrayBuffer();
+        const workbook = XLSX.read(buffer, { type: 'array' });
 
-    return parseGenericWorkbook(workbook);
+        return parseGenericWorkbook(workbook);
+    } catch (err) {
+        console.error('Google Sheet fetch error:', err);
+        if (err instanceof TypeError || err.message?.includes('Failed to fetch')) {
+            throw new Error('فشل جلب ملف Google Sheet. الرابط غير متاح للعامة أو مغلق. يرجى التأكد من تغيير إعدادات المشاركة في جوجل شيت إلى "أي شخص لديه الرابط يمكنه العرض" (Anyone with the link can view).');
+        }
+        throw err;
+    }
 };
 
 /**

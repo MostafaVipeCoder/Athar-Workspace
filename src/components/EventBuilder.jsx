@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { ArrowLeft, Plus, Trash2, Upload, Calendar, Clock, User, Save, ExternalLink, Edit2, UserCheck, UserX, Copy, Check, FileSpreadsheet, Download, UploadCloud, Loader2, AlertTriangle, AlertCircle, X, List, GripVertical, Settings } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import {
@@ -185,6 +185,39 @@ export default function EventBuilder({ event, onBack }) {
         const minutes = (i % 2 === 0 ? '00' : '30');
         return `${hours}:${minutes}`;
     });
+
+    // ─── AM/PM Time helpers ───────────────────────────────────────────────────
+    // Convert 24h "HH:MM" → { display: "H:MM", period: "AM"|"PM" }
+    function to12h(time24) {
+        if (!time24 || !time24.includes(':')) return { display: '', period: 'AM' };
+        let [h, m] = time24.split(':').map(Number);
+        const period = h >= 12 ? 'PM' : 'AM';
+        if (h === 0) h = 12;
+        else if (h > 12) h -= 12;
+        return { display: `${h}:${String(m).padStart(2, '0')}`, period };
+    }
+    // Convert 12h input + period → "HH:MM" (24h)
+    function to24h(display, period) {
+        if (!display || !display.includes(':')) return '';
+        let [h, m] = display.split(':').map(Number);
+        if (isNaN(h) || isNaN(m)) return '';
+        if (period === 'AM') { if (h === 12) h = 0; }
+        else { if (h !== 12) h += 12; }
+        return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
+    }
+
+    // Native time input — browser handles AM/PM display + arrow spinners
+    function TimeAmPmInput({ value, onChange, id }) {
+        return (
+            <input
+                id={id}
+                type="time"
+                value={value || ''}
+                onChange={(e) => onChange(e.target.value)}
+                className="w-full px-5 py-4 bg-slate-50 border border-slate-200 rounded-2xl focus:outline-none focus:ring-2 focus:ring-[#1a27c9] focus:bg-white transition-premium font-bold text-slate-700 text-lg tracking-wide cursor-pointer"
+            />
+        );
+    }
 
     // Form states
     const [newDayName, setNewDayName] = useState('');
@@ -1857,27 +1890,19 @@ export default function EventBuilder({ event, onBack }) {
                                 <div className="grid grid-cols-1 xs:grid-cols-2 gap-4 sm:gap-6">
                                     <div className="space-y-2">
                                         <label className="block text-xs font-black text-slate-400 uppercase tracking-widest ml-1">Start Time</label>
-                                        <select
+                                        <TimeAmPmInput
+                                            id="slot-start-time"
                                             value={slotModal.startTime}
-                                            onChange={(e) => setSlotModal({ ...slotModal, startTime: e.target.value })}
-                                            className="w-full px-5 py-4 bg-slate-50 border border-slate-200 rounded-2xl focus:outline-none focus:ring-2 focus:ring-[#1a27c9] transition-premium font-bold text-slate-700 appearance-none cursor-pointer"
-                                        >
-                                            {TIME_OPTIONS.map(time => (
-                                                <option key={time} value={time}>{time}</option>
-                                            ))}
-                                        </select>
+                                            onChange={(v) => setSlotModal({ ...slotModal, startTime: v })}
+                                        />
                                     </div>
                                     <div className="space-y-2">
                                         <label className="block text-xs font-black text-slate-400 uppercase tracking-widest ml-1">End Time</label>
-                                        <select
+                                        <TimeAmPmInput
+                                            id="slot-end-time"
                                             value={slotModal.endTime}
-                                            onChange={(e) => setSlotModal({ ...slotModal, endTime: e.target.value })}
-                                            className="w-full px-5 py-4 bg-slate-50 border border-slate-200 rounded-2xl focus:outline-none focus:ring-2 focus:ring-[#1a27c9] transition-premium font-bold text-slate-700 appearance-none cursor-pointer"
-                                        >
-                                            {TIME_OPTIONS.map(time => (
-                                                <option key={time} value={time}>{time}</option>
-                                            ))}
-                                        </select>
+                                            onChange={(v) => setSlotModal({ ...slotModal, endTime: v })}
+                                        />
                                     </div>
                                 </div>
                                 <div className="space-y-4">

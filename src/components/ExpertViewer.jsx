@@ -97,25 +97,45 @@ export default function ExpertViewer() {
             }}
         >
 
-            <div className={`mx-auto px-6 pt-8 relative z-10 transition-all duration-700 ${viewMode === 'list' ? 'max-w-7xl' : 'max-w-7xl'}`}>
-                {/* Enterprise Header */}
-                <div className="mb-2 text-center relative group">
-                    <div className="flex flex-col items-center">
-                        <h1 className={`text-3xl md:text-5xl font-black text-[#0d0e0e] tracking-tighter mb-1 leading-none ${!isRtl ? 'uppercase' : ''}`}>
-                            {t.experts} <span className="text-[#1a27c9]">{t.list}</span>
-                        </h1>
-                        <p className="text-slate-400 text-lg md:text-xl font-medium max-w-2xl leading-relaxed">
-                            {isRtl && event?.event_name_ar ? event.event_name_ar : event?.event_name}
-                        </p>
+            {(() => {
+                const hideTitle = event?.header_settings?.hideExpertListTitle || experts.length === 1;
+                const customTitle = isRtl 
+                    ? event?.header_settings?.customExpertsLabelAr 
+                    : event?.header_settings?.customExpertsLabel;
+                
+                return (
+                    <div className="mx-auto px-6 pt-8 relative z-10 max-w-7xl">
+                        {!hideTitle && (
+                            <div className="mb-2 text-center relative group">
+                                <div className="flex flex-col items-center">
+                                    {customTitle ? (
+                                        <h1 className={`text-3xl md:text-5xl font-black text-[#0d0e0e] tracking-tighter mb-1 leading-none ${!isRtl ? 'uppercase' : ''}`}>
+                                            {customTitle}
+                                        </h1>
+                                    ) : (
+                                        <h1 className={`text-3xl md:text-5xl font-black text-[#0d0e0e] tracking-tighter mb-1 leading-none ${!isRtl ? 'uppercase' : ''}`}>
+                                            {t.experts} <span className="text-[#1a27c9]">{t.list}</span>
+                                        </h1>
+                                    )}
+                                    <p className="text-slate-400 text-lg md:text-xl font-medium max-w-2xl leading-relaxed">
+                                        {isRtl && event?.event_name_ar ? event.event_name_ar : event?.event_name}
+                                    </p>
+                                </div>
+                            </div>
+                        )}
+                        {hideTitle && <div className="mt-8" />}
                     </div>
-                </div>
-            </div>
+                );
+            })()}
 
-            <div className={`mx-auto px-6 relative z-10 transition-all duration-700 ${viewMode === 'list' ? 'max-w-7xl' : 'max-w-7xl'}`}>
+            <div className="mx-auto px-6 relative z-10 transition-all duration-700 max-w-7xl">
                 {/* Grid Layout - Dynamic spacing based on viewMode */}
-                <div className={`grid gap-12 transition-all duration-700 ${viewMode === 'list'
-                    ? 'grid-cols-1 max-w-6xl mx-auto'
-                    : 'grid-cols-1 md:grid-cols-2'
+                <div className={`grid gap-12 transition-all duration-700 ${
+                    experts.length === 1
+                        ? 'grid-cols-1 max-w-xl mx-auto justify-center'
+                        : viewMode === 'list'
+                            ? 'grid-cols-1 max-w-6xl mx-auto'
+                            : 'grid-cols-1 md:grid-cols-2'
                     }`}>
                     {experts.map((expert, index) => (
                         <ExpertCard
@@ -126,6 +146,7 @@ export default function ExpertViewer() {
                             viewMode={viewMode}
                             previewMode={true}
                             priority={index < 2}
+                            forceExpanded={experts.length === 1}
                         />
                     ))}
                 </div>

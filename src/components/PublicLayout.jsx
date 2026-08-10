@@ -1,7 +1,8 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { NavLink, Outlet, useParams, useSearchParams } from 'react-router-dom';
 import { Calendar, Users, Briefcase, BookOpen } from 'lucide-react';
 import { translations } from '../lib/translations';
+import { getEvent } from '../lib/api';
 
 export default function PublicLayout() {
     const { eventId } = useParams();
@@ -10,16 +11,34 @@ export default function PublicLayout() {
     const lang = searchParams.get('lang') === 'ar' ? 'ar' : 'en';
     const isRtl = lang === 'ar';
 
-    
+    const [event, setEvent] = useState(null);
+
+    useEffect(() => {
+        const loadEvent = async () => {
+            try {
+                const data = await getEvent(eventId);
+                setEvent(data);
+            } catch (err) {
+                console.error('Error loading event in PublicLayout:', err);
+            }
+        };
+        if (eventId) {
+            loadEvent();
+        }
+    }, [eventId]);
 
     const t = translations.PublicLayout[lang];
     const queryStr = searchParams.toString() ? `?${searchParams.toString()}` : '';
     const isAgendaOnly = searchParams.get('mode') === 'agenda_only';
     const isAgendaExperts = searchParams.get('mode') === 'agenda_experts';
 
+    const customExpertsLabel = lang === 'ar'
+        ? event?.header_settings?.customExpertsLabelAr
+        : event?.header_settings?.customExpertsLabel;
+
     const allNavItems = [
         { id: 'agenda', path: `/agenda/${eventId}${queryStr}`, label: t.agenda, icon: <Calendar size={20} /> },
-        { id: 'experts', path: `/view/${eventId}/experts${queryStr}`, label: t.experts, icon: <Users size={20} /> },
+        { id: 'experts', path: `/view/${eventId}/experts${queryStr}`, label: customExpertsLabel || t.experts, icon: <Users size={20} /> },
         { id: 'companies', path: `/view/${eventId}/startups${queryStr}`, label: t.companies, icon: <Briefcase size={20} /> },
         { id: 'library', path: `/view/${eventId}/library${queryStr}`, label: t.library, icon: <BookOpen size={20} /> },
     ];

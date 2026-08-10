@@ -7,7 +7,7 @@ export default defineConfig({
   base: './',
   server: {
     host: '127.0.0.1',
-    port: 3000,
+    port: Number(process.env.PORT) || 8080,
     strictPort: false,
   },
   build: {

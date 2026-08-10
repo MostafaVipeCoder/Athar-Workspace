@@ -65,6 +65,8 @@ export const extractGoogleDriveId = (url) => {
     const patterns = [
         /\/file\/d\/([-\w]{25,})/,
         /\/d\/([-\w]{25,})/,
+        /googleusercontent\.com\/d\/([-\w]{25,})/,
+        /drive\.usercontent\.google\.com\/download.*[?&]id=([-\w]{25,})/,
         /[?&]id=([-\w]{25,})/,
         /uc\?id=([-\w]{25,})/,
         /open\?id=([-\w]{25,})/,
@@ -77,7 +79,12 @@ export const extractGoogleDriveId = (url) => {
     }
 
     // Try a more aggressive search for anything looking like a Drive ID if it's a Drive URL
-    if (url.includes('drive.google.com') || url.includes('docs.google.com')) {
+    if (
+        url.includes('drive.google.com') ||
+        url.includes('docs.google.com') ||
+        url.includes('googleusercontent.com') ||
+        url.includes('drive.usercontent.google.com')
+    ) {
         const parts = url.split(/[/?&=]/);
         const likelyId = parts.find(part => part.match(/^[-\w]{25,50}$/));
         if (likelyId) return likelyId;
@@ -93,28 +100,31 @@ export const extractGoogleDriveId = (url) => {
 export const getGoogleDriveFallbackUrls = (url) => {
     if (!url) return [];
     
-    // If it's already a Supabase URL or similar direct URL, just return it
-    if (!url.includes('drive.google.com') && !url.includes('docs.google.com') && !url.match(/^[-\w]{25,50}$/)) {
+    const isGoogleDriveLikeUrl =
+        url.includes('drive.google.com') ||
+        url.includes('docs.google.com') ||
+        url.includes('googleusercontent.com') ||
+        url.includes('drive.usercontent.google.com') ||
+        url.match(/^[-\w]{25,50}$/);
+
+    // If it's already a non-Google direct URL, just return it
+    if (!isGoogleDriveLikeUrl) {
         return [url];
     }
 
     const id = extractGoogleDriveId(url);
     if (!id) return [url];
 
-    // Priority order: 
-    // 1. lh3.googleusercontent.com (Google CDN) - fastest and most reliable, supports =sNNN
-    // 2. thumbnail (Good fallback, proxy-based)
-    // 3. uc (Direct link - restricted but good final try)
+    // Priority order (trimmed to 4 best — reduces network spam for restricted files):
+    // 1. lh3 CDN at 400px — fastest, no consent page for shared files
+    // 2. lh3 CDN at 200px — smaller size fallback
+    // 3. drive.google.com thumbnail API — proxy-based, reliable
+    // 4. drive.usercontent.com — newer Google CDN subdomain
     return [
-        `https://lh3.googleusercontent.com/d/${id}=s400`,              // CDN 400px (retina friendly)
+        `https://lh3.googleusercontent.com/d/${id}=s400`,              // CDN 400px
         `https://lh3.googleusercontent.com/d/${id}=s200`,              // CDN 200px
-        `https://drive.usercontent.com/download?id=${id}`,             // New Google UserContent subdomain
-        `https://drive.google.com/thumbnail?id=${id}&sz=w400`,         // API Thumbnail 400
-        `https://drive.google.com/thumbnail?id=${id}&sz=w200`,         // API Thumbnail 200
-        `https://lh3.googleusercontent.com/u/0/d/${id}=s400`,          // Auth variant CDN
-        `https://lh3.googleusercontent.com/d/${id}`,                   // CDN Original
-        `https://drive.google.com/uc?export=view&id=${id}`,            // Export view
-        `https://drive.google.com/uc?export=download&id=${id}`,        // Export download (last resort)
+        `https://drive.google.com/thumbnail?id=${id}&sz=w400`,         // Thumbnail API
+        `https://drive.usercontent.com/download?id=${id}`,             // UserContent CDN
     ];
 };
 
@@ -125,8 +135,15 @@ export const getGoogleDriveFallbackUrls = (url) => {
 export const getGoogleDriveFullSizeUrls = (url) => {
     if (!url) return [];
     
-    // If it's already a Supabase URL or similar direct URL, just return it
-    if (!url.includes('drive.google.com') && !url.includes('docs.google.com') && !url.match(/^[-\w]{25,50}$/)) {
+    const isGoogleDriveLikeUrl =
+        url.includes('drive.google.com') ||
+        url.includes('docs.google.com') ||
+        url.includes('googleusercontent.com') ||
+        url.includes('drive.usercontent.google.com') ||
+        url.match(/^[-\w]{25,50}$/);
+
+    // If it's already a non-Google direct URL, just return it
+    if (!isGoogleDriveLikeUrl) {
         return [url];
     }
 

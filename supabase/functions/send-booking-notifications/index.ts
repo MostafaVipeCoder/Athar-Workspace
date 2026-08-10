@@ -1,12 +1,11 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-
-const RESEND_API_KEY = Deno.env.get("RESEND_API_KEY");
+import nodemailer from "npm:nodemailer";
 
 interface BookingData {
   booking_id: string;
   slot_id: string;
-  mentor_id: string;
+  mentor_id?: string;
   event_id: string;
   company_name: string;
   booker_email: string;
@@ -17,16 +16,30 @@ interface BookingData {
   mentor_photo_url?: string;
   event_name?: string;
   admin_email?: string;
+  interview_admin_emails?: string[];
+  interview_cc_emails?: string[];
+  meet_link?: string;
+  is_ather_team?: boolean;
 }
 
 // Generate ICS (iCalendar) file content
 function generateICS(data: BookingData): string {
-  const uid = `${data.booking_id}@athareg.com`;
-  const now = new Date().toISOString().replace(/[-:.]/g, "").slice(0, 15) + "Z";
-  const start = new Date(data.start_time).toISOString().replace(/[-:.]/g, "").slice(0, 15) + "Z";
-  const end = new Date(data.end_time).toISOString().replace(/[-:.]/g, "").slice(0, 15) + "Z";
+    const uid = `${data.booking_id}@athareg.com`;
+    const now = new Date().toISOString().replace(/[-:.]/g, "").slice(0, 15) + "Z";
+    const start = new Date(data.start_time).toISOString().replace(/[-:.]/g, "").slice(0, 15) + "Z";
+    const end = new Date(data.end_time).toISOString().replace(/[-:.]/g, "").slice(0, 15) + "Z";
 
-  return `BEGIN:VCALENDAR
+    const summary = data.is_ather_team 
+        ? `${data.company_name} - ${data.event_name || 'Athar Accelerator'}`
+        : `Mentor Session: ${data.mentor_name} with ${data.company_name}`;
+        
+    const location = data.meet_link || 'Online';
+    
+    const description = data.is_ather_team
+        ? `Interview with Athar Team (${data.mentor_name}) for ${data.company_name}\nGoogle Meet Link: ${data.meet_link}`
+        : `Mentor session booking with ${data.mentor_name} for ${data.company_name}`;
+
+    return `BEGIN:VCALENDAR
 VERSION:2.0
 PRODID:-//Athar//Mentor Booking//EN
 CALSCALE:GREGORIAN
@@ -38,15 +51,15 @@ DTSTAMP:${now}
 UID:${uid}
 ATTENDEE;CN="${data.company_name}";RSVP=TRUE:mailto:${data.booker_email}
 ATTENDEE;CN="${data.mentor_name}";RSVP=TRUE:mailto:${data.mentor_email}
-${data.admin_email ? `ATTENDEE;CN="Event Admin";RSVP=FALSE:mailto:${data.admin_email}` : ""}
+${data.admin_email ? `ATTENDEE;CN="Athar Startups";RSVP=TRUE:mailto:${data.admin_email}` : ""}
 CREATED:${now}
-DESCRIPTION:حجز جلسة مرشد مع ${data.mentor_name} لشركة ${data.company_name}
+DESCRIPTION:${description}
 LAST-MODIFIED:${now}
-LOCATION:Online
+LOCATION:${location}
 ORGANIZER;CN="Athar":mailto:no-reply@athareg.com
 SEQUENCE:0
 STATUS:CONFIRMED
-SUMMARY:جلسة مرشد: ${data.mentor_name} مع ${data.company_name}
+SUMMARY:${summary}
 TRANSP:OPAQUE
 END:VEVENT
 END:VCALENDAR`;
@@ -54,20 +67,25 @@ END:VCALENDAR`;
 
 // Generate HTML email templates
 function generateBookerEmail(data: BookingData): string {
-  return `
+    const meetSection = data.meet_link 
+        ? `<p><strong>Interview Link (Google Meet):</strong> <a href="${data.meet_link}">${data.meet_link}</a></p>` 
+        : '';
+    const bookingType = data.is_ather_team ? 'Athar Team Interview' : 'Mentor Session';
+    
+    return `
 <!DOCTYPE html>
-<html lang="ar" dir="rtl">
+<html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>تأكيد الحجز - جلسة مرشد</title>
+    <title>Booking Confirmation - ${bookingType}</title>
     <style>
         body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; line-height: 1.6; color: #333; max-width: 600px; margin: 0 auto; padding: 20px; background-color: #f8fafc; }
         .container { background-color: #ffffff; border-radius: 12px; box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1); overflow: hidden; }
         .header { background: linear-gradient(135deg, #1a27c9 0%, #2d3af0 100%); padding: 30px; text-align: center; }
         .header h1 { color: white; margin: 0; font-size: 24px; }
         .content { padding: 30px; }
-        .info-box { background-color: #f0f4ff; border-radius: 8px; padding: 20px; margin-bottom: 20px; border-right: 4px solid #1a27c9; }
+        .info-box { background-color: #f0f4ff; border-radius: 8px; padding: 20px; margin-bottom: 20px; border-left: 4px solid #1a27c9; }
         .info-box p { margin: 10px 0; }
         .info-box strong { color: #1a27c9; }
         .footer { background-color: #f8fafc; padding: 20px; text-align: center; font-size: 14px; color: #64748b; }
@@ -76,28 +94,29 @@ function generateBookerEmail(data: BookingData): string {
 <body>
     <div class="container">
         <div class="header">
-            <h1>تم تأكيد حجز جلستك!</h1>
+            <h1>Your Booking is Confirmed!</h1>
         </div>
         <div class="content">
-            <p>مرحباً بك،</p>
-            <p>شكراً لحجزك جلسة مرشد! إليك تفاصيل الحجز:</p>
+            <p>Hello,</p>
+            <p>Thank you for booking! Here are your booking details:</p>
             
             <div class="info-box">
-                <p><strong>المرشد:</strong> ${data.mentor_name}</p>
-                <p><strong>الشركة:</strong> ${data.company_name}</p>
-                <p><strong>التاريخ والوقت:</strong> ${new Date(data.start_time).toLocaleString('ar-EG')}</p>
-                <p><strong>المدة:</strong> ${Math.round((new Date(data.end_time).getTime() - new Date(data.start_time).getTime()) / (1000 * 60))} دقيقة</p>
-                ${data.event_name ? `<p><strong>الحدث:</strong> ${data.event_name}</p>` : ''}
+                <p><strong>With:</strong> ${data.mentor_name}</p>
+                <p><strong>Company:</strong> ${data.company_name}</p>
+                <p><strong>Date and Time:</strong> ${new Date(data.start_time).toLocaleString('en-US')}</p>
+                <p><strong>Duration:</strong> ${Math.round((new Date(data.end_time).getTime() - new Date(data.start_time).getTime()) / (1000 * 60))} minutes</p>
+                ${data.event_name ? `<p><strong>Event/Program:</strong> ${data.event_name}</p>` : ''}
+                ${meetSection}
             </div>
             
-            <p>تم إرسال دعوة التقويم إلى بريدك الإلكتروني. يرجى قبول الدعوة لإضافة الجلسة إلى تقويمك.</p>
+            <p>A calendar invitation has been sent to your email. Please accept the invitation to add the session to your calendar.</p>
             
-            <p>إذا كانت لديك أي استفسارات، فلا تتردد في التواصل معنا.</p>
+            <p>If you have any questions, please don't hesitate to contact us.</p>
             
-            <p>مع أطيب التحيات،<br>فريق أثر</p>
+            <p>Best regards,<br>The Athar Team</p>
         </div>
         <div class="footer">
-            <p>© 2024 أثر. جميع الحقوق محفوظة.</p>
+            <p>© 2024 Athar. All rights reserved.</p>
         </div>
     </div>
 </body>
@@ -106,20 +125,25 @@ function generateBookerEmail(data: BookingData): string {
 }
 
 function generateMentorEmail(data: BookingData): string {
-  return `
+    const title = data.is_ather_team ? 'You Have a New Interview!' : 'You Have a New Session Booking!';
+    const meetSection = data.meet_link 
+        ? `<p><strong>Interview Link (Google Meet):</strong> <a href="${data.meet_link}">${data.meet_link}</a></p>` 
+        : '';
+    
+    return `
 <!DOCTYPE html>
-<html lang="ar" dir="rtl">
+<html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>حجز جلسة جديدة!</title>
+    <title>${title}</title>
     <style>
         body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; line-height: 1.6; color: #333; max-width: 600px; margin: 0 auto; padding: 20px; background-color: #f8fafc; }
         .container { background-color: #ffffff; border-radius: 12px; box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1); overflow: hidden; }
         .header { background: linear-gradient(135deg, #1a27c9 0%, #2d3af0 100%); padding: 30px; text-align: center; }
         .header h1 { color: white; margin: 0; font-size: 24px; }
         .content { padding: 30px; }
-        .info-box { background-color: #f0f4ff; border-radius: 8px; padding: 20px; margin-bottom: 20px; border-right: 4px solid #1a27c9; }
+        .info-box { background-color: #f0f4ff; border-radius: 8px; padding: 20px; margin-bottom: 20px; border-left: 4px solid #1a27c9; }
         .info-box p { margin: 10px 0; }
         .info-box strong { color: #1a27c9; }
         .footer { background-color: #f8fafc; padding: 20px; text-align: center; font-size: 14px; color: #64748b; }
@@ -128,28 +152,27 @@ function generateMentorEmail(data: BookingData): string {
 <body>
     <div class="container">
         <div class="header">
-            <h1>لديك حجز جلسة جديد!</h1>
+            <h1>${title}</h1>
         </div>
         <div class="content">
-            <p>مرحباً ${data.mentor_name}،</p>
-            <p>تهانينا! لقد تم حجز جلسة معك! إليك التفاصيل:</p>
+            <p>Hello ${data.mentor_name},</p>
+            <p>A session/interview has been booked with you. Here are the details:</p>
             
             <div class="info-box">
-                <p><strong>الشركة:</strong> ${data.company_name}</p>
-                <p><strong>بريد الحاجز:</strong> ${data.booker_email}</p>
-                <p><strong>التاريخ والوقت:</strong> ${new Date(data.start_time).toLocaleString('ar-EG')}</p>
-                <p><strong>المدة:</strong> ${Math.round((new Date(data.end_time).getTime() - new Date(data.start_time).getTime()) / (1000 * 60))} دقيقة</p>
-                ${data.event_name ? `<p><strong>الحدث:</strong> ${data.event_name}</p>` : ''}
+                <p><strong>Company:</strong> ${data.company_name}</p>
+                <p><strong>Booker Email:</strong> ${data.booker_email}</p>
+                <p><strong>Date and Time:</strong> ${new Date(data.start_time).toLocaleString('en-US')}</p>
+                <p><strong>Duration:</strong> ${Math.round((new Date(data.end_time).getTime() - new Date(data.start_time).getTime()) / (1000 * 60))} minutes</p>
+                ${data.event_name ? `<p><strong>Event:</strong> ${data.event_name}</p>` : ''}
+                ${meetSection}
             </div>
             
-            <p>تم إرسال دعوة التقويم إلى بريدك الإلكتروني. يرجى قبول الدعوة لإضافة الجلسة إلى تقويمك.</p>
+            <p>A calendar invitation has been sent to your email. Please accept the invitation to add the session to your calendar.</p>
             
-            <p>إذا كانت لديك أي استفسارات، فلا تتردد في التواصل معنا.</p>
-            
-            <p>مع أطيب التحيات،<br>فريق أثر</p>
+            <p>Best regards,<br>The Athar Team</p>
         </div>
         <div class="footer">
-            <p>© 2024 أثر. جميع الحقوق محفوظة.</p>
+            <p>© 2024 Athar. All rights reserved.</p>
         </div>
     </div>
 </body>
@@ -158,20 +181,25 @@ function generateMentorEmail(data: BookingData): string {
 }
 
 function generateAdminEmail(data: BookingData): string {
-  return `
+    const title = data.is_ather_team ? 'New Interview Booking Notification' : 'New Mentor Session Booking Notification';
+    const meetSection = data.meet_link 
+        ? `<p><strong>Interview Link (Google Meet):</strong> <a href="${data.meet_link}">${data.meet_link}</a></p>` 
+        : '';
+    
+    return `
 <!DOCTYPE html>
-<html lang="ar" dir="rtl">
+<html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>إشعار بحجز جلسة جديدة</title>
+    <title>${title}</title>
     <style>
         body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; line-height: 1.6; color: #333; max-width: 600px; margin: 0 auto; padding: 20px; background-color: #f8fafc; }
         .container { background-color: #ffffff; border-radius: 12px; box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1); overflow: hidden; }
         .header { background: linear-gradient(135deg, #1a27c9 0%, #2d3af0 100%); padding: 30px; text-align: center; }
         .header h1 { color: white; margin: 0; font-size: 24px; }
         .content { padding: 30px; }
-        .info-box { background-color: #f0f4ff; border-radius: 8px; padding: 20px; margin-bottom: 20px; border-right: 4px solid #1a27c9; }
+        .info-box { background-color: #f0f4ff; border-radius: 8px; padding: 20px; margin-bottom: 20px; border-left: 4px solid #1a27c9; }
         .info-box p { margin: 10px 0; }
         .info-box strong { color: #1a27c9; }
         .footer { background-color: #f8fafc; padding: 20px; text-align: center; font-size: 14px; color: #64748b; }
@@ -180,25 +208,27 @@ function generateAdminEmail(data: BookingData): string {
 <body>
     <div class="container">
         <div class="header">
-            <h1>إشعار بحجز جلسة جديدة</h1>
+            <h1>${title}</h1>
         </div>
         <div class="content">
-            <p>مرحباً،</p>
-            <p>يوجد حجز جلسة مرشد جديد! إليك التفاصيل:</p>
+            <p>Hello,</p>
+            <p>A new booking has been made. Here are the details:</p>
             
             <div class="info-box">
-                <p><strong>المرشد:</strong> ${data.mentor_name}</p>
-                <p><strong>الشركة:</strong> ${data.company_name}</p>
-                <p><strong>بريد الحاجز:</strong> ${data.booker_email}</p>
-                <p><strong>التاريخ والوقت:</strong> ${new Date(data.start_time).toLocaleString('ar-EG')}</p>
-                <p><strong>المدة:</strong> ${Math.round((new Date(data.end_time).getTime() - new Date(data.start_time).getTime()) / (1000 * 60))} دقيقة</p>
-                ${data.event_name ? `<p><strong>الحدث:</strong> ${data.event_name}</p>` : ''}
+                <p><strong>Company Name:</strong> ${data.company_name}</p>
+                <p><strong>Company Email:</strong> ${data.booker_email}</p>
+                <p><strong>Project Manager / Mentor:</strong> ${data.mentor_name}</p>
+                <p><strong>Project Manager / Mentor Email:</strong> ${data.mentor_email}</p>
+                <p><strong>Date and Time:</strong> ${new Date(data.start_time).toLocaleString('en-US')}</p>
+                <p><strong>Duration:</strong> ${Math.round((new Date(data.end_time).getTime() - new Date(data.start_time).getTime()) / (1000 * 60))} minutes</p>
+                ${data.event_name ? `<p><strong>Event/Program:</strong> ${data.event_name}</p>` : ''}
+                ${meetSection}
             </div>
             
-            <p>مع أطيب التحيات،<br>فريق أثر</p>
+            <p>Best regards,<br>The Athar Team</p>
         </div>
         <div class="footer">
-            <p>© 2024 أثر. جميع الحقوق محفوظة.</p>
+            <p>© 2024 Athar. All rights reserved.</p>
         </div>
     </div>
 </body>
@@ -206,11 +236,21 @@ function generateAdminEmail(data: BookingData): string {
   `;
 }
 
+const corsHeaders = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+};
+
 serve(async (req) => {
+  // Handle CORS preflight request
+  if (req.method === 'OPTIONS') {
+    return new Response('ok', { headers: corsHeaders });
+  }
+
   try {
     if (req.method !== 'POST') {
       return new Response(JSON.stringify({ error: 'Method not allowed' }), {
-        headers: { 'Content-Type': 'application/json' },
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
         status: 405
       });
     }
@@ -219,8 +259,7 @@ serve(async (req) => {
     console.log('[Booking Notifications] Received data:', bookingData);
 
     const icsContent = generateICS(bookingData);
-    const icsBase64 = btoa(unescape(encodeURIComponent(icsContent)));
-    const icsFileName = `mentor-booking-${bookingData.booking_id}.ics`;
+    const icsFileName = `booking-${bookingData.booking_id}.ics`;
 
     // Initialize Supabase client
     const supabase = createClient(
@@ -228,80 +267,172 @@ serve(async (req) => {
       Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
     );
 
+    // Fetch SMTP settings from database
+    const { data: smtpSettings, error: smtpDbError } = await supabase
+      .from('smtp_settings')
+      .select('*')
+      .limit(1)
+      .maybeSingle();
+
+    if (smtpDbError) {
+      console.error('[Booking Notifications] Error fetching SMTP settings:', smtpDbError);
+    }
+
+    const smtpUser = smtpSettings?.smtp_user || Deno.env.get("SMTP_USER");
+    const smtpPass = smtpSettings?.smtp_pass || Deno.env.get("SMTP_PASS");
+    const smtpHost = smtpSettings?.smtp_host || Deno.env.get("SMTP_HOST") || "smtp.gmail.com";
+    const smtpPort = smtpSettings?.smtp_port || parseInt(Deno.env.get("SMTP_PORT") || "465", 10);
+
+    const transporter = smtpUser && smtpPass ? nodemailer.createTransport({
+      host: smtpHost,
+      port: smtpPort,
+      secure: smtpPort === 465,
+      auth: {
+        user: smtpUser,
+        pass: smtpPass,
+      },
+    }) : null;
+
+    const senderEmail = smtpUser || 'no-reply@athareg.com';
+    const senderName = 'Athar';
+    const fromAddress = `"${senderName}" <${senderEmail}>`;
+
     const emails = [];
 
+    // Booker Subject
+    const bookerSubject = bookingData.is_ather_team
+      ? `Your Interview with Athar Team (${bookingData.mentor_name}) is Confirmed!`
+      : `Your Session with ${bookingData.mentor_name} is Confirmed!`;
+
     // 1. Email to Booker
-    emails.push({
-      from: 'no-reply@athareg.com',
+    const bookerEmail: any = {
+      from: fromAddress,
       to: bookingData.booker_email,
-      subject: `تم تأكيد حجز جلستك مع ${bookingData.mentor_name}!`,
+      subject: bookerSubject,
       html: generateBookerEmail(bookingData),
       attachments: [
         {
           filename: icsFileName,
-          content: icsBase64,
-          content_type: 'text/calendar; method=REQUEST; charset=utf-8'
+          content: icsContent,
+          contentType: 'text/calendar; method=REQUEST; charset=utf-8'
         }
       ]
-    });
+    };
+    
+    emails.push(bookerEmail);
 
-    // 2. Email to Mentor
+    // Mentor/PM Subject
+    const mentorSubject = bookingData.is_ather_team
+      ? `New Interview with ${bookingData.company_name}!`
+      : `New Session Booking with ${bookingData.company_name}!`;
+
+    // 2. Email to Mentor / Project Manager
     emails.push({
-      from: 'no-reply@athareg.com',
+      from: fromAddress,
       to: bookingData.mentor_email,
-      subject: `حجز جلسة جديدة مع ${bookingData.company_name}!`,
+      subject: mentorSubject,
       html: generateMentorEmail(bookingData),
       attachments: [
         {
           filename: icsFileName,
-          content: icsBase64,
-          content_type: 'text/calendar; method=REQUEST; charset=utf-8'
+          content: icsContent,
+          contentType: 'text/calendar; method=REQUEST; charset=utf-8'
         }
       ]
     });
 
-    // 3. Email to Admin (if provided)
+    // Admin Subject
+    const adminSubject = bookingData.is_ather_team
+      ? `New Interview Booking - ${bookingData.company_name} with ${bookingData.mentor_name} at ${bookingData.event_name || 'Event'}`
+      : `New Mentor Session Booking at ${bookingData.event_name || 'Event'}`;
+
+    // 3. Email to Admin (startups@athareg.com)
     if (bookingData.admin_email) {
       emails.push({
-        from: 'no-reply@athareg.com',
+        from: fromAddress,
         to: bookingData.admin_email,
-        subject: `إشعار: حجز جلسة مرشد جديد في ${bookingData.event_name || 'الحدث'}`,
-        html: generateAdminEmail(bookingData)
+        subject: adminSubject,
+        html: generateAdminEmail(bookingData),
+        attachments: [
+          {
+            filename: icsFileName,
+            content: icsContent,
+            contentType: 'text/calendar; method=REQUEST; charset=utf-8'
+          }
+        ]
       });
     }
 
-    // Send emails using Resend if available
-    if (RESEND_API_KEY) {
-      console.log('[Booking Notifications] Sending emails via Resend...');
+    // 4. Emails to Interview Admin Emails
+    if (bookingData.interview_admin_emails && bookingData.interview_admin_emails.length > 0) {
+      for (const adminEmail of bookingData.interview_admin_emails) {
+        // Extract just the email address if it's in "Name <email>" format
+        const cleanEmail = adminEmail.match(/<([^>]+)>/)?.[1] || adminEmail.trim();
+        if (cleanEmail) {
+          emails.push({
+            from: fromAddress,
+            to: cleanEmail,
+            subject: adminSubject,
+            html: generateAdminEmail(bookingData),
+            attachments: [
+              {
+                filename: icsFileName,
+                content: icsContent,
+                contentType: 'text/calendar; method=REQUEST; charset=utf-8'
+              }
+            ]
+          });
+        }
+      }
+    }
+
+    // 5. Emails to Interview CC Emails
+    if (bookingData.interview_cc_emails && bookingData.interview_cc_emails.length > 0) {
+      for (const ccEmail of bookingData.interview_cc_emails) {
+        // Extract just the email address if it's in "Name <email>" format
+        const cleanEmail = ccEmail.match(/<([^>]+)>/)?.[1] || ccEmail.trim();
+        if (cleanEmail) {
+          emails.push({
+            from: fromAddress,
+            to: cleanEmail,
+            subject: adminSubject,
+            html: generateAdminEmail(bookingData),
+            attachments: [
+              {
+                filename: icsFileName,
+                content: icsContent,
+                contentType: 'text/calendar; method=REQUEST; charset=utf-8'
+              }
+            ]
+          });
+        }
+      }
+    }
+
+    // Send emails using SMTP if available
+    if (transporter && smtpUser && smtpPass) {
+      console.log('[Booking Notifications] Sending emails via SMTP...');
       
       for (const email of emails) {
-        const res = await fetch('https://api.resend.com/emails', {
-          method: 'POST',
-          headers: {
-            'Authorization': `Bearer ${RESEND_API_KEY}`,
-            'Content-Type': 'application/json'
-          },
-          body: JSON.stringify(email)
-        });
-
-        const result = await res.json();
-        console.log('[Booking Notifications] Resend response:', result);
-
-        if (!res.ok) {
-          console.error('[Booking Notifications] Failed to send email:', result);
+        try {
+          const info = await transporter.sendMail(email);
+          console.log('[Booking Notifications] Email sent to:', email.to, 'MessageId:', info.messageId);
+        } catch (sendError) {
+          console.error('[Booking Notifications] Failed to send email to:', email.to, sendError);
+          throw sendError;
         }
       }
 
       return new Response(JSON.stringify({ 
         success: true, 
-        message: 'Emails sent successfully',
+        message: 'Emails sent successfully via SMTP',
         emails_sent: emails.length 
       }), {
-        headers: { 'Content-Type': 'application/json' },
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
         status: 200
       });
     } else {
-      console.warn('[Booking Notifications] RESEND_API_KEY not set, emails not sent');
+      console.warn('[Booking Notifications] SMTP_USER or SMTP_PASS not set, emails not sent');
       
       // Store notifications in the database for later processing (optional)
       const { error: dbError } = await supabase
@@ -311,7 +442,7 @@ serve(async (req) => {
           recipients: emails.map(e => e.to),
           data: bookingData,
           sent_at: new Date().toISOString(),
-          status: RESEND_API_KEY ? 'sent' : 'pending'
+          status: 'pending'
         });
 
       if (dbError) {
@@ -320,10 +451,10 @@ serve(async (req) => {
 
       return new Response(JSON.stringify({ 
         success: true, 
-        message: 'Notification received (emails pending API key)',
+        message: 'Notification received (emails pending SMTP config)',
         emails_pending: emails.length 
       }), {
-        headers: { 'Content-Type': 'application/json' },
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
         status: 200
       });
     }
@@ -333,7 +464,7 @@ serve(async (req) => {
       success: false, 
       error: error instanceof Error ? error.message : 'Unknown error' 
     }), {
-      headers: { 'Content-Type': 'application/json' },
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       status: 500
     });
   }
