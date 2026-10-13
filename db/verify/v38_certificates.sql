@@ -99,7 +99,7 @@ select public.save_node(:'cn', (select r.rev from public.node_revisions r where 
       jsonb_build_object('var','verification_qr','x',0.82,'y',0.8,'w',0.1,'size',0.1))))) as saved \gset
 reset role;
 select v38_test.val('S01 the save wrote ONE template (v1, en) with 5 fields', format($q$select count(*)::text || '/' || max(version)::text || '/' || (select count(*) from public.certificate_template_fields where template_id in (select id from public.certificate_templates where node_id='%s'))::text from public.certificate_templates where node_id='%s'$q$, :'cn', :'cn'), '1/1/5');
-select v38_test.val('S02 the colour is stored lower-case and the QR keeps w = size', format($q$select (select color from public.certificate_template_fields f join public.certificate_templates t on t.id=f.template_id where t.node_id='%s' and f.var='participant_name') || ' ' || (select (w = size)::text from public.certificate_template_fields f join public.certificate_templates t on t.id=f.template_id where t.node_id='%s' and f.var='verification_qr')$q$, :'cn', :'cn'), '#1a1a2e true');
+select v38_test.val('S02 the colour is stored lower-case and the QR keeps w = size', format($q$select (select color from public.certificate_template_fields f join public.certificate_templates t on t.id=f.template_id where t.node_id='%s' and f.var='person_name') || ' ' || (select (w = size)::text from public.certificate_template_fields f join public.certificate_templates t on t.id=f.template_id where t.node_id='%s' and f.var='verification_qr')$q$, :'cn', :'cn'), '#1a1a2e true');
 select v38_test.val('S03 the node language and the verifier flags are in the config', format($q$select config->>'language' || ' ' || (config->'verifier'->>'showCertificate') from public.nodes where id='%s'$q$, :'cn'), 'en true');
 select id as t1 from public.certificate_templates where node_id = :'cn' and version = 1 \gset
 
@@ -126,7 +126,7 @@ select public.save_node(:'cn', (select r.rev from public.node_revisions r where 
       jsonb_build_object('var','verification_code','x',0.82,'y',0.93,'w',0.2,'size',0.015),
       jsonb_build_object('var','verification_qr','x',0.82,'y',0.8,'w',0.1,'size',0.1))))) as saved \gset
 reset role;
-select v38_test.val('S05 a changed template that nothing references is UPDATED IN PLACE (same id, new file, new fields)', format($q$select count(*)::text || '/' || max(version)::text || '/' || (id = '%s')::text || '/' || right(file_path, 6) || '/' || width_px::text || '/' || (select max(y)::text from public.certificate_template_fields where template_id = '%s' and var = 'participant_name') from public.certificate_templates where node_id='%s' group by id, file_path, width_px$q$, :'t1', :'t1', :'cn'), '1/1/true/t2.png/2480/0.40000');
+select v38_test.val('S05 a changed template that nothing references is UPDATED IN PLACE (same id, new file, new fields)', format($q$select count(*)::text || '/' || max(version)::text || '/' || (id = '%s')::text || '/' || right(file_path, 6) || '/' || width_px::text || '/' || (select max(y)::text from public.certificate_template_fields where template_id = '%s' and var = 'person_name') from public.certificate_templates where node_id='%s' group by id, file_path, width_px$q$, :'t1', :'t1', :'cn'), '1/1/true/t2.png/2480/0.40000');
 
 -- ================================================================= template validation (as the PM)
 select set_config('request.jwt.claims', '{"sub":"00000000-0000-4000-8000-00000000b0d8","role":"authenticated"}', true);
@@ -147,7 +147,7 @@ select v38_test.fails('V12 a template size out of range is refused', format(:'sa
 select v38_test.fails('V13 more than 12 fields refused', format(:'savesql', jsonb_build_object('template', jsonb_build_object('language','en','file_path', :'proj' || '/' || :'cn' || '/t1.png','width_px',2000,'height_px',1400,'fields',(select jsonb_agg('{"var":"participant_name","x":0.5,"y":0.5,"w":0.5}'::jsonb) from generate_series(1,13))))), '22023', 'certificate_invalid');
 select v38_test.val('V14 nothing of the refused saves persisted', format($q$select count(*)::text || '/' || (select count(*) from public.certificate_template_fields where template_id = '%s')::text from public.certificate_templates where node_id='%s'$q$, :'t1', :'cn'), '1/5');
 select v38_test.okrun('V15 a save WITHOUT the template key leaves it alone', format($q$select public.save_node('%s', (select r.rev from public.node_revisions r where r.node_id = '%s'), '{}'::jsonb, '{}'::jsonb)$q$, :'cn', :'cn'));
-select v38_test.okrun('V16 a PM uploads a template under the node folder of their project', format($q$insert into storage.objects (bucket_id, name, owner_id) values ('certificate-templates', %L, %L)$q$, :'proj' || '/' || :'cn' || '/t3.png', '00000000-0000-4000-8000-00000000b0d8'));
+select v38_test.okrun('V16 a PM uploads a template under the node folder of their project', format($q$insert into storage.objects (bucket_id, name, owner_id) values ('certificate-templates', %L, %L)$q$, :'proj' || '/' || :'cn' || '/t3.webp', '00000000-0000-4000-8000-00000000b0d8'));
 reset role;
 select set_config('request.jwt.claims', '{"sub":"00000000-0000-4000-8000-00000000b0f9","role":"authenticated"}', true);
 set local role authenticated;
@@ -170,12 +170,12 @@ select public.issue_certificates(:'cn') as r1 \gset
 select v38_test.val('I05 "all" issues ONLY the attended participant (accepted ones get nothing)', format($q$select '%s'::jsonb->>'issued' || '/' || ('%s'::jsonb->>'skipped') || '/' || jsonb_array_length('%s'::jsonb->'results')::text$q$, :'r1', :'r1', :'r1'), '1/0/1');
 select v38_test.val('I06 exactly ONE certificate row exists, for the attended participant, none for the accepted one', format($q$select count(*)::text || '/' || count(*) filter (where participant_id = '%s')::text from public.certificates where node_id = '%s'$q$, :'p2', :'cn'), '1/1');
 select public.issue_certificates(:'cn') as r2 \gset
-select v38_test.val('I07 issuing again is IDEMPOTENT (existing, same code, still one row)', format($q$select ('%s'::jsonb->>'existing') || '/' || ('%s'::jsonb->>'issued') || '/' || (select count(*)::text from public.certificates where node_id = '%s') || '/' || (('%s'::jsonb->'results'->0->>'code') = ('%s'::jsonb->'results'->0->>'code'))::text$q$, :'r2', :'r2', :'cn', :'r1', :'r2'), '1/0/1/true');
+select v38_test.val('I07 issuing again is IDEMPOTENT (m42: one participant already authorised, nothing created, still one certificate row)', format($q$select ('%s'::jsonb->>'existing') || '/' || ('%s'::jsonb->>'issued') || '/' || (select count(*)::text from public.certificates where node_id = '%s') $q$, :'r2', :'r2', :'cn'), '1/0/1');
 select public.issue_certificates(:'cn', array[:'p4']::uuid[]) as r3 \gset
 select v38_test.val('I08 a NON-attended participant selected by hand gets nothing (not_attended, no row)', format($q$select ('%s'::jsonb->'results'->0->>'status') || '/' || (select count(*)::text from public.certificates where participant_id = '%s')$q$, :'r3', :'p4'), 'not_attended/0');
 select public.issue_certificates(:'cn', array['11111111-1111-4111-8111-111111111111']::uuid[]) as r3b \gset
 select v38_test.val('I09 an unknown participant id answers not_found', format($q$select '%s'::jsonb->'results'->0->>'status'$q$, :'r3b'), 'not_found');
-select v38_test.val('I10 the snapshot froze the name (whitespace collapsed, as stored), program, project and dates in the template language', format($q$select snapshot->>'participant_name' || '|' || (snapshot->>'program_name') || '|' || (snapshot->>'project_name') || '|' || (snapshot->>'completed_on') || '|' || (snapshot->>'language') || '|' || (snapshot->>'template_version') from public.certificates where participant_id = '%s'$q$, :'p2'), 'أحمد بن علي|V38 Program|V38 Project|' || (select (now() at time zone 'Asia/Riyadh')::date::text) || '|en|1');
+select v38_test.val('I10 the snapshot froze the name (whitespace collapsed, as stored), program, project and dates in the template language', format($q$select snapshot->>'person_name' || '|' || (snapshot->>'program_name') || '|' || (snapshot->>'project_name') || '|' || (snapshot->>'completed_on') || '|' || (snapshot->>'language') || '|' || (snapshot->>'template_version') from public.certificates where participant_id = '%s'$q$, :'p2'), 'أحمد بن علي|V38 Program|V38 Project|' || (select (now() at time zone 'Asia/Riyadh')::date::text) || '|en|1');
 select v38_test.val('I11 the code is 12 Crockford characters', format($q$select (code ~ '^[0-9A-HJKMNP-TV-Z]{4}(-[0-9A-HJKMNP-TV-Z]{4}){2}$')::text from public.certificates where participant_id = '%s'$q$, :'p2'), 'true');
 select code as code1, id as cert1 from public.certificates where participant_id = :'p2' \gset
 reset role;
@@ -185,7 +185,7 @@ insert into public.certificate_templates (project_id, node_id, version, language
 select set_config('request.jwt.claims', '{"sub":"00000000-0000-4000-8000-00000000b0d8","role":"authenticated"}', true);
 set local role authenticated;
 select v38_test.fails('I12 a template with no participant name field: certificate_template_incomplete', format($q$select public.issue_certificates('%s')$q$, :'cn2'), '23514', 'certificate_template_incomplete');
-select v38_test.val('I13 the Issue panel row: attended, certificate present, name as it will be printed', format($q$select (r->>'status') || '/' || (r->'certificate'->>'code' = '%s')::text || '/' || (r->>'name') from (select jsonb_array_elements(public.get_certificates_admin('%s')->'rows') r) x where (r->>'participant_id') = '%s'$q$, :'code1', :'cn', :'p2'), 'attended/true/أحمد بن علي');
+select v38_test.val('I13 the Issue panel row (m42): attended, the person (founder entry) holds the certificate, name as it will be printed', format($q$select (r->>'status') || '/' || (f->'certificate'->>'code' = '%s')::text || '/' || (f->>'name') from (select jsonb_array_elements(public.get_certificates_admin('%s')->'rows') r) x, jsonb_array_elements(r->'founders') f where (r->>'participant_id') = '%s'$q$, :'code1', :'cn', :'p2'), 'attended/true/أحمد بن علي');
 reset role;
 
 -- ================================================================= the public verifier
@@ -195,7 +195,7 @@ select v38_test.val('P01 anon: valid, name + program + dates, no ids', format($q
 select v38_test.val('P02 anon: a lower-case, dash-less code works too', format($q$select (public.get_public_certificate_verification('%s')->>'status')$q$, lower(replace(:'code1', '-', ''))), 'valid');
 select v38_test.val('P03 anon: an unknown code is not_found (no detail)', $q$select (public.get_public_certificate_verification('ZZZZ-ZZZZ-ZZZZ'))::text$q$, '{"valid": false, "status": "not_found"}');
 select v38_test.val('P04 anon: junk is not_found', $q$select (public.get_public_certificate_verification('hello world'))->>'status'$q$, 'not_found');
-select v38_test.val('P05 anon: the render payload carries ONLY the values the template prints (no company_name, no project_name)', format($q$select (select string_agg(k, ',' order by k) from jsonb_object_keys(v->'render'->'snapshot') k) from (select public.get_public_certificate_verification('%s') v) x$q$, :'code1'), 'completed_on,participant_name,program_name');
+select v38_test.val('P05 anon: the render payload carries ONLY the values the template prints (no company_name, no project_name)', format($q$select (select string_agg(k, ',' order by k) from jsonb_object_keys(v->'render'->'snapshot') k) from (select public.get_public_certificate_verification('%s') v) x$q$, :'code1'), 'completed_on,person_name,program_name');
 select v38_test.val('P06 anon: the render payload carries the template path and the fields, but no participant / issuer ids', format($q$select (v->'render'->'template'->>'bucket') || '/' || jsonb_array_length(v->'render'->'fields')::text || '/' || (not (v->'render' ? 'id'))::text from (select public.get_public_certificate_verification('%s') v) x$q$, :'code1'), 'certificate-templates/5/true');
 select v38_test.val('P07 anon: the old verify_certificate name answers the same', format($q$select (public.verify_certificate('%s')->>'valid')$q$, :'code1'), 'true');
 select v38_test.fails('P08 anon cannot read the certificates table (no grant)', $q$select count(*) from public.certificates$q$, '42501');
@@ -285,12 +285,15 @@ reset role;
 select set_config('request.jwt.claims', '{"sub":"00000000-0000-4000-8000-00000000b0d8","role":"authenticated"}', true);
 set local role authenticated;
 select public.issue_certificates(:'cn') as r4 \gset
-select v38_test.val('R07 "issue to all attended" does NOT silently re-issue a revoked certificate (skipped_revoked, still 1 row)', format($q$select ('%s'::jsonb->'results'->0->>'status') || '/' || (select count(*)::text from public.certificates where node_id = '%s')$q$, :'r4', :'cn'), 'skipped_revoked/1');
-select public.issue_certificates(:'cn', array[:'p2']::uuid[]) as r5 \gset
-select v38_test.val('R08 selecting the participant on purpose re-issues: a NEW certificate with a NEW code, the old one stays revoked', format($q$select ('%s'::jsonb->'results'->0->>'status') || '/' || (select count(*)::text from public.certificates where node_id = '%s') || '/' || (select count(*)::text from public.certificates where node_id = '%s' and revoked_at is null) || '/' || (('%s'::jsonb->'results'->0->>'code') <> '%s')::text$q$, :'r5', :'cn', :'cn', :'r5', :'code1'), 'issued/2/1/true');
-select v38_test.val('R09 the Issue panel shows the ACTIVE certificate of the participant', format($q$select (r->'certificate'->>'revoked_at' is null)::text || '/' || (r->'certificate'->>'code' <> '%s')::text from (select jsonb_array_elements(public.get_certificates_admin('%s')->'rows') r) x where (r->>'participant_id') = '%s'$q$, :'code1', :'cn', :'p2'), 'true/true');
+select v38_test.val('R07 "issue to all attended" does NOT silently re-issue a person revoked on purpose (m42: the grant is still active, so existing; still 1 row)', format($q$select ('%s'::jsonb->'results'->0->>'status') || '/' || (select count(*)::text from public.certificates where node_id = '%s')$q$, :'r4', :'cn'), 'existing/1');
+select public.reissue_certificate(:'cert1') as r5 \gset
+select v38_test.val('R08 Issue AGAIN to that person (m42: reissue_certificate): a NEW certificate with a NEW code, the old one stays revoked', format($q$select ('%s'::jsonb->>'status') || '/' || (select count(*)::text from public.certificates where node_id = '%s') || '/' || (select count(*)::text from public.certificates where node_id = '%s' and revoked_at is null) || '/' || (('%s'::jsonb->>'code') <> '%s')::text$q$, :'r5', :'cn', :'cn', :'r5', :'code1'), 'issued/2/1/true');
+select v38_test.val('R09 the Issue panel shows the ACTIVE certificate of the person', format($q$select (f->'certificate'->>'revoked_at' is null)::text || '/' || (f->'certificate'->>'code' <> '%s')::text from (select jsonb_array_elements(public.get_certificates_admin('%s')->'rows') r) x, jsonb_array_elements(r->'founders') f where (r->>'participant_id') = '%s'$q$, :'code1', :'cn', :'p2'), 'true/true');
 select v38_test.val('R10 a certificate keeps its ORIGINAL template version after later template changes (immutable once referenced)', format($q$select count(*)::text from public.certificate_templates where node_id = '%s'$q$, :'cn'), '1');
-select v38_test.fails('R11 the referenced template cannot be edited directly (23514)', format($q$update public.certificate_templates set width_px = 999 where node_id = '%s'$q$, :'cn'), '23514');
+select v38_test.fails('R11 the referenced template cannot be edited directly (m43: the template tables have no write privilege for authenticated, 42501)', format($q$update public.certificate_templates set width_px = 999 where node_id = '%s'$q$, :'cn'), '42501');
+reset role;
+select v38_test.fails('R11b ... and even the table owner is refused by the immutable-template trigger (23514)', format($q$update public.certificate_templates set width_px = 999 where node_id = '%s'$q$, :'cn'), '23514');
+set local role authenticated;
 -- a template change AFTER issuing creates the next version (the issued certificates keep rendering from v1)
 select public.save_node(:'cn', (select r.rev from public.node_revisions r where r.node_id = :'cn'), '{}'::jsonb,
   jsonb_build_object('template', jsonb_build_object('language','en','file_path', :'proj' || '/' || :'cn' || '/t2.png','file_kind','image','width_px',2480,'height_px',3508,
@@ -303,7 +306,7 @@ select v38_test.val('R13 the new language certificate uses the template version 
 
 -- ================================================================= template files that issued certificates reference are protected
 select v38_test.val('D01 a template image referenced by an issued certificate is NOT deletable (the storage delete / update policies ask)', format($q$select (select public.cert_template_deletable('%s'))::text$q$, :'proj' || '/' || :'cn' || '/t2.png'), 'false');
-select v38_test.val('D02 an unreferenced file (abandoned draft) stays deletable', format($q$select (select public.cert_template_deletable('%s'))::text$q$, :'proj' || '/' || :'cn' || '/t3.png'), 'true');
+select v38_test.val('D02 an unreferenced file (abandoned draft) stays deletable', format($q$select (select public.cert_template_deletable('%s'))::text$q$, :'proj' || '/' || :'cn' || '/t3.webp'), 'true');
 select v38_test.val('D03 the delete / update policies carry the guard', $q$select count(*)::text from pg_policies where schemaname = 'storage' and tablename = 'objects' and policyname in ('certificate_templates_delete_pm', 'certificate_templates_update_pm') and qual like '%cert_template_deletable%'$q$, '2');
 select v38_test.val('D04 anon cannot execute the guard (it is for the storage policy of signed-in PMs)', $q$select has_function_privilege('anon', 'public.cert_template_deletable(text)', 'EXECUTE')::text$q$, 'false');
 

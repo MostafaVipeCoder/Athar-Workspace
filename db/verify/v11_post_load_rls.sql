@@ -60,6 +60,8 @@ insert into auth.users (id, instance_id, aud, role, email, raw_app_meta_data, ra
  ('00000000-0000-4000-8000-0000000000a1','00000000-0000-0000-0000-000000000000','authenticated','authenticated','zz-u1@example.invalid','{}','{"full_name":"Test PM One"}', now(), now()),
  ('00000000-0000-4000-8000-0000000000a2','00000000-0000-0000-0000-000000000000','authenticated','authenticated','zz-u2@example.invalid','{}','{"full_name":"Test Outsider","role":"super_admin"}', now(), now()),
  ('00000000-0000-4000-8000-0000000000a3','00000000-0000-0000-0000-000000000000','authenticated','authenticated','zz-u3@example.invalid','{}','{"full_name":"Test PM Three"}', now(), now());
+-- (m25: a staff role and founder are mutually exclusive. The sign-up trigger gave these two fixture accounts the self-signup founder role: they are PMs here)
+delete from public.user_roles where role_key = 'founder' and user_id in ('00000000-0000-4000-8000-0000000000a1', '00000000-0000-4000-8000-0000000000a3');
 insert into public.user_roles (user_id, role_key) values
  ('00000000-0000-4000-8000-0000000000a1','project_manager'), ('00000000-0000-4000-8000-0000000000a3','project_manager');
 
@@ -110,7 +112,8 @@ select stage1_test.val('B07 no-membership user: sees only their own role rows', 
 select stage1_test.val('B08 no-membership user: network_experts denied by RLS (0 rows)', $q$select count(*)::text from public.network_experts$q$, '0');
 select stage1_test.fails('B09 no-membership user cannot insert a node', $q$insert into public.nodes (project_id, type, name_en) values (gen_random_uuid(), 'list', 'x')$q$);
 select stage1_test.fails('B10 no-membership user cannot create a program (no project_manager role)', $q$select public.create_program('Nope')$q$, '42501');
-select stage1_test.fails('B11 no-membership user cannot grant themselves a role', $q$insert into public.user_roles (user_id, role_key) values ('00000000-0000-4000-8000-0000000000a2', 'super_admin')$q$, '42501');
+-- (since m25 this founder fixture is refused by the staff / founder exclusivity trigger, 23514, before the RLS check, 42501: either refusal proves "cannot grant")
+select stage1_test.fails('B11 no-membership user cannot grant themselves a role', $q$insert into public.user_roles (user_id, role_key) values ('00000000-0000-4000-8000-0000000000a2', 'super_admin')$q$);
 select stage1_test.fails('B12 app_private tables are not reachable', $q$select count(*) from app_private.email_outbox$q$, '42501');
 reset role;
 
@@ -290,7 +293,7 @@ select stage1_test.val('BK03 anon sees the open slot and the provider (no e-mail
   $q$select (jsonb_array_length(p->'slots') || '/' || jsonb_array_length(p->'providers') || '/' || (p::text ~ 'expert@example.invalid|meet_link|booking_email')::text) from public.get_public_booking_page(current_setting('stage1.id_slugB')) p$q$, '1/1/false');
 select stage1_test.okrun('BK04 anon books the slot', $q$select public.create_booking(current_setting('stage1.id_slugB'), '00000000-0000-4000-8000-0000000000b2', '{"email":"booker@example.invalid","name":"Booker"}')$q$);
 select stage1_test.fails('BK05 second booking of the same slot is refused (one confirmed booking per slot)',
-  $q$select public.create_booking(current_setting('stage1.id_slugB'), '00000000-0000-4000-8000-0000000000b2', '{"email":"other@example.invalid"}')$q$, 'P0001');
+  $q$select public.create_booking(current_setting('stage1.id_slugB'), '00000000-0000-4000-8000-0000000000b2', '{"email":"other@example.invalid","name":"Other"}')$q$, 'P0001');   -- (since m34 a name is required first: the slot conflict is what is tested)
 select stage1_test.val('BK06 the booked slot disappears from the public page', $q$select jsonb_array_length(p->'slots')::text from public.get_public_booking_page(current_setting('stage1.id_slugB')) p$q$, '0');
 reset role;
 select stage1_test.val('BK07 a calendar_create job was queued (sync state lives in the job queue)', $q$select count(*)::text from app_private.integration_jobs where kind = 'calendar_create'$q$, '1');
@@ -307,15 +310,24 @@ reset role;
 -- ================================================================= certificates: only attended + completed, verifiable, template immutable
 select set_config('request.jwt.claims', '{"sub":"00000000-0000-4000-8000-0000000000a1","role":"authenticated"}', true);
 set local role authenticated;
-select stage1_test.okrun('CE01 template row (PM)', $q$insert into public.certificate_templates (id, project_id, node_id, version, language, file_path, file_kind, width_px, height_px)
-    values ('00000000-0000-4000-8000-0000000000f1', stage1_test.id('J1'), stage1_test.id('CN'), 1, 'ar', stage1_test.id('J1')::text || '/cert/v1.png', 'image', 2000, 1400)$q$);
+-- (m43: the template tables are read-only for the API roles, templates are written through save_node (versioned, definer): the fixture row is inserted as the owner.
+--  Since m42 an issue also needs a template that prints the person name.)
+reset role;
+select stage1_test.okrun('CE01 template row (setup, as owner; m43: no direct PM write)', $q$insert into public.certificate_templates (id, project_id, node_id, version, language, file_path, file_kind, width_px, height_px)
+    values ('00000000-0000-4000-8000-0000000000f1', stage1_test.id('J1'), stage1_test.id('CN'), 1, 'ar', stage1_test.id('J1')::text || '/' || stage1_test.id('CN')::text || '/v1.webp', 'image', 2000, 1400)$q$);
+select stage1_test.okrun('CE01b the person-name field of the template (setup)', $q$insert into public.certificate_template_fields (template_id, project_id, var, x, y, w, size)
+    values ('00000000-0000-4000-8000-0000000000f1', stage1_test.id('J1'), 'person_name', 0.5, 0.5, 0.5, 0.04)$q$);
+select set_config('request.jwt.claims', '{"sub":"00000000-0000-4000-8000-0000000000a1","role":"authenticated"}', true);
+set local role authenticated;
+select stage1_test.fails('CE01c a PM cannot write a template row directly (m43, 42501)', $q$update public.certificate_templates set width_px = 1999 where id = '00000000-0000-4000-8000-0000000000f1'$q$, '42501');
 select stage1_test.fails('CE02 cannot issue before the project is completed / participant attended', $q$select public.issue_certificate(stage1_test.id('PA'), stage1_test.id('CN'))$q$, '23514');
 select stage1_test.okrun('CE03 mark all attended + complete project', $q$select public.mark_all_attended(stage1_test.id('J1')), public.complete_project(stage1_test.id('J1'))$q$);
 select stage1_test.setid('CERT', (select id::text from public.issue_certificate(stage1_test.id('PA'), stage1_test.id('CN'))));
 select stage1_test.val('CE04 issue_certificate is idempotent', $q$select ((select id from public.issue_certificate(stage1_test.id('PA'), stage1_test.id('CN'))) = stage1_test.id('CERT'))::text$q$, 'true');
-select stage1_test.fails('CE05 template is immutable once referenced', $q$update public.certificate_templates set width_px = 1 where id = '00000000-0000-4000-8000-0000000000f1'$q$, '23514');
 reset role;
+select stage1_test.fails('CE05 template is immutable once referenced (even for the table owner: the trigger, 23514)', $q$update public.certificate_templates set width_px = 1 where id = '00000000-0000-4000-8000-0000000000f1'$q$, '23514');
 select stage1_test.setid('code', (select code from public.certificates where id = stage1_test.id('CERT')));
+update public.nodes set show_to_participants = true where id = stage1_test.id('CN');   -- (m42: an owner reads his certificate only while the node is shown to participants)
 reset role;
 do $$
 declare v_code text; v jsonb;
@@ -325,7 +337,7 @@ begin
   perform set_config('request.jwt.claims', '{"role":"anon"}', true);
   set local role anon;
   v := public.verify_certificate(v_code);
-  perform stage1_test.t('CE07 anon verify: valid + program name, no ids', (v->>'valid') = 'true' and v->>'program_name' = 'Test Program One' and not (v ? 'participant_id'), v::text);
+  perform stage1_test.t('CE07 anon verify: valid + program name, no ids', (v->>'valid') = 'true' and v->>'program_name' in ('Test Program One', 'برنامج اختبار 1') and not (v ? 'participant_id'), v::text);
   reset role;
 end $$;
 select set_config('request.jwt.claims', '{"sub":"00000000-0000-4000-8000-0000000000a2","role":"authenticated"}', true);
@@ -369,8 +381,13 @@ reset role;
 -- ================================================================= STAGE 2a additions: the same rules against the LOADED business data
 -- (all inside the rolled-back transaction: test memberships / founder user never persist)
 -- real accounts: UA/UB = project_manager accounts, USA = abdullah (super_admin)
-select stage1_test.setid('UA', (select r.user_id::text from public.user_roles r join auth.users u on u.id = r.user_id where r.role_key = 'project_manager' and u.email like '%@athareg.com' order by r.user_id limit 1 offset 0));
-select stage1_test.setid('UB', (select r.user_id::text from public.user_roles r join auth.users u on u.id = r.user_id where r.role_key = 'project_manager' and u.email like '%@athareg.com' order by r.user_id limit 1 offset 1));
+-- (m23 made every REAL project_manager a member of every program: the two "PM without membership" accounts are fixtures since then)
+insert into auth.users (id, instance_id, aud, role, email, raw_app_meta_data, raw_user_meta_data, created_at, updated_at) values
+ ('00000000-0000-4000-8000-0000000000c1','00000000-0000-0000-0000-000000000000','authenticated','authenticated','zz-v11-ua@example.invalid','{"provisioned":true}','{"full_name":"V11 PM A"}', now(), now()),
+ ('00000000-0000-4000-8000-0000000000c2','00000000-0000-0000-0000-000000000000','authenticated','authenticated','zz-v11-ub@example.invalid','{"provisioned":true}','{"full_name":"V11 PM B"}', now(), now());
+insert into public.user_roles (user_id, role_key) values ('00000000-0000-4000-8000-0000000000c1','project_manager'), ('00000000-0000-4000-8000-0000000000c2','project_manager');
+select stage1_test.setid('UA', '00000000-0000-4000-8000-0000000000c1');
+select stage1_test.setid('UB', '00000000-0000-4000-8000-0000000000c2');
 select stage1_test.setid('USA', (select ur.user_id::text from public.user_roles ur join auth.users u on u.id = ur.user_id where ur.role_key = 'super_admin' and lower(u.email) = 'abdullah.shaban@athareg.com'));
 select stage1_test.setid('XP', 'c82e422f-6bcb-41d8-b4fc-59db55ef0cb5');          -- Founder Camp (loaded project)
 select stage1_test.setid('XQ', 'bdf987a0-493e-4e0c-9514-e8c1390f2e6c');          -- ClimAccelerator
@@ -385,6 +402,7 @@ select stage1_test.setid('e_proj_g',   (select count(*)::text from public.projec
 select stage1_test.setid('e_nodes_g',  (select count(*)::text from public.nodes n join public.projects j on j.id = n.project_id where j.program_id = stage1_test.id('XG')));
 select stage1_test.setid('e_resp_g',   (select count(*)::text from public.form_responses r join public.projects j on j.id = r.project_id where j.program_id = stage1_test.id('XG')));
 select stage1_test.setid('e_resp_all', (select count(*)::text from public.form_responses));
+select stage1_test.setid('mig_cut', (select max(finished_at)::text from migration.run where phase = 'm90_finalize_stage2a'));       -- the stage-2a load = "migrated" rows
 
 -- ---- N: a migrated project_manager WITHOUT membership sees nothing of the loaded data
 select set_config('request.jwt.claims', format('{"sub":"%s","role":"authenticated"}', stage1_test.id('UA')), true);
@@ -438,10 +456,10 @@ reset role;
 -- ---- SA / AN: super_admin (abdullah) sees everything; anon sees nothing but the public paths still work with the OLD ids
 select set_config('request.jwt.claims', format('{"sub":"%s","role":"authenticated"}', stage1_test.id('USA')), true);
 set local role authenticated;
-select stage1_test.val('SA01 super_admin sees all 16 migrated projects (test rows excluded by created_at)', $q$select count(*)::text from public.projects where created_at < now()$q$, '16');
-select stage1_test.val('SA02 super_admin sees all 82 nodes',     $q$select count(*)::text from public.nodes where created_at < now()$q$, '82');
+select stage1_test.val('SA01 super_admin sees all 16 migrated projects (test rows excluded by created_at)', $q$select count(*)::text from public.projects where created_at < current_setting('stage1.id_mig_cut')::timestamptz$q$, '16');
+select stage1_test.val('SA02 super_admin sees all 82 nodes',     $q$select count(*)::text from public.nodes where created_at < current_setting('stage1.id_mig_cut')::timestamptz$q$, '82');
 select stage1_test.val('SA03 super_admin sees all form_responses', $q$select count(*)::text from public.form_responses$q$, current_setting('stage1.id_e_resp_all'));
-select stage1_test.val('SA04 super_admin sees all companies (141)', $q$select count(*)::text from public.companies where created_at < now()$q$, '141');
+select stage1_test.val('SA04 super_admin sees all companies (141)', $q$select count(*)::text from public.companies where created_at < current_setting('stage1.id_mig_cut')::timestamptz$q$, '141');
 reset role;
 select set_config('request.jwt.claims', '{"role":"anon"}', true);
 set local role anon;
@@ -470,8 +488,10 @@ reset role;
 update public.nodes set show_to_participants = true where project_id = stage1_test.id('XP') and type in ('booking','selection');   -- booking is public, selection is private
 select set_config('request.jwt.claims', '{"sub":"00000000-0000-4000-8000-0000000000f1","role":"authenticated"}', true);
 set local role authenticated;
-select stage1_test.val('FO04 founder: only the enabled platform/public block is shown (private selection stays hidden)',
-  $q$select (public.get_founder_program_page('c82e422f-6bcb-41d8-b4fc-59db55ef0cb5')->'blocks'->0->>'type') || '/' || jsonb_array_length(public.get_founder_program_page('c82e422f-6bcb-41d8-b4fc-59db55ef0cb5')->'blocks')::text$q$, 'booking/1');
+-- (m39 replaced the stub: the Program page lists only the registry's block types (description, agenda, mentors, companies, details, library, landing, schedule, certificate), never a
+--  booking page and never a private node: enabling the booking node and the private selection / list adds NO block)
+select stage1_test.val('FO04 founder: a shown booking node and a private selection / list are not blocks (m39 registry): still 0 blocks',
+  $q$select jsonb_array_length(public.get_founder_program_page('c82e422f-6bcb-41d8-b4fc-59db55ef0cb5')->'blocks')::text$q$, '0');
 select stage1_test.fails('FO05 founder cannot open another project page', $q$select public.get_founder_program_page('bdf987a0-493e-4e0c-9514-e8c1390f2e6c')$q$, '42501');
 reset role;
 

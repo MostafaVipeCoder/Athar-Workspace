@@ -41,8 +41,9 @@ insert into chk select 'V01.4a auth.users count == baseline', b.row_count::text,
 insert into chk select 'V01.4b auth.users password fingerprint unchanged', 'same', case when s.value = (select md5(coalesce(string_agg(encrypted_password, ',' order by id), '')) from auth.users) then 'same' else 'DIFFERENT' end,
   case when s.value = (select md5(coalesce(string_agg(encrypted_password, ',' order by id), '')) from auth.users) then 'ok' else 'mismatch' end
   from migration.state s where s.key = 'auth_pw_md5';
-insert into chk select 'V01.4c storage.objects count == baseline', b.row_count::text, (select count(*) from storage.objects)::text,
-  case when b.row_count = (select count(*) from storage.objects) then 'ok' else 'mismatch' end
+-- (stage 1 deletes no storage object: the count never drops below the baseline; stage 2b and the node builds only ADD objects)
+insert into chk select 'V01.4c storage.objects count >= baseline (stage 1 deletes nothing)', '>= ' || b.row_count::text, (select count(*) from storage.objects)::text,
+  case when b.row_count <= (select count(*) from storage.objects) then 'ok' else 'mismatch' end
   from migration.baseline b where b.table_name = 'storage.objects';
 
 insert into migration.recon (run_id, check_key, expected, actual, status) select :run_id, key, expected, actual, status from chk;

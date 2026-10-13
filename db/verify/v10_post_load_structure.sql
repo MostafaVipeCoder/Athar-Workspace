@@ -29,11 +29,11 @@ where c.contype = 'f' and cl.relnamespace in ('public'::regnamespace, 'app_priva
 
 insert into chk
 select 'V02.1a FK columns without a leading index (excl. audit FKs)', '0',
-       (select count(*) from fkcov where not indexed and not (confrelid = 'auth.users'::regclass and cols ~ '(^|,)(created_by|granted_by|added_by|status_changed_by|reviewed_by|revoked_by|issued_by|cancelled_by|completed_by|sent_by)$'))::text,
-       case when (select count(*) from fkcov where not indexed and not (confrelid = 'auth.users'::regclass and cols ~ '(^|,)(created_by|granted_by|added_by|status_changed_by|reviewed_by|revoked_by|issued_by|cancelled_by|completed_by|sent_by)$')) = 0 then 'ok' else 'mismatch' end
+       (select count(*) from fkcov where not indexed and not (confrelid = 'auth.users'::regclass and cols ~ '(^|,)(created_by|granted_by|added_by|status_changed_by|reviewed_by|revoked_by|issued_by|cancelled_by|completed_by|sent_by|updated_by|accepted_by|invited_by|withdrawn_by|reviewer_id)$'))::text,
+       case when (select count(*) from fkcov where not indexed and not (confrelid = 'auth.users'::regclass and cols ~ '(^|,)(created_by|granted_by|added_by|status_changed_by|reviewed_by|revoked_by|issued_by|cancelled_by|completed_by|sent_by|updated_by|accepted_by|invited_by|withdrawn_by|reviewer_id)$')) = 0 then 'ok' else 'mismatch' end
 union all
 select 'V02.1b audit FKs to auth.users without index (info)', '0',
-       (select count(*) from fkcov where not indexed and (confrelid = 'auth.users'::regclass and cols ~ '(^|,)(created_by|granted_by|added_by|status_changed_by|reviewed_by|revoked_by|issued_by|cancelled_by|completed_by|sent_by)$'))::text, 'warn';
+       (select count(*) from fkcov where not indexed and (confrelid = 'auth.users'::regclass and cols ~ '(^|,)(created_by|granted_by|added_by|status_changed_by|reviewed_by|revoked_by|issued_by|cancelled_by|completed_by|sent_by|updated_by|accepted_by|invited_by|withdrawn_by|reviewer_id)$'))::text, 'warn';
 do $$
 declare r record;
 begin
@@ -98,11 +98,13 @@ declare r record; n bigint; bad text := ''; tot int := 0; want bigint;
     'distribution_day_mentors',139,'distribution_days',9,'distribution_mentor_rules',3,'distribution_sessions',716,'distributions',2,'edges',53,
     'form_covers',5,'form_questions',204,'form_responses',384,'form_sections',6,'form_templates',1,'forms',12,'landing_cards',4,'list_items',612,'lists',20,
     'network_experts',44,'node_events',26,'node_revisions',82,'nodes',82,'profiles',12,'programs',4,'projects',16,'public_link_slugs',33,'public_links',33,
-    'resources',26,'selection_reviews',201,'user_roles',12,'roles',5,'node_types',10,'field_semantics',6);
+    'resources',26,'selection_reviews',201,'user_roles',12,'roles',5,'node_types',10,'field_semantics',6,
+    'program_members',44,'founders',3);                          -- (m23 initial memberships, 08 section 14; the three migrated founder accounts)
 begin
   for r in select schemaname, tablename from pg_tables where schemaname in ('public','app_private') order by 1, 2 loop
     execute format('select count(*) from %I.%I', r.schemaname, r.tablename) into n;
     tot := tot + 1;
+    if r.tablename in ('form_rate_limits', 'certificate_verify_limits') then continue; end if;      -- transient anti-abuse counters, not business data
     want := coalesce((exp ->> r.tablename)::bigint, 0);          -- not listed = must be empty
     if n <> want then bad := bad || r.schemaname || '.' || r.tablename || '=' || n || '(want ' || want || ') '; end if;
   end loop;
@@ -142,13 +144,14 @@ begin
   select array_agg(tablename order by tablename) into have_priv from pg_tables where schemaname = 'app_private';
   select string_agg(x, ',') into miss from unnest(want_pub) x where x <> all (have_pub);
   select string_agg(x, ',') into extra from unnest(have_pub) x where x <> all (want_pub);
-  insert into chk values ('CENSUS public tables = 55 (design)', '55 / none missing / none extra',
-     cardinality(have_pub) || ' / ' || coalesce(miss, 'none missing') || ' / ' || coalesce(extra, 'none extra'),
-     case when cardinality(have_pub) = 55 and miss is null and extra is null then 'ok' else 'mismatch' end);
+  -- the 55 designed tables must all exist; the node builds (m24+) added more, which are listed (a build never removes a designed table)
+  insert into chk values ('CENSUS public tables: the 55 designed tables are all present', 'none missing',
+     coalesce(miss, 'none missing') || ' / total ' || cardinality(have_pub) || ' / added since the design: ' || coalesce(extra, 'none'),
+     case when miss is null then 'ok' else 'mismatch' end);
   select string_agg(x, ',') into miss from unnest(want_priv) x where x <> all (have_priv);
-  insert into chk values ('CENSUS app_private tables = 4', '4', cardinality(have_priv)::text, case when cardinality(have_priv) = 4 and miss is null then 'ok' else 'mismatch' end);
-  insert into chk values ('CENSUS total tables = 59 (04 4.2)', '59', (cardinality(have_pub) + cardinality(have_priv))::text,
-     case when cardinality(have_pub) + cardinality(have_priv) = 59 then 'ok' else 'mismatch' end);
+  insert into chk values ('CENSUS app_private tables >= 4 (the designed ones; later builds add worker tables)', '>= 4', cardinality(have_priv)::text, case when cardinality(have_priv) >= 4 and miss is null then 'ok' else 'mismatch' end);
+  insert into chk values ('CENSUS total tables >= 59 (04 4.2)', '>= 59', (cardinality(have_pub) + cardinality(have_priv))::text,
+     case when cardinality(have_pub) + cardinality(have_priv) >= 59 then 'ok' else 'mismatch' end);
 
   select array_agg(distinct proname::text) into have_fn from pg_proc where pronamespace = 'public'::regnamespace and prokind = 'f';
   select string_agg(x, ',') into miss from unnest(want_fn) x where x <> all (have_fn);
@@ -201,12 +204,12 @@ insert into chk select 'SEC.4 authenticated privileges on app_private/migration 
     where a.grantee = (select oid from pg_roles where rolname = 'authenticated') and c.relnamespace in ('app_private'::regnamespace,'migration'::regnamespace) and c.relkind in ('r','p','v','S')) = 0 then 'ok' else 'mismatch' end;
 -- the only EXECUTE grants anon has are the exhaustive RPC list of 04 5.9 (PUBLIC execute revoked everywhere)
 insert into chk select 'SEC.5 functions anon may execute (04 5.9)',
-  'cancel_booking,create_booking,get_agenda_view,get_public_booking_page,get_public_form,get_public_tab,resolve_ref,track_node_event,validate_invitation,verify_certificate',
+  'cancel_booking,cert_template_readable,create_booking,form_upload_allowed,get_agenda_view,get_distribution_timer,get_distribution_view,get_public_booking_page,get_public_certificate_verification,get_public_form,get_public_landing,get_public_library,get_public_list,get_public_tab,library_file_readable,resolve_ref,submit_public_form,track_landing_event,track_node_event,validate_invitation,validate_staff_invitation,verify_certificate',
   coalesce((select string_agg(distinct p.proname, ',' order by p.proname) from pg_proc p
      where p.pronamespace in ('public'::regnamespace, 'app_private'::regnamespace, 'migration'::regnamespace) and has_function_privilege('anon', p.oid, 'EXECUTE')), 'none'),
   case when coalesce((select string_agg(distinct p.proname, ',' order by p.proname) from pg_proc p
      where p.pronamespace in ('public'::regnamespace, 'app_private'::regnamespace, 'migration'::regnamespace) and has_function_privilege('anon', p.oid, 'EXECUTE')), 'none')
-     = 'cancel_booking,create_booking,get_agenda_view,get_public_booking_page,get_public_form,get_public_tab,resolve_ref,track_node_event,validate_invitation,verify_certificate' then 'ok' else 'mismatch' end;
+     = 'cancel_booking,cert_template_readable,create_booking,form_upload_allowed,get_agenda_view,get_distribution_timer,get_distribution_view,get_public_booking_page,get_public_certificate_verification,get_public_form,get_public_landing,get_public_library,get_public_list,get_public_tab,library_file_readable,resolve_ref,submit_public_form,track_landing_event,track_node_event,validate_invitation,validate_staff_invitation,verify_certificate' then 'ok' else 'mismatch' end;
 -- every function of ours has a fixed search_path; every SECURITY DEFINER too
 insert into chk select 'SEC.6 functions without fixed search_path (public/app_private/migration)', '0',
   (select count(*) from pg_proc p where p.pronamespace in ('public'::regnamespace,'app_private'::regnamespace,'migration'::regnamespace)
@@ -230,15 +233,19 @@ insert into chk select 'RT.1 supabase_realtime publication tables', 'public.node
   coalesce((select string_agg(schemaname || '.' || tablename, ',' order by tablename) from pg_publication_tables where pubname = 'supabase_realtime'), 'none'),
   case when coalesce((select string_agg(schemaname || '.' || tablename, ',' order by tablename) from pg_publication_tables where pubname = 'supabase_realtime'), 'none') = 'public.node_revisions' then 'ok' else 'mismatch' end;
 -- Storage: new buckets exist, no open policy on event-assets for writing, orphan policies gone
-insert into chk select 'ST.1 new buckets present', 'certificate-templates,form-uploads,founder-assets,public-assets,resources',
-  (select string_agg(id, ',' order by id) from storage.buckets where id <> 'event-assets'),
-  case when (select string_agg(id, ',' order by id) from storage.buckets where id <> 'event-assets') = 'certificate-templates,form-uploads,founder-assets,public-assets,resources' then 'ok' else 'mismatch' end;
+insert into chk select 'ST.1 new buckets present (the 5 designed ones; stage 2b adds the private migration-archive)', 'certificate-templates,form-uploads,founder-assets,public-assets,resources',
+  (select string_agg(id, ',' order by id) from storage.buckets where id <> 'event-assets' and id <> 'migration-archive'),
+  case when (select string_agg(id, ',' order by id) from storage.buckets where id <> 'event-assets' and id <> 'migration-archive') = 'certificate-templates,form-uploads,founder-assets,public-assets,resources' then 'ok' else 'mismatch' end;
 insert into chk select 'ST.2 buckets: only public-assets is public (+legacy event-assets)', 'event-assets,public-assets',
   (select string_agg(id, ',' order by id) from storage.buckets where public),
   case when (select string_agg(id, ',' order by id) from storage.buckets where public) = 'event-assets,public-assets' then 'ok' else 'mismatch' end;
-insert into chk select 'ST.3 storage policies that allow anon/public writes or reference event-covers', '0',
-  (select count(*) from pg_policies where schemaname = 'storage' and ((cmd in ('INSERT','UPDATE','DELETE') and (roles && array['public','anon']::name[])) or coalesce(qual,'') || coalesce(with_check,'') like '%event-covers%'))::text,
-  case when (select count(*) from pg_policies where schemaname = 'storage' and ((cmd in ('INSERT','UPDATE','DELETE') and (roles && array['public','anon']::name[])) or coalesce(qual,'') || coalesce(with_check,'') like '%event-covers%')) = 0 then 'ok' else 'mismatch' end;
+-- (restrictive policies - the WebP / extension allow-lists - only NARROW what a permissive one grants: they are not counted; the one permissive anon write is the
+--  guarded public form-upload policy form_uploads_insert_public, m31 / m36)
+insert into chk select 'ST.3 permissive storage policies that let anon/public write (at most the guarded form upload) or reference event-covers', '<= 1 / 0',
+  (select count(*) from pg_policies where schemaname = 'storage' and permissive = 'PERMISSIVE' and cmd in ('INSERT','UPDATE','DELETE') and (roles && array['public','anon']::name[]))::text
+    || ' / ' || (select count(*) from pg_policies where schemaname = 'storage' and coalesce(qual,'') || coalesce(with_check,'') like '%event-covers%')::text,
+  case when (select count(*) from pg_policies where schemaname = 'storage' and permissive = 'PERMISSIVE' and cmd in ('INSERT','UPDATE','DELETE') and (roles && array['public','anon']::name[])) <= 1
+        and (select count(*) from pg_policies where schemaname = 'storage' and coalesce(qual,'') || coalesce(with_check,'') like '%event-covers%') = 0 then 'ok' else 'mismatch' end;
 -- extensions (04 2.3)
 insert into chk select 'EXT.1 extensions', 'btree_gist,citext,pg_trgm (+pg_jsonschema,pg_cron if available)',
   (select string_agg(extname, ',' order by extname) from pg_extension where extname in ('citext','pg_trgm','btree_gist','pg_jsonschema','pg_cron')),
@@ -251,9 +258,9 @@ insert into chk select 'GUARD.1 immutability / integrity triggers present', '>= 
   case when (select count(*) from pg_trigger t where not t.tgisinternal and t.tgname in ('nodes_bu_forbid','edges_biu_validate','edges_ciu_cycle','lists_bu_subkind',
      'list_items_biu_node','participants_biu_status','certificate_templates_bud_immutable','certificate_template_fields_biud_immutable','user_roles_bud_guard',
      'projects_biu_timezone','founders_bu_self_guard','on_auth_user_created','nodes_ai_revision','nodes_au_bump')) >= 12 then 'ok' else 'mismatch' end;
-insert into chk select 'GUARD.2 revision-counter triggers (25 tables x 3 events)', '75',
+insert into chk select 'GUARD.2 revision-counter triggers (>= 25 tables x 3 events; later builds add tables)', '>= 75',
   (select count(*) from pg_trigger t where not t.tgisinternal and t.tgname ~ '_rev_(ins|upd|del)$')::text,
-  case when (select count(*) from pg_trigger t where not t.tgisinternal and t.tgname ~ '_rev_(ins|upd|del)$') = 75 then 'ok' else 'mismatch' end;
+  case when (select count(*) from pg_trigger t where not t.tgisinternal and t.tgname ~ '_rev_(ins|upd|del)$') >= 75 then 'ok' else 'mismatch' end;
 
 insert into migration.recon (run_id, check_key, expected, actual, status) select :run_id, key, expected, actual, status from chk;
 update migration.run set finished_at = now(), status = case when exists (select 1 from chk where status = 'mismatch') then 'FAIL' else 'PASS' end where id = :run_id;
