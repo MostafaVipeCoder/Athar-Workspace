@@ -3,7 +3,7 @@ import './i18n.js'
 import { EntityGrid } from '../../shared/entities/EntityGrid.jsx'
 import { Button } from '../../ui/Button.jsx'
 import { useLanguage } from '../../i18n/LanguageProvider.jsx'
-import { normalizeListItem, visibleCardFields } from '../../lib/entities.js'
+import { isActiveItem, normalizeListItem, visibleCardFields } from '../../lib/entities.js'
 import { normalizeListConfig } from './listConfig.js'
 
 /**
@@ -29,7 +29,7 @@ export default function ListTab({ data = null, items = null, config = null, kind
   const listKind = kind ?? data?.config?.kind ?? 'generic'
   const rows = useMemo(() => {
     const list = items ?? (data?.items ?? []).map((r) => normalizeListItem(r, listKind))
-    return list.filter((i) => !i.excluded && (audience === 'pm' || !i.missing))
+    return list.filter((i) => isActiveItem(i) && (audience === 'pm' || !i.missing))
   }, [items, data, listKind, audience])
 
   const cards = rows.map((i) => ({

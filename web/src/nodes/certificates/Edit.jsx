@@ -13,7 +13,7 @@ import { getCertificateDefinition, removeTemplateFiles, useCertificateDefinition
 import { keys } from '../../data/queryKeys.js'
 import IssueTab from './IssueTab.jsx'
 import TemplateTab from './TemplateTab.jsx'
-import { normalizeCertConfig, sameDraft, templateDraft, toChildren, validateDraft } from './certConfig.js'
+import { hasCertificates, normalizeCertConfig, sameDraft, templateDraft, toChildren, validateDraft } from './certConfig.js'
 
 const TABS = ['template', 'issue']
 
@@ -50,7 +50,7 @@ export default function CertificatesEdit() {
   const draft = state.key === key ? state.draft : (loaded ?? null)
   const setDraft = (next) => setState((s) => ({ ...s, key, draft: typeof next === 'function' ? next(s.key === key ? s.draft : loaded ?? null) : next }))
   const dirty = draftDirty || configDirty
-  const hasIssued = (admin.data?.rows ?? []).some((r) => r.certificate)
+  const hasIssued = hasCertificates(admin.data?.rows)
 
   useEffect(() => {
     const a = assets.current

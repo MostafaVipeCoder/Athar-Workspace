@@ -16,15 +16,19 @@ import { useSelectionExtras, useSelectionMutations } from '../../data/selection.
 import { getFormDefinition } from '../../data/forms.js'
 import { useAuth } from '../../app/AuthContext.js'
 import { keys } from '../../data/queryKeys.js'
-import { biPick } from '../../lib/entities.js'
+import { biPick, isActiveItem } from '../../lib/entities.js'
 import { exportRows } from '../../lib/export/xlsx.js'
 import { staffPath } from '../../lib/links.js'
 import { cn } from '../../lib/cn.js'
 import { EntityManager } from '../../shared/entities/EntityManager.jsx'
+import { useWithdrawFlow } from '../../shared/entities/useWithdrawFlow.jsx'
 import { ItemEditor } from '../../shared/entities/ItemEditor.jsx'
 import { ApplicantDrawer } from './ApplicantDrawer.jsx'
 import { EmailsTab } from './EmailsTab.jsx'
-import { boardColumns, effectiveStage, emailIndex, normalizeSelectionConfig, scoreIndex, stageCounts, stageOf, stagesAsStatuses } from './selectionConfig.js'
+import { boardColumns, effectiveStage, emailIndex, normalizeSelectionConfig, scoreIndex, stageCounts, stageOf, stagesAsStatuses, withdrawnCount } from './selectionConfig.js'
+
+/** The extra pill of the board that shows the applicants marked WITHDRAWN (kept apart from the stage counts). */
+const WITHDRAWN_PILL = '__withdrawn'
 
 const STATUS_TONE = { queued: 'blue', sending: 'blue', sent: 'green', failed: 'red', dead: 'red', cancelled: 'neutral', needs_review: 'amber' }
 
@@ -55,6 +59,10 @@ function upstreamForms(graph, nodeId) {
  * workflow (status = stage key, reason modal for decisions, hold with "move back"), reviewer scores, filters/search/
  * sort, Excel export with labelled answers, the applicant drawer, and the E-mails tab (templates + outbox sends).
  * Every write is an immediate row-level save (02 section 6); the DB bumps the revision so downstream stages refresh.
+ * WITHDRAWN (decision 17.1) replaces "Hide": "Mark as withdrawn" (confirmation, optional reason, Undo) keeps the applicant on the
+ * board with a red chip and a "Withdrawn" pill, outside the stage counts, and takes it out of this stage's output ports, the
+ * e-mail recipients and every later step; "Reinstate" brings it back as it was. Marking it here writes the SAME fact as the
+ * Participants page and the lists (the participant row), so the person leaves the whole program at once.
  */
 export default function SelectionEdit() {
   const { node, projectId, graph } = useNodeContext()
@@ -63,7 +71,7 @@ export default function SelectionEdit() {
   const qc = useQueryClient()
   const { user } = useAuth()
   const config = useMemo(() => normalizeSelectionConfig(node.config), [node.config])
-  const items = useListItems(node.id, { filter: { include_excluded: true, with_fields: true }, kind: 'company' })
+  const items = useListItems(node.id, { filter: { include_excluded: true, include_withdrawn: true, with_fields: true }, kind: 'company' })
   const extras = useSelectionExtras(node.id)
   const onChanged = () => invalidateNodeOutputs(qc, graph, node.id, projectId)
   const m = useListMutations(node.id, { onChanged })
@@ -105,6 +113,8 @@ export default function SelectionEdit() {
     return out
   }, [extras.data])
   const counts = useMemo(() => stageCounts(rows, config), [rows, config])
+  const nWithdrawn = useMemo(() => withdrawnCount(rows), [rows])
+  const nActive = useMemo(() => rows.filter(isActiveItem).length, [rows])
   const statuses = useMemo(() => stagesAsStatuses(config), [config])
   // a virtual applicant changes its client id once its overlay row exists (first edit): match the source as well
   const openItem = open ? rows.find((i) => i.id === open.id || (open.sourceId && i.source.id === open.sourceId)) ?? null : null
@@ -123,6 +133,12 @@ export default function SelectionEdit() {
       if (item) setBusyId(null)
     }
   }
+
+  const flow = useWithdrawFlow({
+    nameOf,
+    onWithdraw: (list, reason) => (list.length === 1 ? m.withdraw.mutateAsync({ item: list[0], reason }) : m.bulkWithdraw.mutateAsync({ items: list, reason })),
+    onReinstate: (list) => (list.length === 1 ? m.reinstate.mutateAsync({ item: list[0] }) : m.bulkReinstate.mutateAsync({ items: list })),
+  })
 
   /** Decision stages (accept / hold / reject, or any stage flagged requireReason) ask for a reason first. */
   function requestStatus(list, status, { skipReason = false } = {}) {
@@ -144,17 +160,15 @@ export default function SelectionEdit() {
   const actions = {
     setStatus: (item, status) => requestStatus([item], status),
     patchOverlay: (item, patch) => run(() => m.patchOverlay.mutateAsync({ item, patch }), { item }),
-    exclude: (item, excluded) =>
-      run(() => m.exclude.mutateAsync({ item, excluded }), { item }).then((r) => {
-        if (r === undefined) return
-        toast.success(t(excluded ? 'selection.edit.hidden' : 'selection.edit.shown'), { action: { label: t('selection.edit.undo'), onClick: () => run(() => m.exclude.mutateAsync({ item, excluded: !excluded })) } })
-      }),
+    withdraw: flow.withdraw,
+    reinstate: flow.reinstate,
+    // LEGACY hidden items only (restore); nothing creates the old Hide flag any more
+    exclude: (item, excluded) => run(() => m.exclude.mutateAsync({ item, excluded }), { item, success: t('entity.withdraw.restored') }),
     reorder: (list) => run(() => m.reorder.mutateAsync({ items: list })),
     edit: (item) => setEditor({ item }),
     remove: () => {},
     detach: () => {},
     bulkStatus: (list, status) => requestStatus(list, status),
-    bulkExclude: (list, excluded) => run(() => m.bulkExclude.mutateAsync({ items: list, excluded }), { success: t(excluded ? 'list.edit.bulkHidden' : 'list.edit.bulkShown', { count: list.length }) }),
     export: (list) => run(async () => {
       const n = await exportRows(list, boardColumns(t, lang, { config, reviews, scores, emails, fields }), `${pick(node, 'name') || 'selection'}`)
       toast.success(t('selection.edit.exported', { count: n }))
@@ -183,13 +197,18 @@ export default function SelectionEdit() {
   const stagePills = (
     <div className="flex flex-wrap gap-1" role="tablist" aria-label={t('selection.col.stage')}>
       <button type="button" role="tab" aria-selected={stage === ''} onClick={() => setStage('')} className={cn('tap-target rounded-md px-3 text-sm', stage === '' ? 'bg-foreground text-background' : 'hover:bg-surface')}>
-        {t('selection.edit.stageAll')} ({rows.filter((i) => !i.excluded).length})
+        {t('selection.edit.stageAll')} ({nActive})
       </button>
       {config.stages.map((s) => (
         <button key={s.key} type="button" role="tab" aria-selected={stage === s.key} onClick={() => setStage(s.key)} className={cn('tap-target rounded-md px-3 text-sm', stage === s.key ? 'bg-foreground text-background' : 'hover:bg-surface')} data-testid={`stage-${s.key}`}>
           {biPick(s.label, lang) || s.key} ({counts[s.key] ?? 0})
         </button>
       ))}
+      {nWithdrawn > 0 && (
+        <button type="button" role="tab" aria-selected={stage === WITHDRAWN_PILL} onClick={() => setStage(WITHDRAWN_PILL)} className={cn('tap-target rounded-md px-3 text-sm', stage === WITHDRAWN_PILL ? 'bg-destructive-text text-white' : 'text-destructive-text hover:bg-surface')} data-testid="stage-withdrawn">
+          {t('entity.withdraw.chip')} ({nWithdrawn})
+        </button>
+      )}
     </div>
   )
 
@@ -214,7 +233,7 @@ export default function SelectionEdit() {
   ]
 
   return (
-    <NodeFrame showSave={false} actions={tabs} subtitle={t('selection.edit.subtitle', { count: rows.filter((i) => !i.excluded).length, sources: sources.length })}>
+    <NodeFrame showSave={false} actions={tabs} subtitle={t('selection.edit.subtitle', { count: nActive, sources: sources.length })}>
       <div className={cn('space-y-3', tab !== 'board' && 'hidden')}>
         <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground" data-testid="selection-sources">
           <span className="font-medium">{t('selection.edit.sources')}:</span>
@@ -231,7 +250,7 @@ export default function SelectionEdit() {
           onRetry={items.refetch}
           actions={actions}
           busyId={busyId}
-          initialState={{ status: stage, sort: 'newest' }}
+          initialState={stage === WITHDRAWN_PILL ? { presence: 'withdrawn', sort: 'newest' } : { status: stage, presence: 'active', sort: 'newest' }}
           extraColumns={extraColumns}
           cardExtra={(item) => { const s = scores[item.itemId]; return s?.avg != null ? `${t('selection.col.score')}: ${s.avg} (${s.count})` : null }}
           disabledActions={['detach', 'remove']}
@@ -243,7 +262,7 @@ export default function SelectionEdit() {
             </Button>
           )}
           toolbar={
-            <Button size="sm" variant="outline" onClick={() => actions.export(rows.filter((i) => !i.excluded && (!stage || i.status === stage)))} disabled={!rows.length}>
+            <Button size="sm" variant="outline" onClick={() => actions.export(rows.filter((i) => !i.excluded && (!stage ? !i.withdrawn : stage === WITHDRAWN_PILL ? i.withdrawn : !i.withdrawn && i.status === stage)))} disabled={!rows.length}>
               <Download className="h-4 w-4" aria-hidden="true" />{t('selection.edit.export')}
             </Button>
           }
@@ -265,11 +284,14 @@ export default function SelectionEdit() {
           sourceLink={sourceLinkOf(openItem)}
           onClose={() => setOpen(null)}
           onSetStage={(item, status, opts) => requestStatus([item], status, opts)}
+          onWithdraw={(item) => flow.withdraw(item)}
+          onReinstate={(item) => flow.reinstate(item)}
           onSaveScore={saveScore}
           saving={busyId === openItem.id}
           formatDate={(v) => formatDate(v, { dateStyle: 'medium', timeStyle: 'short' })}
         />
       )}
+      {flow.dialog}
       {editor && <ItemEditor item={editor.item} kind="company" config={{ statuses, card: config.card, overlayFields: [{ key: 'tech_status', label: { en: t('selection.col.techStatus'), ar: t('selection.col.techStatus') }, type: 'text', options: [] }] }} onClose={() => setEditor(null)} onSave={saveEditor} saving={busyId === editor.item?.id} />}
       {reason && (
         <Modal open onClose={() => setReason(null)} title={t('selection.reason.title', { name: reason.items.length === 1 ? nameOf(reason.items[0]) : `${reason.items.length}`, stage: biPick(reason.stage.label, lang) || reason.stage.key })} closeLabel={t('common.close')}

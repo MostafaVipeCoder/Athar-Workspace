@@ -6,6 +6,7 @@ import { BilingualField } from '../../ui/BilingualField.jsx'
 import { useLanguage } from '../../i18n/LanguageProvider.jsx'
 import { useToast } from '../../ui/Toast.jsx'
 import { framePublicUrl, uploadFramePng } from '../../data/landing.js'
+import { convertToWebp, describeReport } from '../../lib/image/index.js'
 import { OUT_H, OUT_W, inspectFrameFile } from './photoCompose.js'
 import { LABEL_KEYS, MAX_FRAMES, emptyFrame, moveItem } from './landingLogic.js'
 
@@ -39,10 +40,16 @@ export default function PhotoEditor({ config, patch, frames, setFrames, projectI
         setProblems(r.problems)
         return
       }
+      // the same conversion the upload runs (cached per file): its report is the "optimised" feedback
+      let note = ''
+      try {
+        const d = describeReport((await convertToWebp(file, { profile: 'frame' })).report)
+        note = t(d.key, d.vars)
+      } catch { /* the upload below reports a refused image with its own message */ }
       const path = await uploadFramePng(file, { projectId })
       onUploaded(path)
       setFrames((cur) => [...cur, emptyFrame({ name: file.name.replace(/\.png$/i, '').slice(0, 80), path, windowX: r.window?.x ?? null, windowY: r.window?.y ?? null, windowW: r.window?.w ?? null, windowH: r.window?.h ?? null })])
-      toast.success(t('landing.frames.added'))
+      toast.success(note ? `${t('landing.frames.added')} ${note}` : t('landing.frames.added'))
     } catch (err) {
       toast.error(t(err?.messageKey ?? 'errors.unknown'))
     } finally {
@@ -95,7 +102,7 @@ export default function PhotoEditor({ config, patch, frames, setFrames, projectI
               <li key={f.id} className="flex flex-wrap items-start gap-4 rounded-card border bg-card p-3" data-testid="frame-row">
                 <div className="relative aspect-[4/5] w-32 shrink-0 overflow-hidden rounded-md bg-gradient-to-br from-primary/20 to-primary/5" aria-label={t('landing.frames.safeZone')} role="img">
                   <div className="absolute inset-0 opacity-30" style={CHECKER} aria-hidden="true" />
-                  <img src={framePublicUrl(f.path)} alt="" className="absolute inset-0 h-full w-full" />
+                  <img src={framePublicUrl(f.path)} alt="" loading="lazy" decoding="async" className="absolute inset-0 h-full w-full" />
                   {f.windowW && f.windowH && (
                     <div aria-hidden="true" className="absolute border-2 border-dashed border-accent" style={{ insetInlineStart: `${(f.windowX / OUT_W) * 100}%`, top: `${(f.windowY / OUT_H) * 100}%`, width: `${(f.windowW / OUT_W) * 100}%`, height: `${(f.windowH / OUT_H) * 100}%`, borderRadius: f.shape === 'circle' ? '50%' : 0 }} />
                   )}

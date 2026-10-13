@@ -39,7 +39,8 @@ export default function BookingEdit() {
   const [tab, setTab] = useState('providers')
   const tz = resolveTimeZone(graph?.project?.timezone)
   const config = useMemo(() => normalizeBookingConfig(node.config), [node.config])
-  const rows = useMemo(() => mergeProviders(providersIn.items, admin.data?.providers ?? []), [providersIn.items, admin.data])
+  const withdrawnById = useMemo(() => new Map((extras.data?.withdrawn_items ?? []).map((x) => [x.id, x])), [extras.data])
+  const rows = useMemo(() => mergeProviders(providersIn.items, admin.data?.providers ?? [], withdrawnById), [providersIn.items, admin.data, withdrawnById])
   const settings = admin.data?.settings ?? null
 
   async function run(fn, { success = null } = {}) {

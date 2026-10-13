@@ -14,9 +14,10 @@ import { useListItems, useListMeta, useListMutations } from '../../data/lists.js
 import { usePeopleMutations } from '../../data/people.js'
 import { uploadImage } from '../../data/storage.js'
 import { useAuth } from '../../app/AuthContext.js'
-import { biPick } from '../../lib/entities.js'
+import { biPick, isActiveItem } from '../../lib/entities.js'
 import { exportRows } from '../../lib/export/xlsx.js'
 import { EntityManager } from '../../shared/entities/EntityManager.jsx'
+import { useWithdrawFlow } from '../../shared/entities/useWithdrawFlow.jsx'
 import { EntityPicker } from '../../shared/entities/EntityPicker.jsx'
 import { ItemEditor } from '../../shared/entities/ItemEditor.jsx'
 import { ImportItemsModal } from '../../shared/entities/ImportItemsModal.jsx'
@@ -27,6 +28,9 @@ import { normalizeListConfig } from './listConfig.js'
  * Edit mode of a List (design 01 section 3.3 / 02 section 3): the list manager. Every write is an immediate
  * row-level save through the RPCs (overlay edits are not drafts, 02 section 6); the DB bumps the list revision so
  * downstream views refresh. Virtual (edge-fed) items get their overlay row lazily on first edit (ensure_item).
+ * "Hide" is gone (decision 17.1): the PM marks an item WITHDRAWN (confirmation + optional reason + Undo) and reinstates it; a
+ * withdrawn item stays in this manager with its chip and leaves every list / consumer fed by this one. Items hidden with the
+ * old Hide keep a "Hidden (legacy)" chip (convert to withdrawn, or restore).
  */
 export default function ListEdit() {
   const { node, projectId, graph } = useNodeContext()
@@ -38,7 +42,7 @@ export default function ListEdit() {
   const meta = useListMeta(node.id)
   const kind = meta.data?.subkind ?? 'generic'
   const config = useMemo(() => normalizeListConfig(node.config), [node.config])
-  const items = useListItems(node.id, { filter: { include_excluded: true }, kind }, { enabled: meta.isSuccess })
+  const items = useListItems(node.id, { filter: { include_excluded: true, include_withdrawn: true }, kind }, { enabled: meta.isSuccess })
   const m = useListMutations(node.id, { onChanged: () => invalidateNodeOutputs(qc, graph, node.id, projectId) })
   const people = usePeopleMutations()
   const [picker, setPicker] = useState(null) // 'expert' | 'company'
@@ -68,15 +72,19 @@ export default function ListEdit() {
     }
   }
   const nameOf = (item) => biPick(item.entity.title, lang) || '-'
+  const flow = useWithdrawFlow({
+    nameOf,
+    onWithdraw: (list, reason) => (list.length === 1 ? m.withdraw.mutateAsync({ item: list[0], reason }) : m.bulkWithdraw.mutateAsync({ items: list, reason })),
+    onReinstate: (list) => (list.length === 1 ? m.reinstate.mutateAsync({ item: list[0] }) : m.bulkReinstate.mutateAsync({ items: list })),
+  })
 
   const actions = {
     setStatus: (item, status) => run(() => m.setStatus.mutateAsync({ item, status }), { item }),
     patchOverlay: (item, patch) => run(() => m.patchOverlay.mutateAsync({ item, patch }), { item }),
-    exclude: (item, excluded) =>
-      run(() => m.exclude.mutateAsync({ item, excluded }), { item }).then((r) => {
-        if (r === undefined) return
-        toast.success(t(excluded ? 'list.edit.hidden' : 'list.edit.shown'), { action: { label: t('list.edit.undo'), onClick: () => run(() => m.exclude.mutateAsync({ item, excluded: !excluded })) } })
-      }),
+    withdraw: flow.withdraw,
+    reinstate: flow.reinstate,
+    // LEGACY hidden items only: "Restore to the list" (nothing creates the Hide flag any more)
+    exclude: (item, excluded) => run(() => m.exclude.mutateAsync({ item, excluded }), { item, success: t('entity.withdraw.restored') }),
     reorder: (list) => run(() => m.reorder.mutateAsync({ items: list })),
     edit: (item) => setEditor({ item }),
     remove: async (item) => {
@@ -88,7 +96,6 @@ export default function ListEdit() {
       run(() => m.detach.mutateAsync({ item }), { item, success: t('list.edit.detached') })
     },
     bulkStatus: (list, status) => run(() => m.bulkStatus.mutateAsync({ items: list, status }), { success: t('list.edit.statusSet', { count: list.length }) }),
-    bulkExclude: (list, excluded) => run(() => m.bulkExclude.mutateAsync({ items: list, excluded }), { success: t(excluded ? 'list.edit.bulkHidden' : 'list.edit.bulkShown', { count: list.length }) }),
     export: (list) => run(async () => {
       const n = await exportRows(list, listItemColumns(t, config), `${pick(node, 'name') || 'list'}`)
       toast.success(t('list.edit.exported', { count: n }))
@@ -151,7 +158,7 @@ export default function ListEdit() {
   )
 
   return (
-    <NodeFrame showSave={false} subtitle={t('list.edit.subtitle', { kind: t(`list.kind.${kind}`), count: items.data?.length ?? 0, sources: sources.length })}>
+    <NodeFrame showSave={false} subtitle={t('list.edit.subtitle', { kind: t(`list.kind.${kind}`), count: (items.data ?? []).filter(isActiveItem).length, sources: sources.length })}>
       <div className="mb-3 flex flex-wrap items-center gap-2 text-xs text-muted-foreground" data-testid="list-sources">
         <span className="font-medium">{t('list.edit.sources')}:</span>
         {sources.length === 0 ? <span>{t('list.edit.noSources')}</span> : sources.map((s) => <Badge key={s.id} tone="blue">{pick(s, 'name') || s.type}</Badge>)}
@@ -177,6 +184,7 @@ export default function ListEdit() {
           onCreate={(view) => run(() => (picker === 'expert' ? people.createExpert.mutateAsync({ view, kind: 'expert' }) : people.createCompany.mutateAsync({ view, originProjectId: projectId, userId: user?.id })))}
         />
       )}
+      {flow.dialog}
       {editor && <ItemEditor item={editor.item} kind={kind} config={config} onClose={() => setEditor(null)} onSave={saveEditor} onUpload={upload} saving={saving} />}
       {importing && <ImportItemsModal onClose={() => setImporting(false)} onImport={importRows} />}
     </NodeFrame>

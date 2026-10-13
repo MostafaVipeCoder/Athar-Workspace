@@ -54,7 +54,7 @@ export default function ResourceRow({ resource: r, index, count, categories, err
           </button>
         )}
         <span className="flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-md bg-surface text-primary" aria-hidden="true">
-          {r.coverPath ? <img src={publicThumbUrl(r.coverPath)} alt="" className="h-full w-full object-cover" /> : <Icon className="h-5 w-5" />}
+          {r.coverPath ? <img src={publicThumbUrl(r.coverPath)} alt="" loading="lazy" decoding="async" className="h-full w-full object-cover" /> : <Icon className="h-5 w-5" />}
         </span>
         <div className="min-w-0 flex-1 basis-40">
           <p dir="auto" className="truncate font-semibold">{title}</p>
@@ -141,6 +141,7 @@ export default function ResourceRow({ resource: r, index, count, categories, err
 
           <ImageField
             label={t('library.edit.cover')}
+            profile="content"
             src={r.coverPath ? publicImageUrl(r.coverPath) : null}
             thumb={r.coverPath ? publicThumbUrl(r.coverPath) : null}
             aspect="16 / 10"

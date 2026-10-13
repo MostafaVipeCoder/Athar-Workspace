@@ -55,9 +55,9 @@ function EntityCardImpl({ entity, show = CARD_FIELDS, forceExpanded = false, exp
   // compact row (founder Program page lists): a round avatar / logo box beside the text instead of a 3:1 picture band
   if (dense) {
     return (
-      <article className={cn('flex h-full items-start gap-3 overflow-hidden rounded-card border border-border bg-card p-3 text-card-foreground', muted && 'opacity-60', className)} style={accent ? { borderInlineStartColor: accent, borderInlineStartWidth: 4 } : undefined} data-testid="entity-card" data-kind={entity.kind} data-dense="true">
+      <article className={cn('flex h-full items-start gap-3 overflow-hidden rounded-card border border-border bg-card p-3 text-card-foreground', muted && 'bg-surface', className)} style={accent ? { borderInlineStartColor: accent, borderInlineStartWidth: 4 } : undefined} data-testid="entity-card" data-kind={entity.kind} data-dense="true">
         {visible.has('image') && (
-          <div className={cn('flex h-14 w-14 shrink-0 items-center justify-center overflow-hidden bg-surface text-muted-foreground', isCompany ? 'rounded-md' : 'rounded-full')}>
+          <div className={cn('flex h-14 w-14 shrink-0 items-center justify-center overflow-hidden bg-surface text-muted-foreground', isCompany ? 'rounded-md' : 'rounded-full', muted && 'opacity-60')}>
             {entity.imagePath ? (
               <Img src={publicImageUrl(entity.imagePath)} thumb={publicThumbUrl(entity.imagePath)} alt={title} aspect="1 / 1" fit={isCompany ? 'contain' : 'cover'} className={cn('h-full w-full', isCompany && 'bg-white p-1')} />
             ) : (
@@ -66,7 +66,7 @@ function EntityCardImpl({ entity, show = CARD_FIELDS, forceExpanded = false, exp
           </div>
         )}
         <div className="flex min-w-0 flex-1 flex-col gap-0.5">
-          {visible.has('title') && <h3 dir="auto" className="break-words text-base font-bold leading-snug">{title || '-'}</h3>}
+          {visible.has('title') && <h3 dir="auto" className={cn('break-words text-base font-bold leading-snug', muted && 'text-muted-foreground')}>{title || '-'}</h3>}
           {visible.has('subtitle') && subtitle && <p dir="auto" className="text-sm font-medium text-primary">{subtitle}</p>}
           {visible.has('organization') && organization && <p dir="auto" className="text-sm text-muted-foreground">{organization}</p>}
           {visible.has('bio') && bio && <ExpandableText text={bio} lines={2} threshold={90} forceExpanded={forceExpanded || !expandable} labels={{ more: t('entity.card.more'), less: t('entity.card.less') }} className="mt-1" />}
@@ -79,13 +79,13 @@ function EntityCardImpl({ entity, show = CARD_FIELDS, forceExpanded = false, exp
 
   return (
     <article
-      className={cn('flex h-full flex-col overflow-hidden rounded-card border border-border bg-card text-card-foreground', muted && 'opacity-60', className)}
+      className={cn('flex h-full flex-col overflow-hidden rounded-card border border-border bg-card text-card-foreground', muted && 'bg-surface', className)}
       style={accent ? { borderTopColor: accent, borderTopWidth: 4 } : undefined}
       data-testid="entity-card"
       data-kind={entity.kind}
     >
       {visible.has('image') && (
-        <div className={cn('relative bg-surface', dense ? 'h-28' : '')}>
+        <div className={cn('relative bg-surface', dense ? 'h-28' : '', muted && 'opacity-60')}>
           {entity.imagePath ? (
             <Img src={publicImageUrl(entity.imagePath)} thumb={publicThumbUrl(entity.imagePath)} alt={title} aspect={dense ? '3 / 1' : isCompany ? '16 / 9' : '4 / 3'} fit={isCompany ? 'contain' : 'cover'} className={cn(isCompany && 'bg-white p-3')} />
           ) : (
@@ -98,7 +98,7 @@ function EntityCardImpl({ entity, show = CARD_FIELDS, forceExpanded = false, exp
       <div className="flex flex-1 flex-col gap-2 p-4">
         {badges && <div className="flex flex-wrap gap-1">{badges}</div>}
         {/* dir="auto": an English bio inside the Arabic UI (or vice versa) keeps its own reading direction */}
-        {visible.has('title') && <h3 dir="auto" className="text-base font-bold leading-snug">{title || '-'}</h3>}
+        {visible.has('title') && <h3 dir="auto" className={cn('text-base font-bold leading-snug', muted && 'text-muted-foreground')}>{title || '-'}</h3>}
         {visible.has('subtitle') && subtitle && <p dir="auto" className="text-sm font-medium text-primary">{subtitle}</p>}
         {visible.has('organization') && organization && <p dir="auto" className="text-sm text-muted-foreground">{organization}</p>}
         {visible.has('bio') && bio && (

@@ -10,12 +10,13 @@ import { Avatar } from '../../ui/Avatar.jsx'
 import { EmptyState } from '../../ui/States.jsx'
 import { Field, SELECT_CLASS } from '../../ui/Field.jsx'
 import { cn } from '../../lib/cn.js'
+import { WithdrawnChip } from '../../shared/entities/WithdrawnChip.jsx'
 import { to12h } from '../../lib/time/slots.js'
 import { publicThumbUrl } from '../../data/storage.js'
 import { exportWorkbook } from '../../lib/export/xlsx.js'
 import { dayDate, dayLabel } from './dayLabels.js'
 import { TimeRange } from './TimeRange.jsx'
-import { buildMatrix, dayEndMinutes, defaultDayId, distributionSheets, nameOf, validateTimetable } from './distributionLogic.js'
+import { buildMatrix, dayEndMinutes, defaultDayId, distributionSheets, nameOf, validateTimetable, withdrawnIdsOf } from './distributionLogic.js'
 import { summarizeUnmatched } from './matching.js'
 
 const SEVERITY_ICON = { error: XCircle, warning: AlertTriangle, info: Info }
@@ -37,10 +38,12 @@ export default function TimetableTab({ model, rules, companyIds, onGenerate, gen
   const { seed, setSeed, fixed, setFixed } = seedState
 
   const dayId = picked && model.days.some((d) => d.id === picked) ? picked : defaultDayId(model.days, model.tz)
-  const report = useMemo(() => validateTimetable({ days: model.days, sessions: model.sessions, rules, uniquePairing: model.config.uniquePairing, companyIds }), [model, rules, companyIds])
+  const withdrawnIds = useMemo(() => withdrawnIdsOf(model), [model])
+  const report = useMemo(() => validateTimetable({ days: model.days, sessions: model.sessions, rules, uniquePairing: model.config.uniquePairing, companyIds, withdrawn: withdrawnIds }), [model, rules, companyIds, withdrawnIds])
   const problemCells = useMemo(() => new Set(report.issues.filter((i) => i.severity !== 'info' && i.slotIndex !== null).map((i) => `${i.dayId}|${i.slotIndex}|${i.mentorId}`)), [report])
   const reasonByCell = useMemo(() => new Map((lastResult?.unmatched ?? []).map((u) => [`${u.dayId}|${u.slotIndex}|${u.mentorId}`, u.reason])), [lastResult])
-  const companies = [...model.companies.values()].sort((a, b) => nameOf(a, lang).localeCompare(nameOf(b, lang), lang))
+  // companies offered to a cell and to the highlight: a withdrawn company can no longer be placed (the DB refuses it)
+  const companies = [...model.companies.values()].filter((c) => !c.withdrawn).sort((a, b) => nameOf(a, lang).localeCompare(nameOf(b, lang), lang))
   const lockedCount = model.days.filter((d) => d.locked).length
 
   async function apply(changes, inverse, doneKey) {
@@ -236,7 +239,7 @@ function DayGrid({ model, day, hidden, focus, problemCells, reasonByCell, dragFr
                     <th key={m} scope="col" className="min-w-40 border-b border-border px-3 py-2 text-start align-bottom font-semibold">
                       <span className="flex items-center gap-2">
                         <Avatar name={nameOf(e, lang)} id={m} src={e?.image ? publicThumbUrl(e.image) : undefined} size="sm" className="print:hidden" />
-                        <span className="min-w-0"><span className="block truncate" dir="auto">{nameOf(e, lang)}</span>{e?.room && <span className="block truncate text-xs font-normal text-muted-foreground" dir="auto">{e.room}</span>}</span>
+                        <span className="min-w-0"><span className="block truncate" dir="auto">{nameOf(e, lang)}</span>{e?.withdrawn && <WithdrawnChip />}{e?.room && <span className="block truncate text-xs font-normal text-muted-foreground" dir="auto">{e.room}</span>}</span>
                       </span>
                     </th>
                   )
@@ -280,7 +283,7 @@ function DayGrid({ model, day, hidden, focus, problemCells, reasonByCell, dragFr
                           {company ? (
                             <>
                               {!locked && <GripVertical className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground print:hidden" aria-hidden="true" />}
-                              <span className="min-w-0 flex-1" dir="auto">{nameOf(company, lang)}</span>
+                              <span className="min-w-0 flex-1" dir="auto">{nameOf(company, lang)}{company.withdrawn && <WithdrawnChip className="ms-1" data-testid="cell-withdrawn" />}</span>
                               {cell.manual && <Pin className="mt-0.5 h-3.5 w-3.5 shrink-0 text-primary" aria-label={t('distribution.timetable.manual')} />}
                             </>
                           ) : (

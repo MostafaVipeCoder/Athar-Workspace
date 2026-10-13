@@ -147,6 +147,12 @@ export function biPick(pair, lang) {
  * resolve_list row (or a public tab item) -> ListItemView. Virtual items (no overlay row yet) get a stable client key
  * `virtual:<kind>:<source id>`; `itemId` stays null until ensure_item (02 section 3.2).
  */
+/**
+ * An ACTIVE item: neither withdrawn (decision 17.1) nor hidden by the legacy "Hide". The ONE predicate behind every count, recipient list, picker and
+ * public list that must leave the others out (it was an inline `!i.excluded && !i.withdrawn` in ten places).
+ */
+export const isActiveItem = (item) => !item?.excluded && !item?.withdrawn
+
 export function normalizeListItem(row, kind = 'generic') {
   if (!row) return null
   const source = row.source ?? { kind: 'manual', id: null, state: 'ok' }
@@ -164,6 +170,9 @@ export function normalizeListItem(row, kind = 'generic') {
     status: row.status ?? null,
     sortOrder: row.sort_order ?? null,
     excluded: Boolean(row.excluded),
+    // m40: WITHDRAWN (decision 17.1). `withdrawn` is decided by the DB (item flag or the participant row of the same identity); `withdrawal` = { at, reason, source }, PM views only.
+    withdrawn: Boolean(row.withdrawn),
+    withdrawal: row.withdrawal && typeof row.withdrawal === 'object' ? row.withdrawal : null,
     cursor: row.cursor ?? null,
     contact: row.contact ?? {},
     fields: row.fields ?? null,

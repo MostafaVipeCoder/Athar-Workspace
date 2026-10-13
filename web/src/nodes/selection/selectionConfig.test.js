@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { boardColumns, defaultSelectionConfig, effectiveStage, emailIndex, normalizeSelectionConfig, portStatuses, renderTemplate, sampleVars, sanitizePreviewHtml, scoreIndex, stageCounts, stageForEmail, toStoredConfig, unknownPlaceholders, validateSelectionConfig } from './selectionConfig.js'
+import { withdrawnCount, boardColumns, defaultSelectionConfig, effectiveStage, emailIndex, normalizeSelectionConfig, portStatuses, renderTemplate, sampleVars, sanitizePreviewHtml, scoreIndex, stageCounts, stageForEmail, toStoredConfig, unknownPlaceholders, validateSelectionConfig } from './selectionConfig.js'
 
 const item = (over = {}) => ({ id: 'i', itemId: 'i', source: { kind: 'form_response', id: 'r', state: 'ok' }, entity: { title: { en: 'Nile Co', ar: '' }, subtitle: { en: 'Abdel Rahman Ali', ar: '' }, organization: { en: '', ar: '' }, bio: { en: '', ar: '' }, links: [] }, contact: { email: 'f@x.io', phone: '' }, overlay: {}, fields: { company_name: 'Nile Co', q7: 'yes' }, status: null, excluded: false, ...over })
 
@@ -41,6 +41,18 @@ describe('selectionConfig', () => {
     expect(stageForEmail(c, 'acceptance')).toBeNull()
     expect(effectiveStage(item(), c)).toBe('in')
     expect(stageCounts([item(), item({ status: 'go' }), item({ status: 'go', excluded: true })], c)).toEqual({ in: 1, go: 1 })
+  })
+
+  it('WITHDRAWN applicants (m40) keep their stage but leave the stage counts; they are counted apart and exported with the reason', () => {
+    const c = normalizeSelectionConfig({ stages: [{ key: 'in', type: 'inbox' }, { key: 'go', type: 'accept' }] })
+    const gone = item({ status: 'go', withdrawn: true, withdrawal: { at: '2026-10-13T08:00:00Z', reason: 'left', source: 'participant' } })
+    expect(stageCounts([item(), item({ status: 'go' }), gone], c)).toEqual({ in: 1, go: 1 })
+    expect(withdrawnCount([item(), gone, item({ withdrawn: true })])).toBe(2)
+    expect(withdrawnCount()).toBe(0)
+    const cols = boardColumns((k) => k, 'en', { config: c, fields: [] })
+    expect(cols.find((x) => x.header === 'entity.export.presence').key(gone)).toBe('entity.export.withdrawn')
+    expect(cols.find((x) => x.header === 'entity.export.presence').key(item())).toBe('')
+    expect(cols.find((x) => x.header === 'entity.withdraw.reason').key(gone)).toBe('left')
   })
 
   it('renders templates like the server: escaped values, <br> for plain text, anchors for the booking link, unknown tokens dropped', () => {

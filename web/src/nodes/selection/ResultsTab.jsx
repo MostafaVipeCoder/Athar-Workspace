@@ -3,7 +3,7 @@ import './i18n.js'
 import { EntityGrid } from '../../shared/entities/EntityGrid.jsx'
 import { Button } from '../../ui/Button.jsx'
 import { useLanguage } from '../../i18n/LanguageProvider.jsx'
-import { normalizeListItem, visibleCardFields } from '../../lib/entities.js'
+import { isActiveItem, normalizeListItem, visibleCardFields } from '../../lib/entities.js'
 import { normalizeSelectionConfig } from './selectionConfig.js'
 
 /**
@@ -19,7 +19,7 @@ export default function ResultsTab({ data = null, items = null, config = null, t
   const cfg = useMemo(() => normalizeSelectionConfig(config ?? { card: data?.config?.card }), [config, data])
   const rows = useMemo(() => {
     const list = items ?? (data?.items ?? []).map((r) => normalizeListItem(r, 'company'))
-    return list.filter((i) => !i.excluded && (audience === 'pm' || !i.missing))
+    return list.filter((i) => isActiveItem(i) && (audience === 'pm' || !i.missing))
   }, [items, data, audience])
   const cards = rows.map((i) => ({ key: i.id, entity: i.entity, show: visibleCardFields(cfg.card.showFields, i.card), muted: i.missing }))
   return (

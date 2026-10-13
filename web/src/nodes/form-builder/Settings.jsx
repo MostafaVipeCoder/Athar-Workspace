@@ -132,7 +132,7 @@ export default function FormSettings() {
             <Field label={t('form.settings.shareTitle')} value={config.share.title} onChange={(e) => patch({ share: { ...config.share, title: e.target.value } })} />
             <Field label={t('form.settings.shareDescription')} value={config.share.description} onChange={(e) => patch({ share: { ...config.share, description: e.target.value } })} />
           </div>
-          <ImageField label={t('form.settings.shareImage')} src={config.share.image_path ? publicImageUrl(config.share.image_path) : null} thumb={config.share.image_path ? publicThumbUrl(config.share.image_path) : null} aspect="1.91 / 1" className="max-w-sm"
+          <ImageField label={t('form.settings.shareImage')} profile="cover" src={config.share.image_path ? publicImageUrl(config.share.image_path) : null} thumb={config.share.image_path ? publicThumbUrl(config.share.image_path) : null} aspect="1.91 / 1" className="max-w-sm"
             labels={{ choose: t('image.choose'), replace: t('image.replace'), remove: t('image.remove'), hint: t('image.hint') }} errorText={(p) => t(`errors.image.${p}`)}
             onFile={async (file) => { const path = await uploadImage(file, { ownerId: projectId, kind: 'og' }); patch({ share: { ...config.share, image_path: path } }) }}
             onClear={() => patch({ share: { ...config.share, image_path: null } })} />

@@ -1,8 +1,19 @@
 import { describe, expect, it } from 'vitest'
 import {
-  CARD_FIELDS, biPick, cardShowOf, entityMatches, linksOf, normalizeCompany, normalizeDisplay, normalizeExpert, normalizeListItem,
+  CARD_FIELDS, biPick, cardShowOf, isActiveItem, entityMatches, linksOf, normalizeCompany, normalizeDisplay, normalizeExpert, normalizeListItem,
   toCompanyRow, toExpertRow, toManualFields, validateEntityView, visibleCardFields,
 } from './entities.js'
+
+describe('isActiveItem (the one "still part of the program" predicate)', () => {
+  it('is false for a withdrawn or a legacy-hidden item, true otherwise', () => {
+    expect(isActiveItem({})).toBe(true)
+    expect(isActiveItem({ excluded: false, withdrawn: false })).toBe(true)
+    expect(isActiveItem({ withdrawn: true })).toBe(false)
+    expect(isActiveItem({ excluded: true })).toBe(false)
+    expect(isActiveItem({ excluded: true, withdrawn: true })).toBe(false)
+    expect(isActiveItem(null)).toBe(true) // nothing to exclude: callers filter missing rows themselves
+  })
+})
 
 describe('lib/entities', () => {
   it('normalises an expert row into the one EntityView shape', () => {
@@ -50,6 +61,17 @@ describe('lib/entities', () => {
     expect(gone.missing).toBe(true)
     expect(gone.id).toBe('i1')
     expect(gone.overlay.notes).toBe('n')
+  })
+
+  it('normalizeListItem carries the WITHDRAWN fact (m40): a flag and the PM-only { at, reason, source }; absent = active', () => {
+    const active = normalizeListItem({ item_id: 'a', source: { kind: 'company', id: 'c', state: 'ok' }, display: { title_en: 'Co' }, overlay: {}, withdrawn: false, withdrawal: null }, 'company')
+    expect(active.withdrawn).toBe(false)
+    expect(active.withdrawal).toBeNull()
+    const gone = normalizeListItem({ item_id: 'b', source: { kind: 'company', id: 'd', state: 'ok' }, display: { title_en: 'Co 2' }, overlay: {}, withdrawn: true, withdrawal: { at: '2026-10-13T08:00:00Z', reason: 'closed', source: 'participant' } }, 'company')
+    expect(gone.withdrawn).toBe(true)
+    expect(gone.withdrawal).toEqual({ at: '2026-10-13T08:00:00Z', reason: 'closed', source: 'participant' })
+    expect(normalizeListItem({ item_id: 'c', source: { kind: 'manual', id: null, state: 'ok' }, display: {}, overlay: {} }, 'generic').withdrawn).toBe(false) // an older payload without the key
+    expect(normalizeListItem({ item_id: 'e', source: { kind: 'manual', id: null, state: 'ok' }, display: {}, overlay: {}, excluded: true }, 'generic')).toMatchObject({ excluded: true, withdrawn: false }) // legacy hidden is NOT withdrawn
   })
 
   it('card visibility: legacy per-item keys map onto CARD_FIELDS and the list default fills the rest', () => {

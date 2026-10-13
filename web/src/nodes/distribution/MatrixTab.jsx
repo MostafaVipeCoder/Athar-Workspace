@@ -1,8 +1,11 @@
 import { useMemo, useState } from 'react'
 import { CalendarDays, Printer, Search } from 'lucide-react'
 import './i18n.js'
+import '../../shared/entities/i18n.js'
+import { WithdrawnChip } from '../../shared/entities/WithdrawnChip.jsx'
 import { useLanguage } from '../../i18n/LanguageProvider.jsx'
 import { Avatar } from '../../ui/Avatar.jsx'
+import { Badge } from '../../ui/Badge.jsx'
 import { Button } from '../../ui/Button.jsx'
 import { EmptyState } from '../../ui/States.jsx'
 import { SELECT_CLASS } from '../../ui/Field.jsx'
@@ -75,7 +78,7 @@ export default function MatrixTab({ data = null, model: modelProp = null, title,
           <span className="sr-only">{t('distribution.view.highlight')}</span>
           <select value={focus} onChange={(e) => setFocus(e.target.value)} className={cn(SELECT_CLASS, 'min-h-11 w-56 max-w-full')} data-testid="matrix-highlight">
             <option value="">{t('distribution.view.highlight')}</option>
-            {companies.map((c) => <option key={c.id} value={c.id}>{nameOf(c, lang)}</option>)}
+            {companies.map((c) => <option key={c.id} value={c.id}>{nameOf(c, lang)}{c.withdrawn ? ` (${t('entity.withdraw.chip')})` : ''}</option>)}
           </select>
         </label>
         {showPrint && <Button variant="ghost" size="sm" onClick={() => window.print()}><Printer className="h-4 w-4" aria-hidden="true" />{t('distribution.view.print')}</Button>}
@@ -121,6 +124,7 @@ function DayGrid({ model, dayId, hidden, now, today, focus, lang, t }) {
                         <Avatar name={nameOf(e, lang)} id={m} src={e?.image ? publicThumbUrl(e.image) : undefined} size="sm" className="print:hidden" />
                         <span className="min-w-0">
                           <span className="block truncate" dir="auto">{nameOf(e, lang)}</span>
+                          {e?.withdrawn && <WithdrawnChip data-testid="matrix-mentor-withdrawn" />}
                           {e?.room && <span className="block truncate text-xs font-normal text-muted-foreground" dir="auto">{e.room}</span>}
                         </span>
                       </span>
@@ -142,7 +146,7 @@ function DayGrid({ model, dayId, hidden, now, today, focus, lang, t }) {
                     const hit = focus && cell?.companyId === focus
                     return (
                       <td key={m} className={cn('px-3 py-2 align-top', hit && 'bg-primary/10 font-bold ring-2 ring-inset ring-primary', focus && !hit && c && 'text-muted-foreground')} data-testid="matrix-cell" data-company={cell?.companyId ?? undefined}>
-                        {c ? <span dir="auto">{nameOf(c, lang)}</span> : <span className="text-muted-foreground" aria-label={t('distribution.view.free')}>-</span>}
+                        {c ? <span dir="auto">{nameOf(c, lang)}{c.withdrawn && <WithdrawnChip className="ms-1" data-testid="matrix-cell-withdrawn" />}</span> : <span className="text-muted-foreground" aria-label={t('distribution.view.free')}>-</span>}
                       </td>
                     )
                   })}

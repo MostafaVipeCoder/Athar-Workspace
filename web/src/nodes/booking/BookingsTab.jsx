@@ -7,6 +7,8 @@ import { EmptyState, Loading } from '../../ui/States.jsx'
 import { useToast } from '../../ui/Toast.jsx'
 import { useConfirm } from '../../ui/ConfirmDialog.jsx'
 import { useLanguage } from '../../i18n/LanguageProvider.jsx'
+import '../../shared/entities/i18n.js'
+import { WithdrawnChip } from '../../shared/entities/WithdrawnChip.jsx'
 import { exportRows } from '../../lib/export/xlsx.js'
 import { formatDateTime, formatTime } from '../../lib/time/format.js'
 import { cn } from '../../lib/cn.js'
@@ -31,6 +33,8 @@ export default function BookingsTab({ node, rows, slots, bookings, extras, loadi
   const slotById = useMemo(() => Object.fromEntries(slots.map((s) => [s.id, s])), [slots])
   const providerNames = useMemo(() => Object.fromEntries(rows.filter((r) => r.provider).map((r) => [r.provider.id, providerName(r, lang)])), [rows, lang])
   const emails = useMemo(() => emailIndex(extras?.emails ?? []), [extras])
+  // m40: bookers (invited companies) the PM marked WITHDRAWN: their booking stays (nothing is cancelled automatically), flagged for the PM
+  const withdrawnIds = useMemo(() => new Set((extras?.withdrawn_items ?? []).map((x) => x.id)), [extras])
   const bySlot = useMemo(() => confirmedBySlot(bookings), [bookings])
   const [now] = useState(() => Date.now()) // "upcoming / past" split as of mount; the lists refetch on focus anyway
   const list = useMemo(() => bookings.map((b) => {
@@ -103,6 +107,7 @@ export default function BookingsTab({ node, rows, slots, bookings, extras, loadi
                       <p className="font-medium" dir="auto">{b.booker_name || '-'}</p>
                       <p className="text-xs text-muted-foreground" dir="ltr">{b.booker_email}</p>
                       {b.company && <p className="text-xs" dir="auto">{b.company}</p>}
+                      {b.booker_item_id && withdrawnIds.has(b.booker_item_id) && <WithdrawnChip data-testid="booker-withdrawn" />}
                     </td>
                     <td className="p-2" dir="auto">{providerNames[b.provider_id] ?? '-'}</td>
                     <td className="p-2 tabular-nums">{b.starts_at ? <>{formatDateTime(b.starts_at, { lang, tz })} - {formatTime(b.ends_at, { lang, tz })}</> : '-'}</td>
@@ -143,7 +148,7 @@ export default function BookingsTab({ node, rows, slots, bookings, extras, loadi
           <h3 className="text-sm font-semibold">{t('booking.bookings.invitations')}</h3>
           <ul className="flex flex-wrap gap-1 text-xs">
             {extras.invitations.map((i) => (
-              <li key={i.id}><Badge tone={i.used ? 'green' : i.revoked_at ? 'neutral' : 'blue'}>{pick(i, 'company') || i.email || i.booker_item_id.slice(0, 8)}{i.used ? ' ✓' : ''}</Badge></li>
+              <li key={i.id}><Badge tone={i.withdrawn ? 'red' : i.used ? 'green' : i.revoked_at ? 'neutral' : 'blue'} title={i.withdrawn ? t('booking.bookings.withdrawnInvite') : undefined}>{pick(i, 'company') || i.email || i.booker_item_id.slice(0, 8)}{i.used ? ' ✓' : ''}{i.withdrawn ? ` · ${t('entity.withdraw.chip')}` : ''}</Badge></li>
             ))}
           </ul>
         </section>

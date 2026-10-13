@@ -54,11 +54,11 @@ function saveBlob(blob, name) {
   setTimeout(() => URL.revokeObjectURL(url), 10_000)
 }
 
-/** Render at full resolution and download as `png` or `pdf` (file name = printed name + code). */
+/** Render at full resolution and download as `png` or `pdf` (file name = the printed PERSON name + the code: each founder's file carries his own name). */
 export async function downloadCertificate(payload, kind = 'png') {
   const canvas = document.createElement('canvas')
   await renderPayloadToCanvas(payload, canvas)
-  const name = payload.snapshot?.participant_name
+  const name = payload.snapshot?.person_name ?? payload.snapshot?.participant_name
   if (kind === 'pdf') saveBlob(await canvasToPdfBlob(canvas, { title: `Certificate ${name ?? ''}` }), certificateFileName(name, payload.code, 'pdf'))
   else saveBlob(await canvasToBlob(canvas, 'image/png'), certificateFileName(name, payload.code, 'png'))
   canvas.width = 0

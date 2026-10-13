@@ -27,7 +27,7 @@ function formatValue(v) {
  * review (reason, reviewer), per-reviewer scores with the caller's own score + note, the decision e-mails sent and the
  * participant status. Writes go through the callbacks of the board.
  */
-export function ApplicantDrawer({ item, config, fields = [], review = null, score = null, emails = {}, participant = null, sourceLink = null, onClose, onSetStage, onSaveScore, saving = false, formatDate }) {
+export function ApplicantDrawer({ item, config, fields = [], review = null, score = null, emails = {}, participant = null, sourceLink = null, onClose, onSetStage, onSaveScore, onWithdraw, onReinstate, saving = false, formatDate }) {
   const { t, lang } = useLanguage()
   const [myScore, setMyScore] = useState(score?.mine?.score ?? null)
   const [myNote, setMyNote] = useState(score?.mine?.note ?? '')
@@ -50,6 +50,7 @@ export function ApplicantDrawer({ item, config, fields = [], review = null, scor
             <ExternalLink className="h-4 w-4" aria-hidden="true" />{t('selection.edit.openSource')}
           </Link>
         )}
+        {onWithdraw && !item.withdrawn && <Button variant="outline" size="sm" className="text-destructive-text" onClick={() => onWithdraw(item)} disabled={saving} data-testid="drawer-withdraw">{t('entity.withdraw.mark')}</Button>}
         <Button variant="outline" size="sm" onClick={onClose}>{t('common.close')}</Button>
       </>}
     >
@@ -57,7 +58,8 @@ export function ApplicantDrawer({ item, config, fields = [], review = null, scor
         <section className="flex flex-wrap items-center gap-2">
           <Badge tone="outline">{t(`entity.source.${item.source.kind}`)}</Badge>
           {item.missing && <Badge tone="red">{t('entity.source.missing')}</Badge>}
-          {item.excluded && <Badge tone="amber">{t('entity.source.hidden')}</Badge>}
+          {item.withdrawn && <Badge tone="red" data-testid="drawer-withdrawn">{t('entity.withdraw.chip')}</Badge>}
+          {item.excluded && !item.withdrawn && <Badge tone="amber">{t('entity.source.hidden')}</Badge>}
           {item.overlay?.legacy_status === 'displayed' && <Badge tone="neutral">{t('selection.edit.legacyDisplayed')}</Badge>}
           {participant && <Badge tone={participant.status === 'attended' ? 'green' : participant.status === 'withdrawn' ? 'red' : 'blue'}>{t('selection.drawer.participant', { status: t(`selection.participants.status.${participant.status}`) })}</Badge>}
           <label className="ms-auto flex items-center gap-2">
@@ -68,6 +70,17 @@ export function ApplicantDrawer({ item, config, fields = [], review = null, scor
             </select>
           </label>
         </section>
+
+        {item.withdrawn && (
+          <section className="flex flex-wrap items-center gap-3 rounded-md border border-destructive/40 bg-destructive/5 p-3" data-testid="drawer-withdrawn-box">
+            <div className="min-w-0 flex-1">
+              <p className="font-semibold text-destructive-text">{t('selection.drawer.withdrawnTitle')}</p>
+              {item.withdrawal?.reason && <p className="whitespace-pre-line" dir="auto">{t('entity.withdraw.reasonShown', { reason: item.withdrawal.reason })}</p>}
+              {item.withdrawal?.at && <p className="text-xs text-muted-foreground">{formatDate?.(item.withdrawal.at)}</p>}
+            </div>
+            {onReinstate && <Button size="sm" variant="outline" onClick={() => onReinstate(item)} disabled={saving} data-testid="drawer-reinstate">{t('entity.withdraw.reinstate')}</Button>}
+          </section>
+        )}
 
         {(review?.reason || review?.origin_stage || review?.reviewed_at) && (
           <section className="rounded-md border bg-surface/60 p-3" data-testid="drawer-review">

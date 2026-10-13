@@ -29,7 +29,7 @@ export default function ProgramPage() {
   return (
     <div className="space-y-5" data-testid="program-page">
       <div className="panel overflow-hidden">
-        {g.cover_path && <Img src={publicImageUrl(g.cover_path)} thumb={publicThumbUrl(g.cover_path)} alt="" aspect="21 / 9" eager />}
+        {g.cover_path && <Img src={publicImageUrl(g.cover_path)} thumb={publicThumbUrl(g.cover_path)} alt="" aspect="21 / 9" priority />}
         <div className="flex flex-wrap items-start justify-between gap-3 p-4 sm:p-panel-pad">
           <div className="min-w-0">
             <p className="text-xs text-muted-foreground">
@@ -70,7 +70,7 @@ export default function ProgramPage() {
           {projects.data.map((j) => (
             <li key={j.id} className="panel group overflow-hidden transition-colors duration-300 hover:border-foreground/30">
               <Link to={staffPath.project(j.id)} className="block">
-                <Img src={publicThumbUrl(j.cover_path)} variant="thumb" alt="" aspect="16 / 9" />
+                <Img src={publicImageUrl(j.cover_path)} thumb={publicThumbUrl(j.cover_path)} alt="" aspect="16 / 9" />
               </Link>
               <div className="space-y-1 p-4">
                 <div className="flex items-start justify-between gap-2">

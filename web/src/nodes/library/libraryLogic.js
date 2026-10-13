@@ -50,16 +50,7 @@ export function downloadName(resource, lang = 'en') {
   return ext && !safe.toLowerCase().endsWith(`.${ext}`) ? `${safe}.${ext}` : safe
 }
 
-export function formatBytes(n, lang = 'en') {
-  const bytes = Number(n)
-  if (!Number.isFinite(bytes) || bytes <= 0) return ''
-  const units = lang === 'ar' ? ['بايت', 'ك.ب', 'م.ب', 'ج.ب'] : ['B', 'KB', 'MB', 'GB']
-  let v = bytes
-  let i = 0
-  while (v >= 1024 && i < units.length - 1) { v /= 1024; i += 1 }
-  const num = v >= 10 || i === 0 ? Math.round(v) : Math.round(v * 10) / 10
-  return `${num} ${units[i]}`
-}
+export { formatBytes } from '../../lib/image/format.js'
 
 // ------------------------------------------------------------------ config
 export const defaultLibraryConfig = () => ({ layout: 'grid', groupBy: 'auto', searchEnabled: true })

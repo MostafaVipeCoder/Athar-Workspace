@@ -22,22 +22,14 @@ export const PROGRAM_TYPES = ['accelerator', 'incubator', 'bootcamp', 'hackathon
  */
 export const PROFILE_COLORS = ['#1a27c9', '#0b75d9', '#23a455', '#ffe91e', '#000000', '#364151', '#0f172a', '#7a7a7a', '#f56c6c']
 
-/** Image upload policy (design 04 section 6.9 / storage bucket limits). */
+/**
+ * Image storage (design 04 section 6.9, owner decision 08 section 17.3 UNIVERSAL WEBP): the public image bucket. Source ceilings, accepted types, sizes per
+ * kind and the thumbnail suffix live in ONE place, lib/image/profiles.js.
+ */
 export const IMAGE = {
   bucket: 'public-assets',
-  maxBytes: 5 * 1024 * 1024,
-  accept: ['image/png', 'image/jpeg', 'image/webp', 'image/gif'],
-  fullMaxPx: 1600,
-  thumbMaxPx: 320,
-  thumbSuffix: '_t',
-  ext: 'webp',
 }
 
-/** Program/project cover kinds -> folder name under `<owner id>/` in the bucket. */
-export const IMAGE_KINDS = ['cover', 'logo', 'photo', 'landing', 'form-cover', 'avatar']
 
-/** Share platforms (design 06 section 6.2 ShareChannels). */
-export const PLATFORMS = ['whatsapp', 'facebook', 'linkedin', 'x', 'telegram', 'email', 'copy']
 
 export const DEFAULT_TIMEZONE = 'Africa/Cairo'
-export const STAFF_INVITATION_DAYS = 14

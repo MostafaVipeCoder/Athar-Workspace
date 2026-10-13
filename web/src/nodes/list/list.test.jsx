@@ -16,7 +16,7 @@ const rows = () => [
 ]
 
 const mocks = vi.hoisted(() => ({
-  resolveList: vi.fn(), ensureItem: vi.fn(), patch: vi.fn(), setStatus: vi.fn(), exclude: vi.fn(), reorder: vi.fn(), addManual: vi.fn(), updateManual: vi.fn(), remove: vi.fn(), detach: vi.fn(), addPick: vi.fn(), ensureItems: vi.fn(),
+  resolveList: vi.fn(), ensureItem: vi.fn(), patch: vi.fn(), setStatus: vi.fn(), exclude: vi.fn(), withdraw: vi.fn(), reinstate: vi.fn(), reorder: vi.fn(), addManual: vi.fn(), updateManual: vi.fn(), remove: vi.fn(), detach: vi.fn(), addPick: vi.fn(), ensureItems: vi.fn(),
   viewLink: vi.fn(), ensureViewLink: vi.fn(), getPublicList: vi.fn(),
 }))
 
@@ -43,6 +43,10 @@ vi.mock('../../data/lists.js', async () => {
         patchOverlay: m(async ({ item, patch }) => mocks.patch(await materialize(id, item), patch)),
         setStatus: m(async ({ item, status }) => mocks.setStatus(await materialize(id, item), status)),
         exclude: m(async ({ item, excluded }) => mocks.exclude(await materialize(id, item), excluded)),
+        withdraw: m(async ({ item, reason = null }) => mocks.withdraw(await materialize(id, item), reason)),
+        reinstate: m(async ({ item }) => mocks.reinstate(await materialize(id, item))),
+        bulkWithdraw: m(async ({ items, reason = null }) => { for (const it of items) await mocks.withdraw(await materialize(id, it), reason) }),
+        bulkReinstate: m(async ({ items }) => { for (const it of items) await mocks.reinstate(await materialize(id, it)) }),
         reorder: m(async ({ items }) => mocks.reorder(id, items.map((i) => i.id))),
         addManual: m(({ fields }) => mocks.addManual(id, fields)),
         updateManual: m(({ item, fields }) => mocks.updateManual(item.itemId, fields)),
@@ -107,6 +111,37 @@ describe('List node', () => {
     await user.type(notes, 'first edit{Enter}')
     await waitFor(() => expect(mocks.ensureItem).toHaveBeenCalledWith('L', 'form_response', 'r1'))
     expect(mocks.patch).toHaveBeenCalledWith('new-id', { notes: 'first edit' })
+  })
+
+  it('Edit: WITHDRAWN replaces Hide: a virtual item is materialised, the dialog asks for an optional reason, Undo reinstates; the manager asks for withdrawn items too', async () => {
+    const user = userEvent.setup()
+    mocks.resolveList.mockImplementation(async () => [...rows(), { item_id: 'i9', source: { kind: 'network_expert', id: 'e9', state: 'ok' }, display: { title_en: 'Wendy' }, overlay: {}, status: null, sort_order: 3, excluded: false, withdrawn: true, withdrawal: { at: '2026-10-12T09:00:00Z', reason: 'cannot attend', source: 'item' }, cursor: { s: 3, k: 'i9' } }])
+    mount('edit')
+    const rowsEl = await screen.findAllByTestId('item-row')
+    expect(rowsEl).toHaveLength(4)
+    expect(screen.queryByRole('button', { name: /^Hide/ })).toBeNull()
+    expect(screen.getByTestId('presence-filter')).toBeInTheDocument()
+    const wendy = rowsEl.find((r) => within(r).queryByText('Wendy'))
+    expect(within(wendy).getByTestId('withdrawn-chip')).toBeInTheDocument()
+    await user.click(within(wendy).getByTestId('reinstate'))
+    await waitFor(() => expect(mocks.reinstate).toHaveBeenCalledWith('i9'))
+    expect(await screen.findByText('"Wendy" is reinstated.')).toBeInTheDocument()
+    const resp = rowsEl.find((r) => within(r).queryByText('Resp Co'))
+    await user.click(within(resp).getByTestId('withdraw'))
+    const dlg = await screen.findByRole('dialog')
+    expect(dlg).toHaveTextContent('Mark "Resp Co" as withdrawn?')
+    await user.click(within(dlg).getByTestId('withdraw-confirm')) // the reason is optional
+    await waitFor(() => expect(mocks.ensureItem).toHaveBeenCalledWith('L', 'form_response', 'r1'))
+    expect(mocks.withdraw).toHaveBeenCalledWith('new-id', null)
+    await user.click(await screen.findByRole('button', { name: 'Undo' }))
+    await waitFor(() => expect(mocks.reinstate).toHaveBeenLastCalledWith('new-id'))
+  })
+
+  it('ListTab (public / platform): withdrawn items are never rendered, even if a payload carried them', () => {
+    const data = { items: [{ display: { title_en: 'Active Ada' }, source: { kind: 'manual', id: null, state: 'ok' }, item_id: 'a' }, { display: { title_en: 'Gone Gus' }, source: { kind: 'manual', id: null, state: 'ok' }, item_id: 'g', withdrawn: true }], config: { kind: 'expert', card: {} } }
+    renderWithProviders(<ListTab data={data} audience="public" />, { route: '/x?lang=en' })
+    expect(screen.getByText('Active Ada')).toBeInTheDocument()
+    expect(screen.queryByText('Gone Gus')).toBeNull()
   })
 
   it('Edit: add a manual item through the editor (fields + overlay patch)', async () => {

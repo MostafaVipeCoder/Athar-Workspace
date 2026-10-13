@@ -9,6 +9,7 @@ import { Field } from '../../ui/Field.jsx'
 import { EmptyState, Loading } from '../../ui/States.jsx'
 import { Avatar } from '../../ui/Avatar.jsx'
 import { cn } from '../../lib/cn.js'
+import { WithdrawnChip } from '../../shared/entities/WithdrawnChip.jsx'
 import { formatCalendarDate } from '../../lib/time/format.js'
 import { formatHHMM, to12h } from '../../lib/time/slots.js'
 import { publicThumbUrl } from '../../data/storage.js'
@@ -75,7 +76,7 @@ export default function SetupTab({ draft, setDraft, errors, model, mentorCands, 
       .filter((k) => !connectedKeys.has(k))
       .map((k) => {
         const e = model.mentors.get(k)
-        return { key: k, name: e?.name ?? { en: k.slice(0, 8), ar: '' }, sub: e?.sub ?? { en: '', ar: '' }, image: e?.image ?? null, orphan: true }
+        return { key: k, name: e?.name ?? { en: k.slice(0, 8), ar: '' }, sub: e?.sub ?? { en: '', ar: '' }, image: e?.image ?? null, orphan: true, withdrawn: Boolean(e?.withdrawn) }
       }),
   ].sort((a, b) => bi(a.name, lang).localeCompare(bi(b.name, lang), lang))
 
@@ -209,7 +210,7 @@ export default function SetupTab({ draft, setDraft, errors, model, mentorCands, 
                             <span className="min-w-0">
                               <span className="block truncate font-medium" dir="auto">{bi(r.name, lang)}</span>
                               {bi(r.sub, lang) && <span className="block truncate text-xs text-muted-foreground" dir="auto">{bi(r.sub, lang)}</span>}
-                              {r.orphan && <Badge tone="amber">{t('distribution.setup.orphan')}</Badge>}
+                              {r.withdrawn ? <WithdrawnChip data-testid="mentor-withdrawn" /> : r.orphan && <Badge tone="amber">{t('distribution.setup.orphan')}</Badge>}
                             </span>
                             <label className="ms-auto flex items-center gap-1 text-xs text-muted-foreground"><input type="checkbox" className="h-4 w-4" checked={allDays} onChange={(e) => toggleAllForMentor(r.key, e.target.checked)} aria-label={t('distribution.setup.allDaysMentor', { name: bi(r.name, lang) })} />{t('distribution.setup.all')}</label>
                           </span>

@@ -86,6 +86,7 @@ export default function LandingSettings() {
           <BilingualField label={t('landing.settings.seoDescription')} value={config.seo.description} onChange={(description) => patch('seo', { description })} as="textarea" rows={2} />
           <ImageField
             label={t('landing.settings.seoImage')}
+            profile="landing"
             src={config.seo.imagePath ? publicImageUrl(config.seo.imagePath) : ''}
             thumb={config.seo.imagePath ? publicThumbUrl(config.seo.imagePath) : ''}
             aspect="1200 / 630"

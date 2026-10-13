@@ -46,6 +46,7 @@ export default function ProgramForm({ initial, onSubmit, submitLabel, busy, cove
       {cover && (
         <ImageField
           label={t('programs.form.cover')}
+          profile="cover"
           src={cover.src}
           thumb={cover.thumb}
           onFile={cover.onFile}

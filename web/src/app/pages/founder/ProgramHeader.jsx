@@ -31,7 +31,7 @@ export default function ProgramHeader({ project, participant, restricted = false
       </Link>
       <div className="overflow-hidden rounded-card">
         {showCover && project.cover_path ? (
-          <Img src={publicImageUrl(project.cover_path)} thumb={publicThumbUrl(project.cover_path)} alt="" aspect="16 / 9" eager overlay="hero" className="w-full md:max-h-72">
+          <Img src={publicImageUrl(project.cover_path)} thumb={publicThumbUrl(project.cover_path)} alt="" aspect="16 / 9" priority overlay="hero" className="w-full md:max-h-72">
             <div className="space-y-0.5 p-4">
               <p className="text-sm font-semibold text-athar-grey-100/80" dir="auto">{programName}</p>
               <h1 className="text-page-title text-athar-grey-100" dir="auto">{projectName}</h1>

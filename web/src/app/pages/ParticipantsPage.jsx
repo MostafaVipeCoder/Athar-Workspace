@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { Building2, CheckCheck, ExternalLink, UserPlus, Users } from 'lucide-react'
+import { Building2, CheckCheck, ExternalLink, RotateCcw, UserMinus, UserPlus, Users } from 'lucide-react'
 import '../../nodes/selection/i18n.js'
 import { useProjectContext } from '../guards/ProjectAccess.jsx'
 import { useProjectGraph } from '../../data/canvas.js'
@@ -17,18 +17,23 @@ import { Img } from '../../ui/Img.jsx'
 import { SearchBar } from '../../ui/SearchBar.jsx'
 import { EmptyState, ErrorState, Loading } from '../../ui/States.jsx'
 import { EntityPicker } from '../../shared/entities/EntityPicker.jsx'
+import { useWithdrawFlow } from '../../shared/entities/useWithdrawFlow.jsx'
 import { biPick } from '../../lib/entities.js'
 import { staffPath } from '../../lib/links.js'
 import { cn } from '../../lib/cn.js'
 
 const STATUS_TONE = { accepted: 'blue', attended: 'green', withdrawn: 'red' }
+/** The status select offers what a PM sets on an enrolled participant; WITHDRAWN is its own explicit action (decision 17.1). */
+const ENROLLED_STATUSES = ['accepted', 'attended']
 const selectCls = 'min-h-9 rounded-md border border-input bg-background px-2 text-sm'
 
 /**
  * Project Participants page (design 06 section 2.3 route, 00 section 7, 02 section 7.3, decisions 01-6 / 02-7):
  * participants enrolled through a Selection stage (accepted; lazy rows) or added by hand (a company record), with
- * status accepted / attended / withdrawn, "Enroll all accepted", "Mark all accepted as attended" then unmark the
- * absentees, withdraw / reinstate, and a link to the company record. Certificates read `attended` only.
+ * status accepted / attended, "Enroll all accepted", "Mark all accepted as attended" then unmark the absentees, the explicit
+ * "Mark as withdrawn" / "Reinstate" actions (confirmation, optional reason, Undo; the withdrawn participant disappears from every
+ * accepted / active list of the next steps, the founder page and certificate eligibility, and stays here with a red chip), and a
+ * link to the company record. Certificates read `attended` only.
  */
 export default function ParticipantsPage() {
   const { project, projectId } = useProjectContext()
@@ -76,10 +81,11 @@ export default function ParticipantsPage() {
     }
   }
   const setPStatus = (p, s) => run(() => m.setStatus.mutateAsync({ participant: p, status: s }), { id: p.id, success: t('selection.participants.statusSet') })
-  async function withdraw(p) {
-    if (!(await confirm({ title: t('selection.participants.withdrawTitle', { name: biPick(p.name, lang) || '-' }), message: t('selection.participants.withdrawBody'), destructive: true }))) return
-    setPStatus(p, 'withdrawn')
-  }
+  const flow = useWithdrawFlow({
+    nameOf: (p) => biPick(p.name, lang) || '-',
+    onWithdraw: async (list, reason) => { for (const p of list) await m.withdraw.mutateAsync({ participant: p, reason }) },
+    onReinstate: async (list) => { for (const p of list) await m.reinstate.mutateAsync({ participant: p }) },
+  })
   async function markAll() {
     if (!(await confirm({ title: t('selection.participants.markAll'), message: t('selection.participants.markAllBody') }))) return
     run(() => m.markAllAttended.mutateAsync({ selectionNodeIds: enrollingStages }), { success: (n) => t('selection.participants.marked', { count: n }) })
@@ -136,17 +142,18 @@ export default function ParticipantsPage() {
                 const name = biPick(p.name, lang) || '-'
                 const busy = busyId === p.id
                 return (
-                  <tr key={p.id} className={cn('border-t align-middle', p.status === 'withdrawn' && 'opacity-60', busy && 'animate-pulse')} data-testid="participant-row">
+                  <tr key={p.id} className={cn('border-t align-middle', p.status === 'withdrawn' && 'bg-surface/60', busy && 'animate-pulse')} data-testid="participant-row">
                     <td className="p-2">
                       <div className="flex items-center gap-3">
-                        <Img src={publicThumbUrl(p.logoPath)} variant="thumb" alt="" aspect="1 / 1" className="h-10 w-10 shrink-0 rounded-md" fit="contain" />
+                        <Img src={publicThumbUrl(p.logoPath)} variant="thumb" alt="" aspect="1 / 1" className={cn('h-10 w-10 shrink-0 rounded-md', p.status === 'withdrawn' && 'opacity-60')} fit="contain" />
                         <div className="min-w-0">
-                          <p className="font-medium" dir="auto">{name}</p>
+                          <p className={cn('font-medium', p.status === 'withdrawn' && 'text-muted-foreground')} dir="auto">{name}</p>
                           {p.email && <p className="text-xs text-muted-foreground" dir="ltr">{p.email}</p>}
                           <div className="mt-1 flex flex-wrap gap-1">
                             {p.needsReview && <Badge tone="amber">{t('selection.participants.needsReview')}</Badge>}
                             {p.withdrawalRequestedAt && <Badge tone="amber">{t('selection.participants.withdrawalRequested')}</Badge>}
                           </div>
+                          {p.status === 'withdrawn' && p.withdrawalReason && <p className="mt-1 line-clamp-2 text-xs text-muted-foreground" dir="auto" data-testid="participant-withdrawal-reason">{t('entity.withdraw.reasonShown', { reason: p.withdrawalReason })}</p>}
                         </div>
                       </div>
                     </td>
@@ -160,19 +167,25 @@ export default function ParticipantsPage() {
                       </div>
                     </td>
                     <td className="p-2">
-                      <select aria-label={`${t('selection.participants.col.status')}: ${name}`} value={p.status} disabled={busy} onChange={(e) => setPStatus(p, e.target.value)} className={selectCls}>
-                        {PARTICIPANT_STATUSES.map((s) => <option key={s} value={s}>{t(`selection.participants.status.${s}`)}</option>)}
-                      </select>
-                      <Badge tone={STATUS_TONE[p.status]} className="ms-2 hidden sm:inline-flex">{t(`selection.participants.status.${p.status}`)}</Badge>
+                      {p.status === 'withdrawn' ? (
+                        <Badge tone="red" data-testid="status-withdrawn">{t('selection.participants.status.withdrawn')}</Badge>
+                      ) : (
+                        <>
+                          <select aria-label={`${t('selection.participants.col.status')}: ${name}`} value={p.status} disabled={busy} onChange={(e) => setPStatus(p, e.target.value)} className={selectCls}>
+                            {ENROLLED_STATUSES.map((s) => <option key={s} value={s}>{t(`selection.participants.status.${s}`)}</option>)}
+                          </select>
+                          <Badge tone={STATUS_TONE[p.status]} className="ms-2 hidden sm:inline-flex">{t(`selection.participants.status.${p.status}`)}</Badge>
+                        </>
+                      )}
                     </td>
                     <td className="whitespace-nowrap p-2 text-xs text-muted-foreground">{p.createdAt ? formatDate(p.createdAt) : '-'}</td>
                     <td className="p-2">
                       <div className="flex flex-wrap items-center gap-1">
                         {p.virtual && <Button size="sm" variant="outline" onClick={() => run(() => m.enroll.mutateAsync({ participant: p }), { id: p.id, success: t('selection.participants.enrolled', { count: 1 }) })} disabled={busy}>{t('selection.participants.enroll')}</Button>}
                         {p.status !== 'withdrawn' ? (
-                          <Button size="sm" variant="ghost" className="text-destructive" onClick={() => withdraw(p)} disabled={busy}>{t('selection.participants.withdraw')}</Button>
+                          <Button size="sm" variant="ghost" className="text-destructive-text" onClick={() => flow.withdraw(p)} disabled={busy} data-testid="participant-withdraw"><UserMinus className="h-4 w-4" aria-hidden="true" />{t('entity.withdraw.mark')}</Button>
                         ) : (
-                          <Button size="sm" variant="ghost" onClick={() => setPStatus(p, 'accepted')} disabled={busy}>{t('selection.participants.reinstate')}</Button>
+                          <Button size="sm" variant="ghost" onClick={() => flow.reinstate(p)} disabled={busy} data-testid="participant-reinstate"><RotateCcw className="h-4 w-4" aria-hidden="true" />{t('entity.withdraw.reinstate')}</Button>
                         )}
                         {p.companyId && (
                           <Link to={staffPath.company(p.companyId)} className="tap-target inline-flex items-center gap-1 rounded-md px-2 text-xs text-primary hover:underline" title={t('selection.participants.company')}>
@@ -190,6 +203,7 @@ export default function ParticipantsPage() {
       )}
       <p className="text-xs text-muted-foreground">{t('selection.participants.founderNote')}</p>
 
+      {flow.dialog}
       {picker && (
         <EntityPicker
           kind="company"

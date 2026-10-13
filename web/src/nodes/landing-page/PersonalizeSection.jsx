@@ -164,7 +164,7 @@ export default function PersonalizeSection({ config, frames, frameUrl, lang, com
                 <span className="text-sm font-bold">{label('placeholder', 'landing.photo.placeholder')}</span>
               </span>
             )}
-            {!result && frameSrc && <img src={frameSrc} alt="" aria-hidden="true" className="pointer-events-none absolute inset-0 h-full w-full" data-testid="photo-frame-overlay" />}
+            {!result && frameSrc && <img src={frameSrc} alt="" aria-hidden="true" decoding="async" className="pointer-events-none absolute inset-0 h-full w-full" data-testid="photo-frame-overlay" />}
             {busy && <span role="status" className="absolute inset-0 flex items-center justify-center bg-background/60 text-sm font-semibold text-primary">{tl('landing.photo.working')}</span>}
           </button>
 
@@ -176,7 +176,7 @@ export default function PersonalizeSection({ config, frames, frameUrl, lang, com
                   <label key={f.id} className="relative cursor-pointer">
                     <input type="radio" name="landing-frame" className="peer sr-only" checked={f.id === frame?.id} onChange={() => onPickFrame(f)} aria-label={f.name || tl('landing.photo.frameN', { n: i + 1 })} />
                     <span className="block h-[70px] w-14 overflow-hidden rounded-md border-2 border-border bg-gradient-to-br from-primary/10 to-primary/20 transition peer-checked:border-primary peer-focus-visible:ring-2 peer-focus-visible:ring-ring">
-                      <img src={frameUrl(f)} alt="" className="h-full w-full object-cover" loading="lazy" />
+                      <img src={frameUrl(f)} alt="" className="h-full w-full object-cover" loading="lazy" decoding="async" />
                     </span>
                   </label>
                 ))}

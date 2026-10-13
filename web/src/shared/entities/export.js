@@ -23,7 +23,7 @@ export function listItemColumns(t, config = {}) {
   }
   cols.push(
     { key: (r) => t(`entity.source.${r.source.kind}`), header: t('entity.manager.col.source') },
-    { key: (r) => (r.excluded ? t('entity.source.hidden') : ''), header: t('entity.manager.filter.showHidden') },
+    { key: (r) => (r.withdrawn ? t('entity.export.withdrawn') : r.excluded ? t('entity.source.hidden') : ''), header: t('entity.export.presence') },
   )
   return cols
 }

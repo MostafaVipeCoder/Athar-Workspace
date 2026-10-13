@@ -37,6 +37,7 @@ export default function PageSections({ config, patch, errors, onHeroCover, onCle
         <BilingualField label={t('landing.hero.body')} value={config.hero.body} onChange={(body) => patch('hero', { body })} as="textarea" rows={3} />
         <ImageField
           label={t('landing.hero.cover')}
+          profile="landing"
           src={config.hero.coverPath ? publicImageUrl(config.hero.coverPath) : ''}
           thumb={config.hero.coverPath ? publicThumbUrl(config.hero.coverPath) : ''}
           aspect="21 / 9"

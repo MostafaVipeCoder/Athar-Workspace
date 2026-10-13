@@ -2,8 +2,8 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { db } from './client.js'
 import { AppError, fromSupabase, unwrap } from './errors.js'
 import { keys } from './queryKeys.js'
-import { prepareImage } from '../lib/image.js'
-import { FILE_TYPES, isImageMime, mimeOf, thumbOf, uuid, validateFile } from '../lib/resourceFiles.js'
+import { removeObjects, storeImage, uploadObject } from './storage.js'
+import { FILE_TYPES, isImageMime, mimeOf, uuid, validateFile } from '../lib/resourceFiles.js'
 
 /**
  * Resource Library data (design 01 section 3.8, 03 sections 6.2 + 11, 04 section 3.11):
@@ -56,34 +56,20 @@ export async function uploadResourceFile(file, { projectId, nodeId }) {
   const problem = validateFile(file)
   if (problem) throw new AppError('validation', { messageKey: `library.err.${problem}`, retryable: false })
   if (!projectId || !nodeId) throw new AppError('validation', { retryable: false })
-  const bucket = db().storage.from(LIBRARY_BUCKET)
   const id = uuid()
   const mime = mimeOf(file)
   if (isImageMime(mime)) {
-    const { full, thumb } = await prepareImage(file)
-    const path = `${projectId}/${nodeId}/${id}.webp`
-    const opts = { contentType: 'image/webp', cacheControl: '3600', upsert: false }
-    const a = await bucket.upload(path, full.blob, opts)
-    if (a.error) throw fromSupabase(a.error)
-    const b = await bucket.upload(thumbOf(path), thumb.blob, opts)
-    if (b.error) {
-      await bucket.remove([path]).catch(() => {})
-      throw fromSupabase(b.error)
-    }
-    return { path, mime: 'image/webp', bytes: full.blob.size }
+    // universal WebP (08 section 17.3): converted + thumbnailed by the central pipeline; `report` = { sourceBytes, bytes, ... } for the feedback
+    const stored = await storeImage(file, { bucket: LIBRARY_BUCKET, path: (ext) => `${projectId}/${nodeId}/${id}.${ext}`, profile: 'content', cacheControl: '3600' })
+    return { path: stored.path, mime: stored.mime, bytes: stored.bytes, report: stored.report }
   }
   const path = `${projectId}/${nodeId}/${id}.${extOf(file, mime)}`
-  const r = await bucket.upload(path, file, { contentType: mime, cacheControl: '3600', upsert: false })
-  if (r.error) throw fromSupabase(r.error)
+  await uploadObject(LIBRARY_BUCKET, path, file, { contentType: mime, cacheControl: '3600' })
   return { path, mime, bytes: file.size }
 }
 
 /** Best-effort removal of uploaded files (discarded drafts, replaced files); never throws. */
-export async function removeResourceFiles(paths) {
-  const list = [...new Set((paths ?? []).filter(Boolean))]
-  if (!list.length) return
-  await db().storage.from(LIBRARY_BUCKET).remove(list).catch(() => {})
-}
+export const removeResourceFiles = (paths) => removeObjects(LIBRARY_BUCKET, paths)
 
 /** ONE short-lived signed URL; `download` = the file name to save as (Content-Disposition), omitted to open in the browser. */
 export async function signedResourceUrl(path, { download = null, expiresIn = SIGNED_URL_TTL } = {}) {

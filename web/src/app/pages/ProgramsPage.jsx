@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { Archive, FolderKanban, Plus, Settings } from 'lucide-react'
 import { usePrograms, useProjects } from '../../data/programs.js'
-import { publicThumbUrl } from '../../data/storage.js'
+import { publicImageUrl, publicThumbUrl } from '../../data/storage.js'
 import { useLanguage } from '../../i18n/LanguageProvider.jsx'
 import { Loading, ErrorState, EmptyState } from '../../ui/States.jsx'
 import { SearchBar, matchesTerm } from '../../ui/SearchBar.jsx'
@@ -81,7 +81,7 @@ export default function ProgramsPage() {
                 {/* the site's program card: cover + black 0.7 overlay + white bold title at the bottom start */}
                 <Link to={staffPath.program(g.id)} className="relative block focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset">
                   {/* without a cover the card keeps the dark band (ink) instead of a "missing image" glyph */}
-                  <Img src={publicThumbUrl(g.cover_path)} variant="thumb" alt="" aspect="3 / 1" overlay="card" className={cn(!g.cover_path && 'bg-athar-ink [&>div:first-child]:hidden')} imgClassName="transition-transform duration-300 group-hover:scale-105">
+                  <Img src={publicImageUrl(g.cover_path)} thumb={publicThumbUrl(g.cover_path)} alt="" aspect="3 / 1" overlay="card" className={cn(!g.cover_path && 'bg-athar-ink [&>div:first-child]:hidden')} imgClassName="transition-transform duration-300 group-hover:scale-105">
                     <div className="relative z-10 flex items-end justify-between gap-2 p-4">
                       <h2 className="font-sans text-xl font-bold leading-snug tracking-heading text-athar-grey-100">{pick(g, 'name')}</h2>
                       <span className="shrink-0 text-xs text-athar-grey-100/80">{g.year ?? formatDate(g.created_at, { year: 'numeric' })}</span>

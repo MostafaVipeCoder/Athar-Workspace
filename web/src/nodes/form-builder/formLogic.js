@@ -5,6 +5,7 @@
  * conversion (library), analytics helpers. No React, no data access: unit-tested on its own.
  */
 import { isEmail, validatePhone } from '../../lib/contact.js'
+import { newId } from '../../lib/id.js'
 
 export const QUESTION_TYPES = ['text', 'textarea', 'email', 'tel', 'number', 'url', 'select', 'multiselect', 'date', 'file', 'hidden']
 export const SEMANTICS = ['company_name', 'founder_name', 'founder_email', 'phone', 'logo', 'bio']
@@ -26,7 +27,7 @@ const biCols = (row, base) => ({ en: text(row?.[`${base}_en`]), ar: text(row?.[`
 const nn = (s) => (text(s).trim() ? text(s).trim() : null)
 const numOrNull = (v) => (v === '' || v === null || v === undefined || Number.isNaN(Number(v)) ? null : Number(v))
 
-export const newId = () => (typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(16).slice(2)}`)
+export { newId }
 
 // ------------------------------------------------------------------ config (nodes.config)
 export const defaultFormConfig = () => ({

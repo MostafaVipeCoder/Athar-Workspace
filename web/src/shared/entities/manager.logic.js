@@ -1,15 +1,22 @@
-import { biPick, entityMatches } from '../../lib/entities.js'
+import { biPick, entityMatches, isActiveItem } from '../../lib/entities.js'
 
 /** Source filter values offered by the manager. */
 export const SOURCE_FILTERS = ['form_response', 'network_expert', 'company', 'manual']
 export const SORTS = ['manual', 'title', 'status', 'newest']
 
-export const DEFAULT_MANAGER_STATE = { term: '', status: '', source: '', showHidden: false, sort: 'manual', view: 'table' }
+/** Presence filter values: '' = everyone (default: the PM keeps seeing withdrawn people with their chip), 'active', 'withdrawn', 'legacy' (hidden with the old Hide). */
+export const PRESENCE_FILTERS = ['', 'active', 'withdrawn', 'legacy']
+export const DEFAULT_MANAGER_STATE = { term: '', status: '', source: '', presence: '', sort: 'manual', view: 'table' }
 
-/** Pure filter used by EntityManager: search (both languages + e-mail), status, source kind, hidden items. */
-export function filterItems(items, { term = '', status = '', source = '', showHidden = false } = {}) {
+/** A legacy "hidden" item: the old Hide flag, not (yet) converted to withdrawn. */
+export const isLegacyHidden = (it) => Boolean(it?.excluded) && !it?.withdrawn
+
+/** Pure filter used by EntityManager: search (both languages + e-mail), status, source kind, presence (withdrawn / legacy hidden). */
+export function filterItems(items, { term = '', status = '', source = '', presence = '' } = {}) {
   return (items ?? []).filter((it) => {
-    if (!showHidden && it.excluded) return false
+    if (presence === 'active' && !isActiveItem(it)) return false
+    if (presence === 'withdrawn' && !it.withdrawn) return false
+    if (presence === 'legacy' && !isLegacyHidden(it)) return false
     if (status === '__none' ? it.status : status && it.status !== status) return false
     if (source && it.source.kind !== source) return false
     if (term && !entityMatches(it.entity, term) && !String(it.overlay?.notes ?? '').toLowerCase().includes(term.toLowerCase())) return false

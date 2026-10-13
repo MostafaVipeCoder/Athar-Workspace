@@ -22,7 +22,10 @@ export function orphanPaths(before, uploaded, after) {
   return [...new Set([...before, ...uploaded])].filter((p) => !after.has(p))
 }
 
-/** Frames are single PNG files; images are WebP + a `_t` thumbnail (data/storage.removeImage removes both). */
+/**
+ * Frames saved before m41 are single `.png` files (removed one by one); everything else is WebP: covers have a `_t` thumbnail and frames
+ * do not, and `data/storage.removeImage` removes the file and its thumbnail, tolerating a missing one.
+ */
 export async function deleteOrphans(paths) {
   const frames = paths.filter((p) => /\.png$/i.test(p))
   const images = paths.filter((p) => !/\.png$/i.test(p))

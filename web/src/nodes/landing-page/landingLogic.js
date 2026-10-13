@@ -1,3 +1,4 @@
+import { newId } from '../../lib/id.js'
 import { PUBLIC_KINDS, buildPublicUrl } from '../../lib/links.js'
 
 /**
@@ -35,7 +36,7 @@ const text = (v) => (v === null || v === undefined ? '' : String(v))
 const obj = (v) => (v && typeof v === 'object' && !Array.isArray(v) ? v : {})
 const bi = (v) => (v && typeof v === 'object' ? { en: text(v.en), ar: text(v.ar) } : { en: text(v), ar: '' })
 export const isUuid = (v) => UUID_RE.test(String(v ?? ''))
-export const newId = () => (typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : `00000000-0000-4000-8000-${Math.random().toString(16).slice(2, 14).padEnd(12, '0')}`)
+export { newId }
 export const isSafeUrl = (v) => !v || SAFE_URL_RE.test(String(v).trim())
 /** Localised value of an {en, ar} pair with fallback to the other language. */
 export const pickBi = (v, lang) => (lang === 'ar' ? v?.ar || v?.en : v?.en || v?.ar) || ''

@@ -1,20 +1,26 @@
+import { MAX_SOURCE_BYTES } from '../image/profiles.js'
+import { readHead, sniffImage } from '../image/sniff.js'
+
 /**
- * Template image rules (design 07 section 4.3): PNG or JPEG up to 10 MB, checked in the browser before anything is uploaded and
- * again by the bucket (size + MIME) and by save_children_certificates (path + size range). PDF templates are NOT supported in this
- * build: converting a PDF page to an image needs pdf.js (~1 MB + a worker), which is not cheap; the PM exports the design as a PNG
- * (A4 at 150-300 dpi = 1754 x 1240 .. 3508 x 2480 px) instead. The editor says so.
+ * Template image rules (design 07 section 4.3, owner decisions 08 section 17.2 + 17.3): the PM picks a PNG, JPEG or WebP (no PDF templates);
+ * the browser pipeline (lib/image, profile 'template': max 4000 px, high quality, alpha kept, NO thumbnail) converts it to WebP and stores THAT
+ * in the private bucket (the bucket and a restrictive policy refuse anything else, m42). The checks below are about the DECODED pixels (size,
+ * aspect, resolution), never about the file type, and run on the SOURCE before anything is uploaded; the stored width / height come from the
+ * converted image (the fields are fractions, so a smaller stored image changes nothing for the layout).
+ * A PDF is not supported: converting a PDF page to an image needs pdf.js (~1 MB + a worker); the PM exports the design as an image instead
+ * (A4 at 150-300 dpi = 1754 x 1240 .. 3508 x 2480 px).
  */
 export const TEMPLATE_RULES = {
-  maxBytes: 10 * 1024 * 1024,
-  types: ['image/png', 'image/jpeg'],
-  extensions: { 'image/png': 'png', 'image/jpeg': 'jpg' },
+  /** The SOURCE file: the pipeline's own ceiling (the stored WebP is a fraction of it). */
+  maxBytes: MAX_SOURCE_BYTES,
+  types: ['image/png', 'image/jpeg', 'image/webp'],
   minShortSide: 600,
   minLongSide: 1000,
   recommendedLongSide: 1754,
   maxSide: 8000,
   maxAspect: 2.5,
 }
-export const TEMPLATE_ACCEPT = 'image/png,image/jpeg'
+export const TEMPLATE_ACCEPT = 'image/png,image/jpeg,image/webp'
 
 export const PAPER = { a4: 297 / 210, letter: 11 / 8.5 }
 
@@ -24,6 +30,7 @@ export function templateMime(file) {
   const ext = /\.([a-z0-9]+)$/i.exec(file?.name ?? '')?.[1]?.toLowerCase()
   if (ext === 'png') return 'image/png'
   if (ext === 'jpg' || ext === 'jpeg') return 'image/jpeg'
+  if (ext === 'webp') return 'image/webp'
   return null
 }
 
@@ -55,6 +62,19 @@ export function checkTemplateSize(width, height) {
   if (!errors.includes('tooSmall') && long < TEMPLATE_RULES.recommendedLongSide) warnings.push('lowResolution')
   if (!errors.length && !paper) warnings.push('notPaper')
   return { errors, warnings, orientation: width >= height ? 'landscape' : 'portrait', ratio: Math.round(ratio * 1000) / 1000, paper }
+}
+
+/**
+ * The pixel size from the file HEADER (lib/image/sniff: PNG IHDR, JPEG SOF, WebP VP8*), no decode: reading two numbers must not cost a bitmap of up to
+ * 8000 x 5600 px (about 180 MB) that the conversion would decode again. Null when the header does not say (the caller then decodes once and closes it).
+ */
+export async function peekTemplateSize(file) {
+  try {
+    const info = sniffImage(await readHead(file))
+    return info.width > 0 && info.height > 0 ? { width: info.width, height: info.height } : null
+  } catch {
+    return null
+  }
 }
 
 /** Decode a File/Blob into a bitmap (EXIF orientation honoured by the browser) + its size. Caller owns the bitmap. */

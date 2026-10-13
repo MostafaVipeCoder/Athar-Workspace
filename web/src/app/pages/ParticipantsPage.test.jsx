@@ -5,7 +5,7 @@ import { renderWithProviders } from '../../test/render.jsx'
 import { ConfirmProvider } from '../../ui/ConfirmDialog.jsx'
 import { AuthContext } from '../AuthContext.js'
 
-const mocks = vi.hoisted(() => ({ list: vi.fn(), ensure: vi.fn(), enrollAccepted: vi.fn(), assign: vi.fn(), setStatus: vi.fn(), markAll: vi.fn(), companies: vi.fn() }))
+const mocks = vi.hoisted(() => ({ list: vi.fn(), ensure: vi.fn(), enrollAccepted: vi.fn(), assign: vi.fn(), setStatus: vi.fn(), markAll: vi.fn(), companies: vi.fn(), withdraw: vi.fn() }))
 
 vi.mock('../guards/ProjectAccess.jsx', () => ({ useProjectContext: () => ({ project: { id: 'P', name_en: 'Cohort A', program_id: 'G' }, projectId: 'P' }) }))
 vi.mock('../../data/canvas.js', async () => {
@@ -27,6 +27,8 @@ vi.mock('../../data/participants.js', async () => {
       return {
         setStatus: m(async ({ participant, status }) => mocks.setStatus(await materialize(participant), status)),
         enroll: m(({ participant }) => materialize(participant)),
+        withdraw: m(async ({ participant, reason }) => mocks.withdraw(await materialize(participant), true, reason ?? null)),
+        reinstate: m(async ({ participant }) => mocks.withdraw(await materialize(participant), false, null)),
         enrollAll: m(async ({ selectionNodeIds }) => { let n = 0; for (const s of selectionNodeIds) n += await mocks.enrollAccepted(id, s); return n }),
         assign: m(({ companyId }) => mocks.assign(id, companyId)),
         markAllAttended: m(async ({ selectionNodeIds }) => { for (const s of selectionNodeIds) await mocks.enrollAccepted(id, s); return mocks.markAll(id) }),
@@ -50,7 +52,7 @@ const auth = { user: { id: 'u1' }, roles: ['project_manager'], status: 'authed',
 const rows = () => [
   { participant_id: 'p1', virtual: false, source: 'manual', status: 'accepted', company_id: 'c1', user_id: null, form_response_id: null, source_node_id: null, needs_review: false, withdrawal_requested_at: null, created_at: '2026-10-01T00:00:00Z', email: 'a@x.io', display: { name_en: 'Alpha Co', name_ar: '', logo_path: 'c1/logo/a.webp' } },
   { participant_id: null, virtual: true, source: 'selection', status: 'accepted', company_id: null, user_id: null, form_response_id: 'r9', source_node_id: 'S', needs_review: false, withdrawal_requested_at: null, created_at: '2026-10-02T00:00:00Z', email: 'b@x.io', display: { name_en: 'Beta Startup', name_ar: '', logo_path: null } },
-  { participant_id: 'p3', virtual: false, source: 'selection', status: 'withdrawn', company_id: null, user_id: null, form_response_id: 'r8', source_node_id: 'S', needs_review: true, withdrawal_requested_at: null, created_at: '2026-10-03T00:00:00Z', email: null, display: { name_en: 'Gamma', name_ar: '', logo_path: null } },
+  { participant_id: 'p3', virtual: false, source: 'selection', status: 'withdrawn', company_id: null, user_id: null, form_response_id: 'r8', source_node_id: 'S', needs_review: true, withdrawal_requested_at: null, created_at: '2026-10-03T00:00:00Z', email: null, withdrawal_reason: 'left the cohort', display: { name_en: 'Gamma', name_ar: '', logo_path: null } },
 ]
 
 function mount() {
@@ -84,7 +86,7 @@ describe('ParticipantsPage', () => {
     expect(mocks.setStatus).toHaveBeenCalledWith('new-p', 'attended')
   })
 
-  it('mark all accepted as attended asks first, enrols the eligible stages, then calls the bulk RPC; withdraw confirms', async () => {
+  it('mark all accepted as attended asks first, enrols the eligible stages, then calls the bulk RPC', async () => {
     const user = userEvent.setup()
     mount()
     await screen.findAllByTestId('participant-row')
@@ -94,12 +96,44 @@ describe('ParticipantsPage', () => {
     await waitFor(() => expect(mocks.markAll).toHaveBeenCalledWith('P'))
     expect(mocks.enrollAccepted).toHaveBeenCalledWith('P', 'S')
     expect(await screen.findByText('2 marked as attended. Unmark the absentees below.')).toBeInTheDocument()
-    const alpha = (await screen.findAllByTestId('participant-row'))[0]
-    await user.click(within(alpha).getByRole('button', { name: 'Withdraw' }))
-    const dlg2 = await screen.findByRole('dialog')
-    expect(dlg2).toHaveTextContent('Withdraw "Alpha Co"?')
-    await user.click(within(dlg2).getByRole('button', { name: 'Confirm' }))
-    await waitFor(() => expect(mocks.setStatus).toHaveBeenCalledWith('p1', 'withdrawn'))
+  })
+
+  it('WITHDRAWN is an explicit action: confirmation with what happens + an optional reason, an Undo toast, "Reinstate" on a withdrawn row; the status select no longer offers it', async () => {
+    const user = userEvent.setup()
+    mount()
+    const list = await screen.findAllByTestId('participant-row')
+    const alpha = list[0]
+    const select = within(alpha).getByRole('combobox', { name: /Status: Alpha Co/ })
+    expect([...select.options].map((o) => o.value)).toEqual(['accepted', 'attended'])
+    await user.click(within(alpha).getByTestId('participant-withdraw'))
+    const dlg = await screen.findByRole('dialog')
+    expect(dlg).toHaveTextContent('Mark "Alpha Co" as withdrawn?')
+    expect(dlg).toHaveTextContent('disappear from every accepted or active list')
+    await user.type(within(dlg).getByTestId('withdraw-reason'), '  closed the company ')
+    await user.click(within(dlg).getByTestId('withdraw-confirm'))
+    await waitFor(() => expect(mocks.withdraw).toHaveBeenCalledWith('p1', true, 'closed the company'))
+    expect(await screen.findByText('"Alpha Co" is marked as withdrawn.')).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'Undo' })) // Undo = reinstate
+    await waitFor(() => expect(mocks.withdraw).toHaveBeenLastCalledWith('p1', false, null))
+    // a withdrawn row: red chip, the reason, Reinstate (no status select, no Mark as withdrawn)
+    const gamma = list.find((r) => within(r).queryByText('Gamma'))
+    expect(within(gamma).getByTestId('status-withdrawn')).toHaveTextContent('Withdrawn')
+    expect(within(gamma).getByTestId('participant-withdrawal-reason')).toHaveTextContent('Reason: left the cohort')
+    expect(within(gamma).queryByRole('combobox')).toBeNull()
+    expect(within(gamma).queryByTestId('participant-withdraw')).toBeNull()
+    await user.click(within(gamma).getByTestId('participant-reinstate'))
+    await waitFor(() => expect(mocks.withdraw).toHaveBeenLastCalledWith('p3', false, null))
+  })
+
+  it('withdrawing an eligible (not yet enrolled) applicant enrols it first, then records the withdrawal', async () => {
+    const user = userEvent.setup()
+    mount()
+    const list = await screen.findAllByTestId('participant-row')
+    const beta = list.find((r) => within(r).queryByText('Beta Startup'))
+    await user.click(within(beta).getByTestId('participant-withdraw'))
+    await user.click(within(await screen.findByRole('dialog')).getByTestId('withdraw-confirm'))
+    await waitFor(() => expect(mocks.ensure).toHaveBeenCalledWith('P', 'S', null, 'r9'))
+    await waitFor(() => expect(mocks.withdraw).toHaveBeenCalledWith('new-p', true, null))
   })
 
   it('adds a company by reference through the picker (duplicate guard on companies already enrolled)', async () => {

@@ -7,6 +7,7 @@ import { EmptyState, Loading } from '../../ui/States.jsx'
 import { INPUT_CLASS, SELECT_CLASS } from '../../ui/Field.jsx'
 import { useConfirm } from '../../ui/ConfirmDialog.jsx'
 import { useLanguage } from '../../i18n/LanguageProvider.jsx'
+import { WithdrawnChip } from '../../shared/entities/WithdrawnChip.jsx'
 import { materializeItem } from '../../data/lists.js'
 import { publicImageUrl, publicThumbUrl } from '../../data/storage.js'
 import { biPick } from '../../lib/entities.js'
@@ -81,13 +82,13 @@ export default function ProvidersTab({ rows: allRows, status, settings, slots, m
                         <div className="min-w-0">
                           <p className="font-medium" dir="auto">{name}</p>
                           {entity && <p className="text-xs text-muted-foreground" dir="auto">{biPick(entity.subtitle, lang)}</p>}
-                          {row.missing && <Badge tone="red">{t(row.orphan ? 'booking.providers.orphan' : 'booking.providers.missing')}</Badge>}
+                          {row.withdrawn ? <><WithdrawnChip data-testid="provider-withdrawn" /><p className="text-xs text-muted-foreground">{t('booking.providers.withdrawnHint')}</p></> : row.missing && <Badge tone="red">{t(row.orphan ? 'booking.providers.orphan' : 'booking.providers.missing')}</Badge>}
                         </div>
                       </div>
                     </td>
                     <td className="p-2">
                       <label className="flex min-h-9 items-center gap-2">
-                        <input type="checkbox" className="h-4 w-4" checked={row.enabled} disabled={busy === row.key || (row.missing && !row.provider)} onChange={(e) => setEnabled(row, e.target.checked)} aria-label={`${t('booking.providers.col.enabled')}: ${name}`} data-testid="provider-enabled" />
+                        <input type="checkbox" className="h-4 w-4" checked={row.enabled} disabled={busy === row.key || (row.missing && !row.provider) || (row.withdrawn && !row.enabled)} onChange={(e) => setEnabled(row, e.target.checked)} aria-label={`${t('booking.providers.col.enabled')}: ${name}`} data-testid="provider-enabled" />
                       </label>
                     </td>
                     <td className="p-2">

@@ -62,7 +62,7 @@ export default function AgendaHost({ refValue, tabParam = null, basePath, signIn
         <header className={cn('relative overflow-hidden rounded-card bg-athar-ink text-white print:min-h-0', HEIGHT[h.height] ?? HEIGHT.md)} style={h.type === 'color' || !cover ? { backgroundColor: h.type === 'color' ? h.color : undefined } : undefined} data-testid="agenda-cover">
           {h.type === 'image' && cover && (
             <>
-              <Img src={cover} thumb={project?.cover_path ? publicThumbUrl(project.cover_path) : undefined} alt="" aspect="auto" eager className="absolute inset-0 h-full w-full print:hidden" />
+              <Img src={cover} thumb={project?.cover_path ? publicThumbUrl(project.cover_path) : undefined} alt="" aspect="auto" priority className="absolute inset-0 h-full w-full print:hidden" />
               <div className="absolute inset-0 print:hidden" style={{ backgroundColor: `rgba(0,0,0,${h.dim})` }} aria-hidden="true" />
             </>
           )}

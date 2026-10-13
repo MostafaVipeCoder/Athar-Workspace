@@ -30,6 +30,7 @@ export function EntityForm({ value, onChange, kind = 'generic', onUpload, errors
       {onUpload && (
         <ImageField
           label={label('image')}
+          profile={kind === 'company' ? 'logo' : 'avatar'}
           src={v.imagePath ? publicImageUrl(v.imagePath) : null}
           thumb={v.imagePath ? publicThumbUrl(v.imagePath) : null}
           aspect={kind === 'company' ? '16 / 9' : '4 / 3'}

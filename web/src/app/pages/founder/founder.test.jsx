@@ -67,6 +67,11 @@ describe('Founder Programs list', () => {
     expect(within(cards[0]).getByText('Riyadh Hall')).toBeInTheDocument()
     expect(within(cards[0]).getByText(/10 Mar 2030 - 12 Mar 2030/)).toBeInTheDocument()
     expect(cards[0].querySelector('img')?.getAttribute('src')).toMatch(/g1\/cover\/a_t\.webp$/)
+    // review: a full-width cover is the blurred 320 px thumbnail first, then the FULL image (both lazy): the thumbnail alone was upscaled about 2x on a phone
+    const covers = cards[0].querySelectorAll('img')
+    expect(covers).toHaveLength(2)
+    expect(covers[1].getAttribute('src')).toMatch(/g1\/cover\/a\.webp$/)
+    expect([...covers].every((i) => i.getAttribute('loading') === 'lazy')).toBe(true)
     expect(within(cards[0]).getByRole('link', { name: 'Open Cohort A' })).toHaveAttribute('href', `/alumni/founder/programs/${P}`)
     expect(within(cards[1]).getByTestId('status-badge')).toHaveTextContent('Attended')
     expect(within(cards[1]).getByTestId('completed-badge')).toHaveTextContent('Completed')
@@ -240,11 +245,13 @@ describe('Founder Program page', () => {
     mocks.page.mockResolvedValue(header({
       project: { completed: true },
       participant: { status: 'attended' },
-      blocks: [{ type: 'certificate', data: { items: [{ certificate_id: 'c1', node_id: 'cn1', code: 'AB12-CD34-EF56', issued_at: '2030-03-20T10:00:00Z', participant_name: 'Salma Hassan', program_name: 'Climate Accelerator' }] } }],
+      blocks: [{ type: 'certificate', data: { items: [{ certificate_id: 'c1', node_id: 'cn1', code: 'AB12-CD34-EF56', issued_at: '2030-03-20T10:00:00Z', person_name: 'Salma Hassan', company_name: 'Palm Tech', program_name: 'Climate Accelerator' }] } }],
     }))
     renderPage()
     expect(await screen.findByTestId('founder-certificate')).toBeInTheDocument()
     expect(screen.getByText('AB12-CD34-EF56', { exact: false })).toBeInTheDocument()
+    expect(screen.getByTestId('founder-certificate-person')).toHaveTextContent('Salma Hassan') // HIS OWN name...
+    expect(screen.getByTestId('founder-certificate-company')).toHaveTextContent('Palm Tech') // ...and the company name
     expect(screen.getByTestId('completed-badge')).toHaveTextContent('Completed')
     expect(screen.getByTestId('status-badge')).toHaveTextContent('Attended')
   })

@@ -54,31 +54,61 @@ export function validateDraft(draft) {
   return { errors, warnings }
 }
 
-/** Status of one Issue-panel row from the server payload: 'issued' | 'revoked' | 'pending'. */
+/**
+ * The Issue panel (m42, owner decision 08 section 17.2): a row is a PARTICIPANT (the company that attended); the certificates belong to the
+ * FOUNDER ACCOUNTS linked to it. The server payload of a row: { participant_id, status, name, company_name, grant { id, granted_at, revoked_at,
+ * revoked_reason } | null, founders[{ name, linked, state, detached?, certificate { id, code, issued_at, revoked_at, revoked_reason, name } | null }],
+ * counts { people, linked, unlinked, issued, claimable, revoked } }.
+ *
+ * Row state: 'issued' (authorised, at least one founder holds a certificate) | 'authorised' (authorised, nobody holds one yet) | 'revoked' (the
+ * authorisation was revoked) | 'pending' (not authorised yet). Person state (decided by the server): issued | revoked | claimable | pending |
+ * not_linked | no_name.
+ */
 export function rowState(row) {
-  const c = row?.certificate
-  if (!c) return 'pending'
-  return c.revoked_at ? 'revoked' : 'issued'
+  const g = row?.grant
+  const issued = row?.counts?.issued ?? 0
+  if (g && !g.revoked_at) return issued > 0 ? 'issued' : 'authorised'
+  if (g && g.revoked_at) return 'revoked'
+  return issued > 0 ? 'issued' : 'pending'
 }
 
-/** Rows a PM may issue to by hand: attended and without an ACTIVE certificate (a revoked one is re-issued on purpose). */
-export const issuable = (row) => row.status === 'attended' && rowState(row) !== 'issued'
-/** Rows "Issue to all attended" would create certificates for (revoked ones are skipped on purpose, 07-9). */
-export const issuableInBulk = (row) => row.status === 'attended' && rowState(row) === 'pending'
+const claimable = (row) => row?.counts?.claimable ?? 0
 
-/** Summary counts of the Issue panel. */
+/**
+ * Rows a PM may issue to by hand ("Issue to selected"): attended and not fully served: never authorised, authorisation revoked (re-authorised on
+ * purpose: new certificates, new codes), or authorised with a linked founder who has no certificate yet (created now instead of on his next visit).
+ */
+export const issuable = (row) => row.status === 'attended' && (rowState(row) === 'pending' || rowState(row) === 'revoked' || claimable(row) > 0)
+/** Rows "Issue to all attended" works on: never authorised, or authorised with a founder waiting (a revoked authorisation is skipped on purpose, 07-9). */
+export const issuableInBulk = (row) => row.status === 'attended' && (rowState(row) === 'pending' || (Boolean(row.grant) && !row.grant.revoked_at && claimable(row) > 0))
+/** One founder whose certificate was revoked may be issued AGAIN while the participant is still authorised. */
+export const canReissue = (row, person) => person?.state === 'revoked' && Boolean(person.certificate) && !person.detached && Boolean(row.grant) && !row.grant.revoked_at
+/** "Revoke all" is offered while the participant is authorised or anyone still holds an active certificate. */
+export const canRevokeAll = (row) => (Boolean(row.grant) && !row.grant.revoked_at) || (row.counts?.issued ?? 0) > 0
+
+/** Summary counts of the Issue panel (participants and PEOPLE). */
 export function summarize(rows) {
-  const out = { attended: 0, issued: 0, revoked: 0, pending: 0, flagged: 0 }
+  const out = { attended: 0, authorised: 0, issued: 0, claimable: 0, unlinked: 0, revoked: 0, pending: 0, flagged: 0 }
   for (const r of rows ?? []) {
     if (r.status === 'attended') out.attended += 1
     const s = rowState(r)
-    if (s === 'issued') out.issued += 1
-    if (s === 'revoked') out.revoked += 1
+    if (s === 'issued' || s === 'authorised') out.authorised += 1
     if (r.status === 'attended' && s === 'pending') out.pending += 1
-    if (s === 'issued' && r.status !== 'attended') out.flagged += 1
+    out.issued += r.counts?.issued ?? 0
+    out.claimable += r.counts?.claimable ?? 0
+    out.unlinked += r.counts?.unlinked ?? 0
+    out.revoked += r.counts?.revoked ?? 0
+    if ((r.counts?.issued ?? 0) > 0 && r.status !== 'attended') out.flagged += 1
   }
   return out
 }
+
+/** True when any certificate exists for the node (a changed template then creates a new VERSION). */
+export const hasCertificates = (rows) => (rows ?? []).some((r) => Boolean(r.grant) || (r.counts?.issued ?? 0) + (r.counts?.revoked ?? 0) > 0)
+
+/** Badge tone of a person state / row state. */
+export const PERSON_TONES = { issued: 'green', revoked: 'red', claimable: 'blue', pending: 'neutral', not_linked: 'amber', no_name: 'amber' }
+export const ROW_TONES = { pending: 'neutral', authorised: 'blue', issued: 'green', revoked: 'red' }
 
 /**
  * Why issuing is not possible right now (the panel shows it next to the disabled button): 'notCompleted' | 'noTemplate' |

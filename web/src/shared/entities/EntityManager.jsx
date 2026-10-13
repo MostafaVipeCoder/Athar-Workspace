@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react'
-import { ArrowDown, ArrowUp, Eye, EyeOff, GripVertical, LayoutGrid, Pencil, Table2, Trash2, Unlink, Users } from 'lucide-react'
+import { ArrowDown, ArrowUp, Eye, GripVertical, LayoutGrid, Pencil, RotateCcw, Table2, Trash2, Unlink, UserMinus, Users } from 'lucide-react'
 import './i18n.js'
 import { Button } from '../../ui/Button.jsx'
 import { SearchBar } from '../../ui/SearchBar.jsx'
@@ -8,10 +8,11 @@ import { Badge } from '../../ui/Badge.jsx'
 import { EmptyState, ErrorState, Loading } from '../../ui/States.jsx'
 import { useLanguage } from '../../i18n/LanguageProvider.jsx'
 import { publicThumbUrl } from '../../data/storage.js'
-import { biPick, visibleCardFields } from '../../lib/entities.js'
+import { biPick, isActiveItem, visibleCardFields } from '../../lib/entities.js'
 import { cn } from '../../lib/cn.js'
 import { EntityCard } from './EntityCard.jsx'
-import { DEFAULT_MANAGER_STATE, SORTS, SOURCE_FILTERS, canReorder, filterItems, moveItem, sortItems } from './manager.logic.js'
+import { WithdrawnChip } from './WithdrawnChip.jsx'
+import { DEFAULT_MANAGER_STATE, SORTS, SOURCE_FILTERS, canReorder, filterItems, isLegacyHidden, moveItem, sortItems } from './manager.logic.js'
 
 /** Status select used in the table, the cards and the bulk bar. `statuses` = [{key,label,tone}] from the list config. */
 function StatusSelect({ value, statuses, onChange, lang, t, label, className, disabled }) {
@@ -60,12 +61,15 @@ function InlineText({ value, onSave, label, placeholder }) {
   )
 }
 
+/** Chips of one item: source kind, source removed, WITHDRAWN (m40: red, the reason as tooltip) and the legacy "Hidden" flag. */
 function SourceBadges({ item, t }) {
+  const reason = item.withdrawal?.reason
   return (
     <>
       <Badge tone="outline">{t(`entity.source.${item.source.kind}`)}</Badge>
       {item.missing && <Badge tone="red">{t('entity.source.missing')}</Badge>}
-      {item.excluded && <Badge tone="amber">{t('entity.source.hidden')}</Badge>}
+      {item.withdrawn && <WithdrawnChip reason={reason} />}
+      {isLegacyHidden(item) && <Badge tone="amber" title={t('entity.withdraw.legacyHint')} data-testid="legacy-hidden-chip">{t('entity.source.hidden')}</Badge>}
     </>
   )
 }
@@ -74,8 +78,12 @@ function SourceBadges({ item, t }) {
  * Generic curated-list manager (design 06 section 6.2 EntityManager; replaces ExpertManager + StartupManager). Purely
  * presentational + local UI state: the caller owns the data (ListItemView[] from data/lists) and the writes (`actions`).
  *
- * actions: { setStatus(item, status), patchOverlay(item, patch), exclude(item, excluded), reorder(items), remove(item),
- *            detach(item), edit(item), bulkStatus(items, status), bulkExclude(items, excluded), export(items) }
+ * actions: { setStatus(item, status), patchOverlay(item, patch), withdraw(itemOrItems), reinstate(itemOrItems),
+ *            exclude(item, excluded) (LEGACY hidden items only: "Restore to the list"), reorder(items), remove(item),
+ *            detach(item), edit(item), bulkStatus(items, status), export(items) }
+ * Withdrawn (m40, decision 17.1) replaces "Hide": an explicit, reversible action; a withdrawn item stays in the table with its
+ * chip (the PM filter "Show" narrows to active / withdrawn); items hidden with the old Hide show a "Hidden (legacy)" chip with
+ * two ways out (mark withdrawn, restore).
  * config:  normalised list config ({ statuses, card.showFields }); `toolbar` = extra buttons (add manual, pick, import).
  * Rules preserved from the as-is managers (docs/03 section 7.3) without their bugs: reorder is disabled while a search
  * or filter is active (so a filtered subset never writes unfiltered indexes), order is persisted and read back.
@@ -99,6 +107,8 @@ export function EntityManager({ items, kind = 'generic', config, loading = false
   }, [base, state, lang, statuses, sortExtra])
   const off = useMemo(() => new Set(disabledActions), [disabledActions])
   const reorderable = canReorder(state) && !loading
+  const withdrawnCount = useMemo(() => base.filter((i) => i.withdrawn).length, [base])
+  const legacyCount = useMemo(() => base.filter(isLegacyHidden).length, [base])
   const selectedItems = visible.filter((i) => selected.has(i.id))
   const allSelected = visible.length > 0 && selectedItems.length === visible.length
   const toggle = (id) => setSelected((s) => {
@@ -132,9 +142,18 @@ export function EntityManager({ items, kind = 'generic', config, loading = false
           <Pencil className="h-4 w-4" aria-hidden="true" />
         </Button>
       )}
-      {!off.has('hide') && (
-        <Button size="icon" variant="ghost" onClick={() => actions.exclude(item, !item.excluded)} aria-label={`${item.excluded ? t('entity.bulk.unhide') : t('entity.bulk.hide')}: ${biPick(item.entity.title, lang)}`} title={item.excluded ? t('entity.bulk.unhide') : t('entity.bulk.hide')} disabled={busyId === item.id}>
-          {item.excluded ? <Eye className="h-4 w-4" aria-hidden="true" /> : <EyeOff className="h-4 w-4" aria-hidden="true" />}
+      {!off.has('withdraw') && actions.withdraw && (item.withdrawn ? (
+        <Button size="sm" variant="ghost" className="min-h-11 min-w-11 px-2 lg:min-h-9 lg:px-4" onClick={() => actions.reinstate(item)} aria-label={`${t('entity.withdraw.reinstate')}: ${biPick(item.entity.title, lang)}`} title={t('entity.withdraw.reinstate')} disabled={busyId === item.id} data-testid="reinstate">
+          <RotateCcw className="h-4 w-4" aria-hidden="true" /><span className="hidden lg:inline">{t('entity.withdraw.reinstate')}</span>
+        </Button>
+      ) : (
+        <Button size="sm" variant="ghost" className="min-h-11 min-w-11 px-2 text-destructive-text lg:min-h-9 lg:px-4" onClick={() => actions.withdraw(item)} aria-label={`${t('entity.withdraw.mark')}: ${biPick(item.entity.title, lang)}`} title={t('entity.withdraw.mark')} disabled={busyId === item.id} data-testid="withdraw">
+          <UserMinus className="h-4 w-4" aria-hidden="true" /><span className="hidden lg:inline">{t('entity.withdraw.markShort')}</span>
+        </Button>
+      ))}
+      {!off.has('withdraw') && actions.exclude && isLegacyHidden(item) && (
+        <Button size="sm" variant="ghost" className="min-h-11 min-w-11 px-2 lg:min-h-9 lg:px-4" onClick={() => actions.exclude(item, false)} aria-label={`${t('entity.withdraw.restore')}: ${biPick(item.entity.title, lang)}`} title={t('entity.withdraw.restore')} disabled={busyId === item.id} data-testid="restore-hidden">
+          <Eye className="h-4 w-4" aria-hidden="true" /><span className="hidden lg:inline">{t('entity.withdraw.restore')}</span>
         </Button>
       )}
       {!off.has('detach') && item.source.kind !== 'manual' && (
@@ -170,10 +189,14 @@ export function EntityManager({ items, kind = 'generic', config, loading = false
           {SORTS.filter((s) => s !== 'status' || hasStatuses).map((s) => <option key={s} value={s}>{t(`entity.manager.sort.${s}`)}</option>)}
           {(sortExtra ?? []).map((s) => <option key={s.key} value={s.key}>{s.label}</option>)}
         </select>
-        <label className="flex min-h-11 items-center gap-2 text-sm">
-          <input type="checkbox" checked={state.showHidden} onChange={(e) => set({ showHidden: e.target.checked })} className="h-4 w-4" />
-          {t('entity.manager.filter.showHidden')}
-        </label>
+        {(withdrawnCount > 0 || legacyCount > 0 || state.presence) && (
+          <select aria-label={t('entity.manager.filter.presence')} value={state.presence} onChange={(e) => set({ presence: e.target.value })} className="min-h-11 rounded-md border border-input bg-background px-2 text-sm" data-testid="presence-filter">
+            <option value="">{t('entity.manager.filter.presenceAll')}</option>
+            <option value="active">{t('entity.manager.filter.presenceActive')}</option>
+            <option value="withdrawn">{t('entity.manager.filter.presenceWithdrawn', { count: withdrawnCount })}</option>
+            {(legacyCount > 0 || state.presence === 'legacy') && <option value="legacy">{t('entity.manager.filter.presenceLegacy', { count: legacyCount })}</option>}
+          </select>
+        )}
         <div className="inline-flex rounded-md border" role="group" aria-label={t('entity.manager.viewMode')}>
           <Button size="sm" variant={state.view === 'table' ? 'secondary' : 'ghost'} onClick={() => set({ view: 'table' })} aria-pressed={state.view === 'table'}>
             <Table2 className="h-4 w-4" aria-hidden="true" />{t('entity.manager.table')}
@@ -196,8 +219,12 @@ export function EntityManager({ items, kind = 'generic', config, loading = false
           <div className="flex flex-wrap items-center gap-1" data-testid="bulk-bar">
             {hasStatuses && <StatusSelect value="" statuses={statuses} lang={lang} t={t} label={t('entity.bulk.setStatus')} onChange={(s) => s && actions.bulkStatus(selectedItems, s)} />}
             {bulkExtra?.(selectedItems)}
-            {!off.has('hide') && <Button size="sm" variant="outline" onClick={() => actions.bulkExclude(selectedItems, true)}>{t('entity.bulk.hide')}</Button>}
-            {!off.has('hide') && <Button size="sm" variant="outline" onClick={() => actions.bulkExclude(selectedItems, false)}>{t('entity.bulk.unhide')}</Button>}
+            {!off.has('withdraw') && actions.withdraw && selectedItems.some((i) => !i.withdrawn) && (
+              <Button size="sm" variant="outline" onClick={() => actions.withdraw(selectedItems.filter((i) => !i.withdrawn))} data-testid="bulk-withdraw">{t('entity.bulk.withdraw')}</Button>
+            )}
+            {!off.has('withdraw') && actions.reinstate && selectedItems.some((i) => i.withdrawn) && (
+              <Button size="sm" variant="outline" onClick={() => actions.reinstate(selectedItems.filter((i) => i.withdrawn))} data-testid="bulk-reinstate">{t('entity.bulk.reinstate')}</Button>
+            )}
             {actions.export && <Button size="sm" variant="outline" onClick={() => actions.export(selectedItems)}>{t('entity.bulk.export')}</Button>}
             <Button size="sm" variant="ghost" onClick={() => setSelected(new Set())}>{t('entity.manager.clearSelection')}</Button>
           </div>
@@ -229,19 +256,20 @@ export function EntityManager({ items, kind = 'generic', config, loading = false
               {visible.map((item, idx) => {
                 const title = biPick(item.entity.title, lang) || '-'
                 const sub = [biPick(item.entity.subtitle, lang), biPick(item.entity.organization, lang)].filter(Boolean).join(' · ')
+                const dim = !isActiveItem(item)      // dim the picture and the name only: the chips and the reason keep full contrast (WCAG AA)
                 return (
                   <tr
                     key={item.id}
                     data-testid="item-row"
                     data-item-id={item.id}
-                    className={cn('border-t align-middle', item.excluded && 'opacity-60', dragId === item.id && 'bg-accent/40', busyId === item.id && 'animate-pulse')}
+                    className={cn('border-t align-middle', dim && 'bg-surface/60', dragId === item.id && 'bg-accent/40', busyId === item.id && 'animate-pulse')}
                     draggable={reorderable}
                     onDragStart={reorderable ? () => setDragId(item.id) : undefined}
                     onDragOver={reorderable ? (e) => e.preventDefault() : undefined}
                     onDrop={reorderable ? () => onDrop(item.id) : undefined}
                     onDragEnd={() => setDragId(null)}
                   >
-                    <td className="p-2"><input type="checkbox" checked={selected.has(item.id)} onChange={() => toggle(item.id)} className="h-4 w-4" aria-label={`${t('entity.manager.select')}: ${title}`} /></td>
+                    <td className="p-0"><label className="flex min-h-11 min-w-11 cursor-pointer items-center justify-center"><input type="checkbox" checked={selected.has(item.id)} onChange={() => toggle(item.id)} className="h-4 w-4" aria-label={`${t('entity.manager.select')}: ${title}`} /></label></td>
                     {reorderable && (
                       <td className="p-1">
                         <div className="flex items-center">
@@ -255,15 +283,16 @@ export function EntityManager({ items, kind = 'generic', config, loading = false
                     )}
                     <td className="p-2">
                       <div className="flex items-center gap-3">
-                        <Img src={publicThumbUrl(item.entity.imagePath)} variant="thumb" alt="" aspect="1 / 1" className={cn('h-10 w-10 shrink-0', kind === 'company' ? 'rounded-md' : 'rounded-full')} fit={kind === 'company' ? 'contain' : 'cover'} />
+                        <Img src={publicThumbUrl(item.entity.imagePath)} variant="thumb" alt="" aspect="1 / 1" className={cn('h-10 w-10 shrink-0', kind === 'company' ? 'rounded-md' : 'rounded-full', dim && 'opacity-60')} fit={kind === 'company' ? 'contain' : 'cover'} />
                         <div className="min-w-0">
                           {onOpen ? (
-                            <button type="button" className="text-start font-medium hover:underline" onClick={() => onOpen(item)}>{title}</button>
+                            <button type="button" className={cn('text-start font-medium hover:underline', dim && 'text-muted-foreground')} onClick={() => onOpen(item)}>{title}</button>
                           ) : (
-                            <p className="font-medium">{title}</p>
+                            <p className={cn('font-medium', dim && 'text-muted-foreground')}>{title}</p>
                           )}
                           {sub && <p className="line-clamp-2 text-xs text-muted-foreground">{sub}</p>}
                           <div className="mt-1 flex flex-wrap gap-1"><SourceBadges item={item} t={t} /></div>
+                          {item.withdrawn && item.withdrawal?.reason && <p className="mt-1 line-clamp-2 text-xs text-muted-foreground" dir="auto" data-testid="withdrawn-reason">{t('entity.withdraw.reasonShown', { reason: item.withdrawal.reason })}</p>}
                         </div>
                       </div>
                     </td>
@@ -293,7 +322,7 @@ export function EntityManager({ items, kind = 'generic', config, loading = false
                   entity={item.entity}
                   show={visibleCardFields(config?.card?.showFields, item.card)}
                   accent={config?.card?.accent ?? undefined}
-                  muted={item.excluded || item.missing}
+                  muted={!isActiveItem(item) || item.missing}
                   badges={
                     <>
                       <label className="me-1 inline-flex items-center gap-1 text-xs"><input type="checkbox" checked={selected.has(item.id)} onChange={() => toggle(item.id)} className="h-4 w-4" aria-label={`${t('entity.manager.select')}: ${title}`} /></label>

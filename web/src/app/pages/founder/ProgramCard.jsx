@@ -1,7 +1,7 @@
 import { Link } from 'react-router-dom'
 import { ArrowRight, CalendarDays, MapPin } from 'lucide-react'
 import { useLanguage } from '../../../i18n/LanguageProvider.jsx'
-import { publicThumbUrl } from '../../../data/storage.js'
+import { publicImageUrl, publicThumbUrl } from '../../../data/storage.js'
 import { Img } from '../../../ui/Img.jsx'
 import { Badge } from '../../../ui/Badge.jsx'
 import { cn } from '../../../lib/cn.js'
@@ -47,7 +47,7 @@ export default function ProgramCard({ program }) {
       {restricted ? (
         <div className="bg-athar-ink">{names}</div>
       ) : (
-        <Img src={publicThumbUrl(program.cover_path)} variant="thumb" alt="" aspect={program.cover_path ? '16 / 9' : '3 / 1'} overlay="card" className={cn(!program.cover_path && 'bg-athar-ink [&>div:first-child]:hidden')} imgClassName="transition-transform duration-300 group-hover:scale-105">
+        <Img src={publicImageUrl(program.cover_path)} thumb={publicThumbUrl(program.cover_path)} alt="" aspect={program.cover_path ? '16 / 9' : '3 / 1'} overlay="card" className={cn(!program.cover_path && 'bg-athar-ink [&>div:first-child]:hidden')} imgClassName="transition-transform duration-300 group-hover:scale-105">
           {names}
         </Img>
       )}

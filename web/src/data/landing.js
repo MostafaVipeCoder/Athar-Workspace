@@ -1,8 +1,10 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { db } from './client.js'
-import { AppError, fromSupabase, unwrap } from './errors.js'
+import { AppError, unwrap } from './errors.js'
 import { keys } from './queryKeys.js'
 import { IMAGE } from '../lib/constants.js'
+import { newId } from '../lib/id.js'
+import { publicImageUrl, removeObjects, storeImage } from './storage.js'
 
 /**
  * Landing Page node data (design 01 section 3.9, 04 sections 3.11 + 3.12, 07 sections 5 + 6):
@@ -79,28 +81,27 @@ export function trackLandingEvent(ref, type, { cardId = null, platform = null, n
   }
 }
 
-// ------------------------------------------------------------------ frame files (PNG kept as is: alpha + exact pixels)
+// ------------------------------------------------------------------ frame files (WebP, lossless first: alpha + exact pixels)
 const frameFolder = (projectId) => `${projectId}/landing`
+/** A PM's frame source (a PNG with a transparent window) is validated in the browser first; this is its size ceiling. */
+export const FRAME_MAX_BYTES = 5 * 1024 * 1024
 
-/** Upload a validated PNG frame; returns the stored path. */
+/**
+ * Upload a validated PNG frame; returns the stored path. The universal-WebP pipeline (profile 'frame': lossless first, alpha exact,
+ * at most 1080 x 1350 = the export grid the window coordinates live in, no thumbnail) stores it as `<project>/landing/<uuid>.webp`;
+ * the name is historical (the PM still picks a PNG). Frames saved before m41 are `.png` files and keep working.
+ */
 export async function uploadFramePng(file, { projectId }) {
   if (!file || file.type !== 'image/png') throw new AppError('validation', { messageKey: 'landing.frames.err.type', retryable: false })
-  if (file.size > IMAGE.maxBytes) throw new AppError('validation', { messageKey: 'landing.frames.err.size', retryable: false })
-  const path = `${frameFolder(projectId)}/${crypto.randomUUID()}.png`
-  const { error } = await db().storage.from(IMAGE.bucket).upload(path, file, { contentType: 'image/png', cacheControl: '31536000', upsert: false })
-  if (error) throw fromSupabase(error)
-  return path
+  if (file.size > FRAME_MAX_BYTES) throw new AppError('validation', { messageKey: 'landing.frames.err.size', retryable: false })
+  const id = newId()
+  const stored = await storeImage(file, { path: (ext) => `${frameFolder(projectId)}/${id}.${ext}`, profile: 'frame' })
+  return stored.path
 }
 /** Best-effort removal of stored files (covers: full + thumb handled by the caller through data/storage.removeImage). */
-export async function removeFiles(paths) {
-  const list = (paths ?? []).filter(Boolean)
-  if (!list.length) return
-  const { error } = await db().storage.from(IMAGE.bucket).remove(list)
-  if (error) throw fromSupabase(error)
-}
-export function framePublicUrl(path) {
-  return path ? db().storage.from(IMAGE.bucket).getPublicUrl(path).data.publicUrl : ''
-}
+export const removeFiles = (paths) => removeObjects(IMAGE.bucket, paths)
+/** A frame is an image of the public bucket like every other: ONE URL builder (data/storage). */
+export const framePublicUrl = publicImageUrl
 
 // ------------------------------------------------------------------ hooks
 export const useLandingDefinition = (nodeId, options = {}) =>

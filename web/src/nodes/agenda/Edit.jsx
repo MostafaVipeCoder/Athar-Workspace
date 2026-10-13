@@ -161,6 +161,7 @@ export default function AgendaEdit() {
         <section className="grid gap-4 lg:grid-cols-[320px_1fr]">
           <ImageField
             label={t('agenda.edit.cover')}
+            profile="cover"
             src={coverPath ? publicImageUrl(coverPath) : null}
             thumb={coverPath ? publicThumbUrl(coverPath) : null}
             aspect="16 / 9"

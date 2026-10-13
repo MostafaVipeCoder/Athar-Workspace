@@ -1,4 +1,4 @@
-import { CARD_FIELDS, biPick } from '../../lib/entities.js'
+import { CARD_FIELDS, biPick, isActiveItem } from '../../lib/entities.js'
 import { firstName } from '../../lib/contact.js'
 import { renderTemplate, sanitizePreviewHtml, unknownPlaceholders as unknownTokens } from '../../lib/email.js'
 
@@ -245,17 +245,23 @@ export function scoreIndex(rows = [], userId = null) {
 /** Sort key helpers for the board's "score" sort. */
 export const avgScoreOf = (scores, item) => scores[item.itemId]?.avg ?? null
 
-/** Counts per stage for the stage tabs (status null = "unsorted" = the inbox stage). */
+/**
+ * Counts per stage for the stage tabs (status null = "unsorted" = the inbox stage). Withdrawn applicants (m40) keep their
+ * stage but are counted apart (`withdrawnCount`): a stage count is the people who are still in the program.
+ */
 export function stageCounts(items = [], config) {
   const inbox = (config?.stages ?? []).find((s) => s.type === 'inbox')?.key ?? null
   const counts = {}
   for (const it of items) {
-    if (it.excluded) continue
+    if (!isActiveItem(it)) continue
     const k = it.status ?? inbox ?? '__none'
     counts[k] = (counts[k] ?? 0) + 1
   }
   return counts
 }
+
+/** Applicants marked withdrawn (they stay in the board with a chip, outside the stage counts). */
+export const withdrawnCount = (items = []) => items.filter((i) => i.withdrawn).length
 
 /** The effective stage of an item: its status, else the inbox stage (a new applicant waits in the inbox). */
 export const effectiveStage = (item, config) => item.status ?? (config?.stages ?? []).find((s) => s.type === 'inbox')?.key ?? null
@@ -271,6 +277,8 @@ export function boardColumns(t, lang, { config, reviews = {}, scores = {}, email
     { key: (r) => r.contact?.email ?? '', header: t('entity.field.email') },
     { key: (r) => r.contact?.phone ?? '', header: t('entity.field.phone') },
     { key: (r) => { const s = stageOf(config, effectiveStage(r, config)); return s ? biPick(s.label, lang) || s.key : '' }, header: t('selection.col.stage') },
+    { key: (r) => (r.withdrawn ? t('entity.export.withdrawn') : ''), header: t('entity.export.presence') },
+    { key: (r) => r.withdrawal?.reason ?? '', header: t('entity.withdraw.reason') },
     { key: (r) => reviews[r.itemId]?.reason ?? '', header: t('selection.col.reason') },
     { key: (r) => reviews[r.itemId]?.reviewed_at ?? '', header: t('selection.col.reviewedAt') },
     { key: (r) => scores[r.itemId]?.avg ?? '', header: t('selection.col.score') },

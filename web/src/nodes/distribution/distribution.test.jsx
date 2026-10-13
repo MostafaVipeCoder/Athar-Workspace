@@ -461,6 +461,21 @@ describe('Agenda tabs (the contributed views)', () => {
     expect(list).toHaveTextContent('Company 1')
   })
 
+  it('MatrixTab (PM audience): a withdrawn company / mentor keeps its place with a Withdrawn chip; the public payload carries no flag and shows none', async () => {
+    const { default: MatrixTab } = await import('./MatrixTab.jsx')
+    const f = fixture()
+    const pm = { ...f, mentors: f.mentors.map((m, i) => (i === 1 ? { ...m, withdrawn: true } : m)), companies: f.companies.map((c, i) => (i === 0 ? { ...c, withdrawn: true } : c)) }
+    const { unmount } = renderWithProviders(<MatrixTab data={pm} audience="pm" />, { route: '/x?lang=en' })
+    expect(await screen.findAllByTestId('matrix-cell-withdrawn')).not.toHaveLength(0)
+    expect(screen.getAllByTestId('matrix-mentor-withdrawn').length).toBeGreaterThan(0) // one per day grid
+    expect(screen.getByRole('option', { name: 'Company 1 (Withdrawn)' })).toBeInTheDocument()
+    unmount()
+    renderWithProviders(<MatrixTab data={f} />, { route: '/x?lang=en' })
+    expect((await screen.findAllByTestId('matrix-row')).length).toBeGreaterThan(0)
+    expect(screen.queryByTestId('matrix-cell-withdrawn')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('matrix-mentor-withdrawn')).not.toBeInTheDocument()
+  })
+
   it('MatrixTab empty state when nothing is generated', async () => {
     const { default: MatrixTab } = await import('./MatrixTab.jsx')
     renderWithProviders(<MatrixTab data={{ ...fixture(), sessions: [] }} />, { route: '/x?lang=en' })

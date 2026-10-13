@@ -29,7 +29,7 @@ describe('renderCertificate (fake canvas)', () => {
     const log = []
     const order = []
     const fontLoader = async (font, text) => { order.push(font === null ? 'ready' : `load ${font} "${text}"`); log.push(['fonts', font === null ? 'ready' : 'load']) }
-    const fields = [defaultField('verification_qr'), defaultField('program_name'), defaultField('participant_name')]
+    const fields = [defaultField('verification_qr'), defaultField('program_name'), defaultField('person_name')]
     const values = certValues(SAMPLES.short.snapshot, SAMPLES.short.code, 'en')
     const out = await renderCertificate({ canvas: fakeCanvas(log), image, fields, values, verifyUrl: 'https://app.example/verify/AB12-CD34-EF56', fontLoader })
 
@@ -44,7 +44,7 @@ describe('renderCertificate (fake canvas)', () => {
     expect(log.find((e) => e[0] === 'fillRect')).toEqual(['fillRect', '#ffffff', 0, 0, 2000, 1400])
     expect(names.indexOf('fillRect')).toBeLessThan(names.indexOf('drawImage'))
     expect(log.find((e) => e[0] === 'drawImage')).toEqual(['drawImage', 0, 0, 2000, 1400])
-    // text lines in variable order (participant_name, program_name), then the QR rectangles
+    // text lines in variable order (person_name, program_name), then the QR rectangles
     const texts = log.filter((e) => e[0] === 'fillText')
     expect(texts.map((t) => t[1])).toEqual(['Sara Ali', 'Athar Accelerator'])
     expect(names.indexOf('drawImage')).toBeLessThan(names.indexOf('fillText'))
@@ -57,9 +57,9 @@ describe('renderCertificate (fake canvas)', () => {
 
   it('draws Arabic as ONE whole right-to-left line (the browser shapes it), centred on the field', async () => {
     const log = []
-    const f = normalizeField({ var: 'participant_name', x: 0.5, y: 0.5, w: 0.6, size: 0.04, shrinkToFit: true })
-    const name = SAMPLES.longAr.snapshot.participant_name
-    await renderCertificate({ canvas: fakeCanvas(log), image, fields: [f], values: { participant_name: name }, fontLoader: async () => {} })
+    const f = normalizeField({ var: 'person_name', x: 0.5, y: 0.5, w: 0.6, size: 0.04, shrinkToFit: true })
+    const name = SAMPLES.longAr.snapshot.person_name
+    await renderCertificate({ canvas: fakeCanvas(log), image, fields: [f], values: { person_name: name }, fontLoader: async () => {} })
     const t = log.filter((e) => e[0] === 'fillText')
     expect(t).toHaveLength(1)
     expect(t[0][1]).toBe(name)
@@ -72,21 +72,21 @@ describe('renderCertificate (fake canvas)', () => {
   it('applies auto-fit: a long name is drawn smaller than a short one', async () => {
     const sizeOf = async (name) => {
       const log = []
-      await renderCertificate({ canvas: fakeCanvas(log), image, fields: [normalizeField({ var: 'participant_name', w: 0.4, size: 0.05, shrinkToFit: true })], values: { participant_name: name }, fontLoader: async () => {} })
+      await renderCertificate({ canvas: fakeCanvas(log), image, fields: [normalizeField({ var: 'person_name', w: 0.4, size: 0.05, shrinkToFit: true })], values: { person_name: name }, fontLoader: async () => {} })
       return Number(/(\d+(?:\.\d+)?)px/.exec(log.find((e) => e[0] === 'fillText')[4])[1])
     }
     expect(await sizeOf('Sara Ali')).toBeCloseTo(100)
-    expect(await sizeOf(SAMPLES.longEn.snapshot.participant_name)).toBeLessThan(100)
+    expect(await sizeOf(SAMPLES.longEn.snapshot.person_name)).toBeLessThan(100)
   })
 
   it('reports overflow and skips empty values', async () => {
     const log = []
     const out = await renderCertificate({
       canvas: fakeCanvas(log), image, fontLoader: async () => {},
-      fields: [normalizeField({ var: 'participant_name', w: 0.1, size: 0.05 }), defaultField('company_name')],
-      values: { participant_name: 'A very long name that cannot fit', company_name: '' },
+      fields: [normalizeField({ var: 'person_name', w: 0.1, size: 0.05 }), defaultField('company_name')],
+      values: { person_name: 'A very long name that cannot fit', company_name: '' },
     })
-    expect(out.overflow.participant_name).toBe(true)
+    expect(out.overflow.person_name).toBe(true)
     expect(log.filter((e) => e[0] === 'fillText')).toHaveLength(1)
   })
 
@@ -110,11 +110,53 @@ describe('renderCertificate (fake canvas)', () => {
   })
 })
 
+describe('renderCertificate: person name AND company name', () => {
+  const px = (t) => Number(/(\d+(?:\.\d+)?)px/.exec(t[4])[1])
+
+  it('draws the PERSON name, then the COMPANY name, each in its own box (variable order whatever the field order), the QR last', async () => {
+    const log = []
+    const fields = [defaultField('verification_qr'), defaultField('company_name'), defaultField('person_name')]
+    const values = certValues(SAMPLES.short.snapshot, SAMPLES.short.code, 'en')
+    await renderCertificate({ canvas: fakeCanvas(log), image, fields, values, verifyUrl: 'https://app.example/verify/AB12-CD34-EF56', fontLoader: async () => {} })
+    const texts = log.filter((e) => e[0] === 'fillText')
+    expect(texts.map((t) => t[1])).toEqual(['Sara Ali', 'Nile Labs'])
+    expect(texts[0][3]).toBeLessThan(texts[1][3]) // the person is above the company
+    const names = log.map((e) => e[0])
+    expect(names.lastIndexOf('fillText')).toBeLessThan(names.findIndex((n, i) => n === 'fillRect' && i > names.lastIndexOf('fillText')))
+  })
+
+  it('a long company name is shrunk to its own box, the short person name keeps its size', async () => {
+    const log = []
+    const values = certValues(SAMPLES.longCompany.snapshot, SAMPLES.longCompany.code, 'en')
+    const out = await renderCertificate({ canvas: fakeCanvas(log), image, fields: [defaultField('person_name'), defaultField('company_name')], values, fontLoader: async () => {} })
+    const texts = log.filter((e) => e[0] === 'fillText')
+    expect(px(texts[0])).toBeCloseTo(0.045 * 2000)
+    expect(px(texts[1])).toBeLessThan(0.028 * 2000)
+    expect(out.overflow).toEqual({ person_name: false, company_name: false })
+  })
+
+  it('long Arabic person and company names are each drawn as ONE right-to-left line', async () => {
+    const log = []
+    const values = certValues(SAMPLES.longAr.snapshot, SAMPLES.longAr.code, 'ar')
+    await renderCertificate({ canvas: fakeCanvas(log), image, fields: [defaultField('person_name'), defaultField('company_name')], values, fontLoader: async () => {} })
+    const texts = log.filter((e) => e[0] === 'fillText')
+    expect(texts.map((t) => t[1])).toEqual([SAMPLES.longAr.snapshot.person_name, SAMPLES.longAr.snapshot.company_name])
+    expect(texts.map((t) => t[5])).toEqual(['rtl', 'rtl'])
+  })
+
+  it('a template saved with the m38 key (participant_name) still prints the person name from an old snapshot', async () => {
+    const log = []
+    const field = normalizeField({ var: 'participant_name', x: 0.5, y: 0.5, w: 0.5, size: 0.04 })
+    await renderCertificate({ canvas: fakeCanvas(log), image, fields: [field], values: certValues({ participant_name: 'Old Name' }, 'X', 'en'), fontLoader: async () => {} })
+    expect(log.filter((e) => e[0] === 'fillText').map((t) => t[1])).toEqual(['Old Name'])
+  })
+})
+
 describe('fonts and export helpers', () => {
   it('asks for each used font once with the exact text, skips the QR, then waits for document.fonts.ready', async () => {
     const calls = []
-    const fields = [defaultField('participant_name'), defaultField('participant_name'), defaultField('verification_qr'), defaultField('company_name')]
-    await ensureFonts(fields, { participant_name: 'سارة', company_name: 'Nile' }, { fontLoader: async (f, t) => { calls.push([f, t]) } })
+    const fields = [defaultField('person_name'), defaultField('person_name'), defaultField('verification_qr'), defaultField('company_name')]
+    await ensureFonts(fields, { person_name: 'سارة', company_name: 'Nile' }, { fontLoader: async (f, t) => { calls.push([f, t]) } })
     expect(calls.map((c) => c[1])).toEqual(['سارة', 'Nile', null])
     expect(calls.at(-1)).toEqual([null, null])
   })

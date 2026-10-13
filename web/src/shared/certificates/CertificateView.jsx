@@ -45,7 +45,7 @@ export default function CertificateView({ payload, className, label }) {
   if (!payload) return null
   return (
     <div ref={wrapRef} className={cn('relative w-full overflow-hidden rounded-card border border-border bg-surface', className)} style={{ aspectRatio: String(aspect) }} data-testid="certificate-view" data-state={state}>
-      <canvas ref={canvasRef} role="img" aria-label={label ?? t('certificates.view.alt', { name: payload.snapshot?.participant_name ?? '' })} className={cn('h-full w-full transition-opacity duration-300', state === 'ready' ? 'opacity-100' : 'opacity-0')} />
+      <canvas ref={canvasRef} role="img" aria-label={label ?? t('certificates.view.alt', { name: payload.snapshot?.person_name ?? payload.snapshot?.participant_name ?? '' })} className={cn('h-full w-full transition-opacity duration-300', state === 'ready' ? 'opacity-100' : 'opacity-0')} />
       {state === 'loading' && (
         <div className="absolute inset-0 flex items-center justify-center text-muted-foreground" role="status">
           <Loader2 className="h-6 w-6 animate-spin text-primary" aria-hidden="true" />

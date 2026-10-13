@@ -200,20 +200,30 @@ export function emailIndex(rows = []) {
  * Merge the connected list's items (ListItemView[] from useInputPort('mentors')) with the node's provider rows.
  * Returns [{ item, provider|null, enabled, email, notice, missing }]; rows of providers whose list item is no longer in
  * the list come last as `orphan` (the migrated nodes have none, but a disconnected list leaves them visible).
+ * `withdrawn` = Map(list item id -> { name_en, name_ar }) from get_booking_extras (m40): a provider whose item the PM marked
+ * WITHDRAWN left the connected list on purpose (the resolver omits it): it stays here as a `withdrawn` row with its name,
+ * not as an "orphan", and the public page offers nothing of it.
  */
-export function mergeProviders(items = [], providers = []) {
+export function mergeProviders(items = [], providers = [], withdrawn = new Map()) {
   const byItem = new Map(providers.map((p) => [p.list_item_id, p]))
   const out = items.map((item) => {
     const provider = item.itemId ? byItem.get(item.itemId) ?? null : null
     if (provider) byItem.delete(item.itemId)
     return { key: item.id, item, provider, enabled: Boolean(provider?.is_active), email: provider?.booking_email ?? item.contact?.email ?? item.entity?.email ?? '', notice: provider?.advance_notice_min ?? null, missing: Boolean(item.missing), orphan: false }
   })
-  for (const p of byItem.values()) out.push({ key: `orphan:${p.id}`, item: null, provider: p, enabled: Boolean(p.is_active), email: p.booking_email ?? '', notice: p.advance_notice_min ?? null, missing: true, orphan: true })
+  for (const p of byItem.values()) {
+    const w = withdrawn.get(p.list_item_id)
+    out.push({
+      key: `orphan:${p.id}`, item: null, provider: p, enabled: Boolean(p.is_active), email: p.booking_email ?? '', notice: p.advance_notice_min ?? null,
+      missing: !w, orphan: !w, withdrawn: Boolean(w), withdrawnName: w ? { en: w.name_en ?? '', ar: w.name_ar ?? '' } : null,
+    })
+  }
   return out
 }
 
 /** Display name of a provider row for the admin screens (the list item's entity, else the provider id). */
 export function providerName(row, lang) {
+  if (row?.withdrawnName) return biPick(row.withdrawnName, lang) || '-'
   if (row?.item) return biPick(row.item.entity.title, lang) || '-'
   return row?.provider?.id ? row.provider.id.slice(0, 8) : '-'
 }

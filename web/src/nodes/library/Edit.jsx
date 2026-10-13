@@ -15,10 +15,11 @@ import { EmptyState, ErrorState, Loading } from '../../ui/States.jsx'
 import { useLibraryDefinition, uploadResourceFile, removeResourceFiles } from '../../data/library.js'
 import { removeImage, uploadImage } from '../../data/storage.js'
 import { exportWorkbook } from '../../lib/export/xlsx.js'
+import { describeReport, variantsOf } from '../../lib/image/index.js'
 import CategoriesPanel from './CategoriesPanel.jsx'
 import ResourceRow from './ResourceRow.jsx'
 import {
-  FILE_ACCEPT, RESOURCE_TYPES, categoryName, emptyCategory, emptyResource, fromCategoryRow, fromRow, indexRows, moveItem, resourceTitle, thumbOf,
+  FILE_ACCEPT, RESOURCE_TYPES, categoryName, emptyCategory, emptyResource, fromCategoryRow, fromRow, indexRows, moveItem, resourceTitle,
   toChildren, typeFromMime, validateFile, validateLibrary,
 } from './libraryLogic.js'
 
@@ -29,7 +30,10 @@ const insertAt = (list, item, index) => {
   next.splice(Math.min(Math.max(index ?? next.length, 0), next.length), 0, item)
   return next
 }
-const withThumb = (p) => [p, thumbOf(p)]
+/** The object itself and its thumbnail when it has one (a PDF has none: no phantom path is sent to Storage). */
+const withThumb = (p) => variantsOf(p)
+/** A refused image keeps its own sentence (corrupt, HEIC, ...); everything else is the generic upload error. */
+const uploadErrorKey = (e) => (/^(library|errors\.image)\./.test(e?.messageKey ?? '') ? e.messageKey : 'library.err.upload')
 const baseName = (name) => String(name ?? '').replace(/\.[^.]+$/, '').replace(/[_-]+/g, ' ').replace(/\s+/g, ' ').trim()
 
 /** Storage bookkeeping of the draft: files uploaded in THIS session are removed again when they never get saved. */
@@ -144,12 +148,13 @@ export default function LibraryEdit() {
       try {
         const up = await uploadResourceFile(file, { projectId, nodeId: node.id })
         trackFile(up.path)
+        if (up.report) { const d = describeReport(up.report); toast.info(`${file.name}: ${t(d.key, d.vars)}`) }
         const title = baseName(file.name)
         const r = emptyResource({ title: { en: title, ar: '' }, type: typeFromMime(up.mime), filePath: up.path, hasFile: true, mime: up.mime, bytes: up.bytes })
         setResources((cur) => [...cur, r])
         last = r.id
       } catch (e) {
-        toast.error(`${file.name}: ${t(e?.messageKey?.startsWith('library.') ? e.messageKey : 'library.err.upload')}`)
+        toast.error(`${file.name}: ${t(uploadErrorKey(e))}`)
       } finally {
         setPending((p) => p.filter((x) => x.id !== tempId))
       }
@@ -162,10 +167,11 @@ export default function LibraryEdit() {
     try {
       const up = await uploadResourceFile(file, { projectId, nodeId: node.id })
       trackFile(up.path)
+      if (up.report) { const d = describeReport(up.report); toast.info(`${file.name}: ${t(d.key, d.vars)}`) }
       releaseFile(r.filePath)
       updateResource({ ...r, filePath: up.path, hasFile: true, mime: up.mime, bytes: up.bytes, url: '', type: r.type === 'link' ? typeFromMime(up.mime) : r.type })
     } catch (e) {
-      toast.error(t(e?.messageKey?.startsWith('library.') ? e.messageKey : 'library.err.upload'))
+      toast.error(t(uploadErrorKey(e)))
     }
   }
   function switchToLink(r) {

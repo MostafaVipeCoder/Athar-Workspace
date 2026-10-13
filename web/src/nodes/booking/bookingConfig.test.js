@@ -1,5 +1,21 @@
 import { describe, expect, it } from 'vitest'
-import { DEFAULT_TEMPLATES, bookingColumns, confirmedBySlot, emailIndex, groupByDay, mergeProviders, normalizeBookingConfig, planSlots, slotState, splitPlan, syncState, validateBookingConfig } from './bookingConfig.js'
+import { DEFAULT_TEMPLATES, bookingColumns, confirmedBySlot, emailIndex, groupByDay, mergeProviders, normalizeBookingConfig, planSlots, providerName, slotState, splitPlan, syncState, validateBookingConfig } from './bookingConfig.js'
+
+describe('bookingConfig: withdrawn providers (m40)', () => {
+  it('a provider whose list item was marked WITHDRAWN is kept as a named "withdrawn" row, not an anonymous orphan', () => {
+    const items = [{ id: 'li1', itemId: 'li1', entity: { title: { en: 'Alice', ar: '' } }, contact: {} }]
+    const providers = [{ id: 'p1', list_item_id: 'li1', is_active: true }, { id: 'p2', list_item_id: 'w1', is_active: true }, { id: 'p3', list_item_id: 'gone', is_active: true }]
+    const rows = mergeProviders(items, providers, new Map([['w1', { id: 'w1', name_en: 'Walid', name_ar: 'وليد' }]]))
+    const w = rows.find((r) => r.provider.id === 'p2')
+    expect(w).toMatchObject({ withdrawn: true, orphan: false, missing: false, item: null })
+    expect(providerName(w, 'en')).toBe('Walid')
+    expect(providerName(w, 'ar')).toBe('وليد')
+    const orphan = rows.find((r) => r.provider.id === 'p3')
+    expect(orphan).toMatchObject({ orphan: true, missing: true, withdrawn: false })
+    expect(rows[0].withdrawn).toBeUndefined() // a live provider carries no flag
+    expect(mergeProviders(items, providers).find((r) => r.provider?.id === 'p2').orphan).toBe(true) // without the extras it is an orphan as before
+  })
+})
 
 describe('bookingConfig', () => {
   it('normalises a migrated config (cc/admin only) and keeps the node-type defaults for the texts', () => {

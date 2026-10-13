@@ -10,12 +10,12 @@ import { Badge } from '../../ui/Badge.jsx'
 import { Field } from '../../ui/Field.jsx'
 import { EmptyState, Loading } from '../../ui/States.jsx'
 import { materializeItem } from '../../data/lists.js'
-import { biPick } from '../../lib/entities.js'
+import { biPick, isActiveItem } from '../../lib/entities.js'
 import { cn } from '../../lib/cn.js'
 import { BULK_CONFIRM_THRESHOLD, EMAIL_KEYS, PLACEHOLDERS_BY_KEY, emailIndex, normalizeSelectionConfig, renderTemplate, sampleVars, sanitizePreviewHtml, stageForEmail, toStoredConfig, validateSelectionConfig } from './selectionConfig.js'
 
 const STATUS_TONE = { queued: 'blue', sending: 'blue', sent: 'green', failed: 'red', dead: 'red', cancelled: 'neutral', needs_review: 'amber' }
-const RESULT_TONE = { queued: 'green', already_sent: 'neutral', duplicate: 'neutral', no_recipient: 'red', item_not_found: 'red' }
+const RESULT_TONE = { queued: 'green', already_sent: 'neutral', duplicate: 'neutral', no_recipient: 'red', item_not_found: 'red', withdrawn: 'red' }
 const list = (s) => String(s ?? '').split(',').map((x) => x.trim()).filter(Boolean)
 
 /**
@@ -27,7 +27,7 @@ const list = (s) => String(s ?? '').split(',').map((x) => x.trim()).filter(Boole
  * revision token (this tab owns its own Save; the board's writes are row-level).
  */
 export function EmailsTab({ node, config: saved, items, extras, loading = false, mutations: sm, preselect = null }) {
-  const { t, lang, pick } = useLanguage()
+  const { t, tn, lang, pick } = useLanguage()
   const toast = useToast()
   const confirm = useConfirm()
   const { config: raw, setConfig, dirty, saving, save } = useNodeConfig()
@@ -43,7 +43,8 @@ export function EmailsTab({ node, config: saved, items, extras, loading = false,
 
   const tpl = draft.emails[key]
   const stage = stageForEmail(saved, key)
-  const recipients = useMemo(() => items.filter((i) => !i.excluded && stage && i.status === stage.key), [items, stage])
+  const recipients = useMemo(() => items.filter((i) => isActiveItem(i) && stage && i.status === stage.key), [items, stage])
+  const withdrawnInStage = useMemo(() => items.filter((i) => i.withdrawn && stage && i.status === stage.key).length, [items, stage])
   const emails = useMemo(() => emailIndex(extras?.emails ?? []), [extras])
   const sentOf = (item) => emails[item.itemId]?.[key]?.last ?? null
   const unsent = recipients.filter((i) => !sentOf(i) || ['failed', 'dead', 'cancelled'].includes(sentOf(i).status))
@@ -148,7 +149,7 @@ export function EmailsTab({ node, config: saved, items, extras, loading = false,
             <h3 className="text-sm font-semibold">{t('selection.emails.preview')}</h3>
             {items.length > 0 && (
               <select aria-label={t('selection.emails.previewFor')} value={sample?.id ?? ''} onChange={(e) => setSampleId(e.target.value)} className="ms-auto min-h-9 max-w-64 rounded-md border border-input bg-background px-2 text-sm">
-                {items.filter((i) => !i.excluded).slice(0, 200).map((i) => <option key={i.id} value={i.id}>{biPick(i.entity.title, lang) || '-'}</option>)}
+                {items.filter(isActiveItem).slice(0, 200).map((i) => <option key={i.id} value={i.id}>{biPick(i.entity.title, lang) || '-'}</option>)}
               </select>
             )}
           </div>
@@ -188,6 +189,7 @@ export function EmailsTab({ node, config: saved, items, extras, loading = false,
                 <Send className="h-4 w-4" aria-hidden="true" />{t('selection.emails.send', { count: selectedItems.length })}
               </Button>
             </div>
+            {withdrawnInStage > 0 && <p className="text-xs text-muted-foreground" data-testid="withdrawn-left-out">{tn('selection.emails.withdrawnLeftOut', withdrawnInStage)}</p>}
             {recipients.length === 0 ? <EmptyState title={t('entity.manager.empty')} /> : (
               <div className="overflow-x-auto rounded-input border border-border">
                 <table className="w-full text-sm">

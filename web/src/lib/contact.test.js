@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { isEmail, normalizeEmail, extractEmail, maskEmail, displayName, firstName, cleanPhoneInput, validatePhone, validateEgypt, formatPhone } from './contact.js'
-import { buildImagePath, thumbPath, fitWithin, validateImageFile } from './image.js'
+import { buildImagePath, thumbPath, fitWithin, validateImageFile } from './image/index.js'
 
 describe('e-mail', () => {
   it('validates, normalises, extracts, masks', () => {
@@ -61,7 +61,8 @@ describe('image paths', () => {
     expect(fitWithin(3200, 1600, 1600)).toEqual({ width: 1600, height: 800 })
     expect(fitWithin(300, 200, 1600)).toEqual({ width: 300, height: 200 })
     expect(validateImageFile({ type: 'image/svg+xml', size: 10 })).toBe('image.type')
-    expect(validateImageFile({ type: 'image/png', size: 6 * 1024 * 1024 })).toBe('image.size')
+    expect(validateImageFile({ type: 'image/png', size: 26 * 1024 * 1024 })).toBe('image.size')
+    expect(validateImageFile({ type: 'image/png', size: 6 * 1024 * 1024 })).toBeNull() // sources up to 25 MB: the stored WebP is far smaller
     expect(validateImageFile({ type: 'image/png', size: 10 })).toBeNull()
   })
 })

@@ -228,7 +228,7 @@ describe('Library node', () => {
     mocks.upload.mockResolvedValueOnce({ path: 'P/N/two.pdf', mime: 'application/pdf', bytes: 10 })
     const hidden = within(row).getByTestId('resource-editor').querySelector('input[type="file"]')
     await user.upload(hidden, new File(['%PDF'], 'two.pdf', { type: 'application/pdf' }))
-    await waitFor(() => expect(mocks.removeFiles).toHaveBeenCalledWith(['P/N/new.pdf', 'P/N/new_t.pdf']))
+    await waitFor(() => expect(mocks.removeFiles).toHaveBeenCalledWith(['P/N/new.pdf']))
   })
 
   it('View: the PM preview shows every resource with hidden/participants marks, grouped by section', async () => {

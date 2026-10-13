@@ -8,6 +8,7 @@ import { PhoneField } from '../../ui/PhoneField.jsx'
 import { EmptyState } from '../../ui/States.jsx'
 import { useLanguage } from '../../i18n/LanguageProvider.jsx'
 import { publicImageUrl, publicThumbUrl } from '../../data/storage.js'
+import { convertToWebp, describeReport } from '../../lib/image/index.js'
 import { buildShareUrl } from '../../lib/links.js'
 import { formatInTz } from '../../lib/time/tz.js'
 import { cn } from '../../lib/cn.js'
@@ -80,17 +81,28 @@ function FileField({ q, value, onChange, error, lang, t, id, onUpload, preview }
   const [busy, setBusy] = useState(false)
   const [name, setName] = useState('')
   const [uploadError, setUploadError] = useState(null)
+  const [saved, setSaved] = useState(null)
   async function pick(e) {
     const file = e.target.files?.[0]
     e.target.value = ''
     if (!file || !onUpload) return
     setBusy(true)
     setUploadError(null)
+    setSaved(null)
     try {
+      // a picture is converted to WebP before it is sent (08 section 17.3); the same conversion is reused by the upload below (cached per file)
+      if (/^image\//i.test(file.type)) {
+        try {
+          const { report } = await convertToWebp(file, { profile: 'attachment' })
+          const d = describeReport(report)
+          setSaved(t(d.key, d.vars))
+        } catch { /* the upload below reports a refused image with its own message */ }
+      }
       const path = await onUpload(file)
       setName(file.name)
       onChange(path)
     } catch (err) {
+      setSaved(null)
       setUploadError(t(err?.messageKey ?? 'form.err.fileUpload'))
     } finally {
       setBusy(false)
@@ -108,6 +120,7 @@ function FileField({ q, value, onChange, error, lang, t, id, onUpload, preview }
         {value && <span className="inline-flex items-center gap-1 text-sm text-emerald-700"><CheckCircle2 className="h-4 w-4" aria-hidden="true" />{name || t('form.public.fileDone')}</span>}
         {value && <Button type="button" variant="ghost" size="sm" onClick={() => { onChange(''); setName('') }}><Trash2 className="h-4 w-4" aria-hidden="true" />{t('form.public.fileRemove')}</Button>}
       </div>
+      {saved && value && <p className="text-xs text-muted-foreground" data-testid="file-saved">{saved}</p>}
       <p className="text-xs text-muted-foreground">{disabled ? t('form.public.previewUpload') : t('form.public.fileHint')}</p>
       {(error || uploadError) && <p className="text-xs text-destructive">{error ?? uploadError}</p>}
     </div>
@@ -244,7 +257,7 @@ export default function FormRenderer({ form, onSubmit, onUpload, initialAnswers 
     const date = reason === 'not_open' ? form.opens_at : form.closes_at
     return (
       <div className="py-6" data-testid="form-closed">
-        {cover && !hideHeader && <Img src={cover} thumb={coverThumb} alt="" aspect="21 / 9" className="mb-4 rounded-card" eager />}
+        {cover && !hideHeader && <Img src={cover} thumb={coverThumb} alt="" aspect="21 / 9" className="mb-4 rounded-card" priority />}
         {!hideHeader && <h1 className="mb-3 text-section-title">{title}</h1>}
         <EmptyState icon={Lock} title={t('form.public.closedTitle')} body={t(`form.public.closed.${reason}`, { date: date ? formatInTz(date, tz, lang) : '' })} />
       </div>
@@ -257,7 +270,7 @@ export default function FormRenderer({ form, onSubmit, onUpload, initialAnswers 
     const channels = SHARE_PLATFORMS.filter((p) => config.social[p])
     return (
       <div className="py-6 text-center" data-testid="form-success">
-        {config.thank_you.show_image && cover && <Img src={cover} thumb={coverThumb} alt="" aspect="21 / 9" className="mb-4 rounded-card" eager />}
+        {config.thank_you.show_image && cover && <Img src={cover} thumb={coverThumb} alt="" aspect="21 / 9" className="mb-4 rounded-card" priority />}
         <CheckCircle2 className="mx-auto mb-3 h-12 w-12 text-success" aria-hidden="true" />
         <h1 className="text-section-title">{t('form.public.thanksTitle')}</h1>
         <p className="mx-auto mt-2 max-w-prose whitespace-pre-line text-muted-foreground">{message}</p>

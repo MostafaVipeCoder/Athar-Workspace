@@ -11,7 +11,7 @@
  */
 
 export const VARIABLES = [
-  { key: 'participant_name', type: 'text', sample: 'participantName', snapshot: 'participant_name' },
+  { key: 'person_name', type: 'text', sample: 'personName', snapshot: 'person_name' },
   { key: 'company_name', type: 'text', sample: 'companyName', snapshot: 'company_name' },
   { key: 'program_name', type: 'text', sample: 'programName', snapshot: 'program_name' },
   { key: 'project_name', type: 'text', sample: 'projectName', snapshot: 'project_name' },
@@ -21,7 +21,13 @@ export const VARIABLES = [
   { key: 'verification_qr', type: 'qr', sample: null, snapshot: null },
 ]
 export const VARIABLE_KEYS = VARIABLES.map((v) => v.key)
-export const variableOf = (key) => VARIABLES.find((v) => v.key === key) ?? null
+/**
+ * The template variable of the person is `person_name` (owner decision 08 section 17.2: a certificate carries the PERSON's name and the COMPANY's
+ * name, one certificate per founder account). `participant_name` is the m38 spelling: it is read as an alias everywhere (templates saved before
+ * m42, snapshots of old certificates) and never written again.
+ */
+const LEGACY_VARIABLES = { participant_name: 'person_name' }
+export const normalizeVar = (key) => LEGACY_VARIABLES[key] ?? key
 
 /** Only fonts the app already loads (index.html): Tajawal covers Arabic + Latin, the others fall back to it for Arabic glyphs. */
 export const FONTS = [
@@ -33,7 +39,7 @@ export const FONTS = [
 export const fontOf = (key) => FONTS.find((f) => f.key === key) ?? FONTS[0]
 export const ALIGNS = ['left', 'center', 'right']
 export const DIRECTIONS = ['auto', 'ltr', 'rtl']
-export const MAX_FIELDS = 12
+const MAX_FIELDS = 12
 
 export const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v))
 const num = (v, fallback) => (Number.isFinite(Number(v)) && v !== null && v !== '' ? Number(v) : fallback)
@@ -46,10 +52,10 @@ export const WIDTH_RANGE = { min: 0.05, max: 1 }
 
 /** Where a variable lands when the PM adds it (a sensible A4 composition). */
 const DEFAULTS = {
-  participant_name: { x: 0.5, y: 0.46, w: 0.6, size: 0.045, weight: 700, shrinkToFit: true },
+  person_name: { x: 0.5, y: 0.46, w: 0.6, size: 0.045, weight: 700, shrinkToFit: true },
   company_name: { x: 0.5, y: 0.54, w: 0.5, size: 0.028, weight: 500, shrinkToFit: true },
-  program_name: { x: 0.5, y: 0.62, w: 0.7, size: 0.026, weight: 500, shrinkToFit: true, maxLines: 2 },
-  project_name: { x: 0.5, y: 0.7, w: 0.5, size: 0.02, weight: 400, shrinkToFit: true },
+  program_name: { x: 0.5, y: 0.63, w: 0.7, size: 0.026, weight: 500, shrinkToFit: true, maxLines: 2 },
+  project_name: { x: 0.5, y: 0.715, w: 0.5, size: 0.02, weight: 400, shrinkToFit: true },
   completion_date: { x: 0.25, y: 0.84, w: 0.25, size: 0.02, weight: 500, shrinkToFit: true },
   issue_date: { x: 0.75, y: 0.84, w: 0.25, size: 0.02, weight: 500, shrinkToFit: true },
   verification_code: { x: 0.82, y: 0.95, w: 0.22, size: 0.014, weight: 500, shrinkToFit: true, font: 'Manrope', align: 'center' },
@@ -57,14 +63,15 @@ const DEFAULTS = {
 }
 
 export function defaultField(key) {
-  const d = DEFAULTS[key] ?? DEFAULTS.participant_name
+  const d = DEFAULTS[normalizeVar(key)] ?? DEFAULTS.person_name
   return normalizeField({
-    var: key, align: 'center', font: 'Tajawal', color: '#1a1a2e', weight: 700, direction: 'auto', maxLines: 1, shrinkToFit: false, ...d,
+    var: normalizeVar(key), align: 'center', font: 'Tajawal', color: '#1a1a2e', weight: 700, direction: 'auto', maxLines: 1, shrinkToFit: false, ...d,
   })
 }
 
 /** Clamp every number into its legal range, fill defaults, keep the QR square (w = size). */
-export function normalizeField(f) {
+export function normalizeField(input) {
+  const f = { ...input, var: normalizeVar(input.var) }
   const isQr = f.var === 'verification_qr'
   const font = fontOf(f.font)
   const weight = font.weights.includes(Number(f.weight)) ? Number(f.weight) : font.weights.reduce((a, b) => (Math.abs(b - 700) < Math.abs(a - 700) ? b : a), font.weights[0])
@@ -103,16 +110,17 @@ export function fieldToRow(field) {
 /** Fields in a stable order (by variable) so a draft compares equal to what was loaded. */
 export const sortFields = (fields) => [...fields].sort((a, b) => VARIABLE_KEYS.indexOf(a.var) - VARIABLE_KEYS.indexOf(b.var))
 
-/** What is wrong with a draft's fields (the participant name is what makes a certificate a certificate). */
+/** What is wrong with a draft's fields (the person's name is what makes a certificate a certificate; the company name is optional). */
 export function validateFields(fields) {
   const issues = []
-  if (!fields.some((f) => f.var === 'participant_name')) issues.push({ code: 'noName' })
+  if (!fields.some((f) => normalizeVar(f.var) === 'person_name')) issues.push({ code: 'noName' })
   if (fields.length > MAX_FIELDS) issues.push({ code: 'tooMany' })
   const seen = new Set()
   for (const f of fields) {
-    if (!VARIABLE_KEYS.includes(f.var)) issues.push({ code: 'unknownVar', var: f.var })
-    if (seen.has(f.var)) issues.push({ code: 'duplicate', var: f.var })
-    seen.add(f.var)
+    const key = normalizeVar(f.var)
+    if (!VARIABLE_KEYS.includes(key)) issues.push({ code: 'unknownVar', var: f.var })
+    if (seen.has(key)) issues.push({ code: 'duplicate', var: f.var })
+    seen.add(key)
   }
   return issues
 }
@@ -132,7 +140,7 @@ export function detectDirection(text, preference = 'auto') {
 export const fontString = (field, px) => `${field.weight} ${Math.max(1, Math.round(px * 100) / 100)}px ${fontOf(field.font).stack}`
 
 // ------------------------------------------------------------------ geometry
-export const LINE_HEIGHT = { ltr: 1.25, rtl: 1.45 }
+const LINE_HEIGHT = { ltr: 1.25, rtl: 1.45 }
 
 /** The field box in pixels of a W x H canvas. */
 export function fieldBox(field, W, H) {
@@ -224,7 +232,7 @@ export function formatCertDate(value, lang = 'en') {
 export function certValues(snapshot, code, lang = 'en') {
   const s = snapshot ?? {}
   return {
-    participant_name: s.participant_name ?? '',
+    person_name: s.person_name ?? s.participant_name ?? '',
     company_name: s.company_name ?? '',
     program_name: s.program_name ?? '',
     project_name: s.project_name ?? '',
@@ -234,10 +242,18 @@ export function certValues(snapshot, code, lang = 'en') {
   }
 }
 
-/** Sample data for the editor: a long Arabic name and a long Latin name stress the overflow / auto-fit rules (decision 07-8). */
+/**
+ * Sample data for the editor: a long Arabic and a long Latin PERSON name AND COMPANY name stress the overflow / auto-fit rules (decision 07-8);
+ * the two mixed samples stress one box at a time (a long person with a short company, a short person with a long company).
+ */
+const COMMON = { program_name: 'Athar Accelerator Program for Climate Startups', project_name: 'Cohort Five', completed_on: '2026-10-12', issued_on: '2026-10-13' }
+const COMMON_AR = { program_name: 'برنامج أثر لتسريع الشركات الناشئة في مجال المناخ', project_name: 'الدفعة الخامسة', completed_on: '2026-10-12', issued_on: '2026-10-13' }
+const CODE = 'AB12-CD34-EF56'
 export const SAMPLES = {
-  longAr: { snapshot: { participant_name: 'عبد الرحمن بن محمد الفاتح الإدريسي المقدسي', company_name: 'شركة الأفق الرقمي للحلول التقنية المتقدمة', program_name: 'برنامج أثر لتسريع الشركات الناشئة في مجال المناخ', project_name: 'الدفعة الخامسة', completed_on: '2026-10-12', issued_on: '2026-10-13' }, code: 'AB12-CD34-EF56' },
-  longEn: { snapshot: { participant_name: 'Alexandria Maximilian Wolfeschlegelstein-Hartmann III', company_name: 'International Sustainable Renewable Energy Solutions Ltd', program_name: 'Athar Accelerator Program for Climate Startups', project_name: 'Cohort Five', completed_on: '2026-10-12', issued_on: '2026-10-13' }, code: 'AB12-CD34-EF56' },
-  short: { snapshot: { participant_name: 'Sara Ali', company_name: 'Nile Labs', program_name: 'Athar Accelerator', project_name: 'Cohort 5', completed_on: '2026-10-12', issued_on: '2026-10-13' }, code: 'AB12-CD34-EF56' },
+  longAr: { snapshot: { person_name: 'عبد الرحمن بن محمد الفاتح الإدريسي المقدسي', company_name: 'شركة الأفق الرقمي للحلول التقنية المتقدمة والخدمات السحابية', ...COMMON_AR }, code: CODE },
+  longEn: { snapshot: { person_name: 'Alexandria Maximilian Wolfeschlegelstein-Hartmann III', company_name: 'International Sustainable Renewable Energy Solutions and Services Ltd', ...COMMON }, code: CODE },
+  longPerson: { snapshot: { person_name: 'Alexandria Maximilian Wolfeschlegelstein-Hartmann III', company_name: 'Nile Labs', ...COMMON }, code: CODE },
+  longCompany: { snapshot: { person_name: 'Sara Ali', company_name: 'International Sustainable Renewable Energy Solutions and Services Ltd', ...COMMON }, code: CODE },
+  short: { snapshot: { person_name: 'Sara Ali', company_name: 'Nile Labs', program_name: 'Athar Accelerator', project_name: 'Cohort 5', completed_on: '2026-10-12', issued_on: '2026-10-13' }, code: CODE },
 }
 export const SAMPLE_KEYS = Object.keys(SAMPLES)

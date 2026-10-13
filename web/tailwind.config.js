@@ -102,7 +102,7 @@ export default {
       backgroundImage: {
         'overlay-card': 'linear-gradient(rgba(0,0,0,0.7), rgba(0,0,0,0.7))',
         'overlay-hero': 'linear-gradient(rgba(0,0,0,0.8), rgba(0,0,0,0.8))',
-        'hero-pattern': "url('/brand/pattern.png')",
+        'hero-pattern': "url('/brand/pattern.webp')",
       },
       keyframes: {
         fadeInUp: { from: { opacity: '0', transform: 'translate3d(0, 40px, 0)' }, to: { opacity: '1', transform: 'none' } },

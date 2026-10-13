@@ -68,7 +68,7 @@ export default function CardList({ cards, setCards, errors, linkOptions, onCover
                     <GripVertical className="h-5 w-5" />
                   </span>
                   <span className="flex h-11 w-16 shrink-0 items-center justify-center overflow-hidden rounded-md bg-surface">
-                    {c.cover ? <img src={publicThumbUrl(c.cover)} alt="" className="h-full w-full object-cover" /> : <ImageOff className="h-4 w-4 text-muted-foreground" aria-hidden="true" />}
+                    {c.cover ? <img src={publicThumbUrl(c.cover)} alt="" loading="lazy" decoding="async" className="h-full w-full object-cover" /> : <ImageOff className="h-4 w-4 text-muted-foreground" aria-hidden="true" />}
                   </span>
                   <button type="button" onClick={() => setOpen(expanded ? null : c.id)} aria-expanded={expanded} className="min-h-11 min-w-0 flex-1 text-start" data-testid="card-toggle">
                     <span className="block truncate font-semibold" dir="auto">{label}</span>

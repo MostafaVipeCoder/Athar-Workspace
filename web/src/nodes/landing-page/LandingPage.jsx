@@ -103,7 +103,7 @@ export default function LandingPage({ model, lang, track, mode = 'page', pageUrl
         <header id="landing-hero" className={cn('relative isolate flex flex-col items-center justify-center overflow-hidden text-center', scrollMt, embedded ? 'min-h-[220px] px-4 py-10' : compact ? 'min-h-[300px] px-4 py-12' : 'min-h-[440px] px-6 pb-16 pt-24')} style={heroCover ? undefined : { backgroundImage: `url(${BRAND.pattern})`, backgroundSize: compact ? '300px auto' : '800px auto', backgroundPosition: 'center top' }} data-testid="landing-hero">
           {heroCover && (
             <>
-              <Img src={publicImageUrl(heroCover)} thumb={publicThumbUrl(heroCover)} alt="" aspect="auto" eager className="absolute inset-0 -z-10 h-full w-full" />
+              <Img src={publicImageUrl(heroCover)} thumb={publicThumbUrl(heroCover)} alt="" aspect="auto" priority className="absolute inset-0 -z-10 h-full w-full" />
               <div aria-hidden="true" className="absolute inset-0 -z-10 bg-black/55" />
             </>
           )}

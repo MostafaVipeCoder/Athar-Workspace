@@ -34,6 +34,10 @@ describe('AppError mapping', () => {
     expect(() => unwrap({ data: null, error: { code: '42501', message: 'x' } })).toThrow(AppError)
     expect(unwrap({ data: [1], error: null })).toEqual([1])
   })
+  it('maps the m40 withdrawn tokens to specific messages', () => {
+    expect(fromSupabase({ code: '22023', message: 'withdrawn_invalid: the reason is too long', hint: 'withdrawn_invalid' }).messageKey).toBe('entity.withdraw.err.invalid')
+    expect(fromSupabase({ code: '22023', message: 'item_withdrawn: item x is withdrawn', hint: 'item_withdrawn' }).messageKey).toBe('entity.withdraw.err.itemWithdrawn')
+  })
   it('retry policy', () => {
     expect(isRetryable(new AppError('forbidden'))).toBe(false)
     expect(isRetryable(new AppError('network'))).toBe(true)

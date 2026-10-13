@@ -13,7 +13,7 @@ const items = [mk('a', 'Ada'), mk('b', 'Bob', { status: 'confirmed', overlay: { 
 const config = { statuses: [{ key: 'confirmed', label: { en: 'Confirmed', ar: 'مؤكد' }, tone: 'green' }, { key: 'pending', label: { en: 'Pending', ar: '' }, tone: 'amber' }], card: { showFields: ['image', 'title', 'subtitle', 'bio', 'links'], accent: null, expandable: true }, overlayFields: [] }
 
 function setup(over = {}) {
-  const actions = { setStatus: vi.fn(), patchOverlay: vi.fn(), exclude: vi.fn(), reorder: vi.fn(), remove: vi.fn(), detach: vi.fn(), edit: vi.fn(), bulkStatus: vi.fn(), bulkExclude: vi.fn(), export: vi.fn() }
+  const actions = { setStatus: vi.fn(), patchOverlay: vi.fn(), withdraw: vi.fn(), reinstate: vi.fn(), exclude: vi.fn(), reorder: vi.fn(), remove: vi.fn(), detach: vi.fn(), edit: vi.fn(), bulkStatus: vi.fn(), export: vi.fn() }
   renderWithProviders(<EntityManager items={items} kind="expert" config={config} actions={actions} {...over} />, { route: '/projects/p?lang=en' })
   return actions
 }
@@ -66,32 +66,80 @@ describe('EntityManager', () => {
     expect(actions.reorder.mock.calls[0][0].map((i) => i.id)).toEqual(['virtual:form_response:r1', 'a', 'b'])
   })
 
-  it('bulk bar: select all then hide / set status / export', async () => {
+  it('bulk bar: select all then mark as withdrawn / set status / export (no "Hide" any more)', async () => {
     const user = userEvent.setup()
     const actions = setup()
     await user.click(screen.getByRole('checkbox', { name: 'Select all' }))
     const bar = screen.getByTestId('bulk-bar')
-    await user.click(within(bar).getByRole('button', { name: 'Hide from list' }))
-    expect(actions.bulkExclude).toHaveBeenCalledWith(expect.arrayContaining([expect.objectContaining({ id: 'a' })]), true)
-    expect(actions.bulkExclude.mock.calls[0][0]).toHaveLength(3)
+    expect(within(bar).queryByRole('button', { name: /Hide/ })).toBeNull()
+    expect(within(bar).queryByRole('button', { name: 'Reinstate' })).toBeNull() // nobody is withdrawn
+    await user.click(within(bar).getByRole('button', { name: 'Mark as withdrawn' }))
+    expect(actions.withdraw).toHaveBeenCalledWith(expect.arrayContaining([expect.objectContaining({ id: 'a' })]))
+    expect(actions.withdraw.mock.calls[0][0]).toHaveLength(3)
     await user.selectOptions(within(bar).getByRole('combobox', { name: 'Set status' }), 'confirmed')
     expect(actions.bulkStatus).toHaveBeenCalledWith(expect.any(Array), 'confirmed')
     await user.click(within(bar).getByRole('button', { name: 'Export selected' }))
     expect(actions.export).toHaveBeenCalled()
   })
 
-  it('hidden items are shown only with the toggle, and cards view uses EntityCard with per-item field choice', async () => {
+  it('legacy hidden items stay visible with a "Hidden (legacy)" chip and two ways out; the cards view uses EntityCard with per-item field choice', async () => {
     const user = userEvent.setup()
     const hidden = mk('h', 'Hidden one', { excluded: true, overlay: { card: { show: { show_name: false } } } }) // legacy key of the migrated data
-    setup({ items: [...items, hidden] })
+    const actions = setup({ items: [...items, hidden] })
+    const rows = screen.getAllByTestId('item-row')
+    expect(rows).toHaveLength(4) // the PM keeps seeing it (nothing disappears silently)
+    expect(within(rows[3]).getByTestId('legacy-hidden-chip')).toHaveTextContent('Hidden (legacy)')
+    expect(within(rows[3]).queryByTestId('withdrawn-chip')).toBeNull()
+    await user.click(within(rows[3]).getByTestId('restore-hidden'))
+    expect(actions.exclude).toHaveBeenCalledWith(expect.objectContaining({ id: 'h' }), false)
+    await user.click(within(rows[3]).getByTestId('withdraw')) // convert: the same explicit action as everywhere
+    expect(actions.withdraw).toHaveBeenCalledWith(expect.objectContaining({ id: 'h' }))
+    await user.selectOptions(screen.getByTestId('presence-filter'), 'active')
     expect(screen.getAllByTestId('item-row')).toHaveLength(3)
-    await user.click(screen.getByLabelText('Show hidden items'))
-    expect(screen.getAllByTestId('item-row')).toHaveLength(4)
+    await user.selectOptions(screen.getByTestId('presence-filter'), 'legacy')
+    expect(screen.getAllByTestId('item-row')).toHaveLength(1)
+    await user.selectOptions(screen.getByTestId('presence-filter'), '')
     await user.click(screen.getByRole('button', { name: 'Cards' }))
     const cards = screen.getAllByTestId('entity-card')
     expect(cards).toHaveLength(4)
     expect(within(cards[3]).queryByRole('heading')).toBeNull() // per-item "hide name" honoured
     expect(within(cards[0]).getByRole('heading')).toHaveTextContent('Ada')
+  })
+
+  it('WITHDRAWN: a red chip with the reason, "Reinstate" instead of "Mark as withdrawn", the presence filter narrows to active / withdrawn, bulk reinstate', async () => {
+    const user = userEvent.setup()
+    const gone = mk('w', 'Wendy', { withdrawn: true, withdrawal: { at: '2026-10-13T10:00:00Z', reason: 'moved abroad', source: 'participant' } })
+    const actions = setup({ items: [...items, gone] })
+    expect(screen.queryByTestId('presence-filter')).toBeInTheDocument() // appears as soon as somebody is withdrawn
+    const rows = screen.getAllByTestId('item-row')
+    expect(rows).toHaveLength(4)
+    const wendy = rows.find((r) => within(r).queryByText('Wendy'))
+    expect(within(wendy).getByTestId('withdrawn-chip')).toHaveTextContent('Withdrawn')
+    expect(within(wendy).getByTestId('withdrawn-reason')).toHaveTextContent('Reason: moved abroad')
+    // review (WCAG AA): NO opacity on the row, so the chip and the reason are not washed out (2.84:1 / 2.52:1 before); only the picture and the name are dimmed
+    expect(wendy.className).not.toMatch(/opacity-/)
+    expect(wendy.className).toMatch(/bg-surface/)
+    for (const el of [within(wendy).getByTestId('withdrawn-chip'), within(wendy).getByTestId('withdrawn-reason')]) {
+      for (let n = el; n && n !== wendy.parentElement; n = n.parentElement) expect(n.className?.toString() ?? '').not.toMatch(/opacity-/)
+    }
+    expect(within(wendy).getByText('Wendy').className).toMatch(/text-muted-foreground/)
+    expect(within(rows[0]).getByText('Ada').className).not.toMatch(/text-muted-foreground/)
+    expect(within(wendy).queryByTestId('withdraw')).toBeNull()
+    await user.click(within(wendy).getByTestId('reinstate'))
+    expect(actions.reinstate).toHaveBeenCalledWith(expect.objectContaining({ id: 'w' }))
+    await user.click(within(rows[0]).getByTestId('withdraw'))
+    expect(actions.withdraw).toHaveBeenCalledWith(expect.objectContaining({ id: 'a' }))
+    await user.selectOptions(screen.getByTestId('presence-filter'), 'withdrawn')
+    expect(screen.getAllByTestId('item-row').map((r) => r.dataset.itemId)).toEqual(['w'])
+    await user.selectOptions(screen.getByTestId('presence-filter'), 'active')
+    expect(screen.getAllByTestId('item-row')).toHaveLength(3)
+    await user.selectOptions(screen.getByTestId('presence-filter'), '')
+    await user.click(screen.getByRole('checkbox', { name: 'Select all' }))
+    const bar = screen.getByTestId('bulk-bar')
+    await user.click(within(bar).getByRole('button', { name: 'Reinstate' }))
+    expect(actions.reinstate).toHaveBeenLastCalledWith([expect.objectContaining({ id: 'w' })])
+    await user.click(within(bar).getByRole('button', { name: 'Mark as withdrawn' }))
+    expect(actions.withdraw.mock.calls.at(-1)[0]).toHaveLength(3) // only the ones who are not withdrawn yet
   })
 
   it('empty states: no items vs no match', async () => {

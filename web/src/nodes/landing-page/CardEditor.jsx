@@ -22,6 +22,7 @@ export default function CardEditor({ card, onChange, errors = {}, linkOptions, o
     <div className="space-y-5" data-testid="card-editor">
       <ImageField
         label={t('landing.card.cover')}
+        profile="landing"
         src={card.cover ? publicImageUrl(card.cover) : ''}
         thumb={card.cover ? publicThumbUrl(card.cover) : ''}
         aspect="16 / 10"

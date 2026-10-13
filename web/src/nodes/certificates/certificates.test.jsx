@@ -13,7 +13,7 @@ import VerifyCertificatePage from '../../app/pages/VerifyCertificatePage.jsx'
 import { fromSupabase } from '../../data/errors.js'
 
 const mocks = vi.hoisted(() => ({
-  def: vi.fn(), admin: vi.fn(), issue: vi.fn(), revoke: vi.fn(), signed: vi.fn(), upload: vi.fn(), remove: vi.fn(), my: vi.fn(), verify: vi.fn(), payload: vi.fn(),
+  def: vi.fn(), admin: vi.fn(), issue: vi.fn(), revoke: vi.fn(), revokeAll: vi.fn(), reissue: vi.fn(), signed: vi.fn(), upload: vi.fn(), remove: vi.fn(), my: vi.fn(), verify: vi.fn(), payload: vi.fn(),
   decode: vi.fn(), loadImage: vi.fn(), render: vi.fn(), download: vi.fn(),
 }))
 
@@ -27,7 +27,7 @@ vi.mock('../../data/certificates.js', async () => {
     removeTemplateFiles: mocks.remove,
     useCertificateDefinition: (id) => useQuery({ queryKey: ['node', id, 'certificateDef'], queryFn: () => mocks.def(id) }),
     useCertificatesAdmin: (id) => useQuery({ queryKey: ['node', id, 'certificatesAdmin'], queryFn: () => mocks.admin(id) }),
-    useMyCertificates: (p) => useQuery({ queryKey: ['myCertificates', p], queryFn: () => mocks.my(p), enabled: Boolean(p) }),
+    useMyCertificates: (p, options = {}) => useQuery({ queryKey: ['myCertificates', p], queryFn: () => mocks.my(p), enabled: Boolean(p) && options.enabled !== false }),
     usePublicVerification: (code) => useQuery({ queryKey: ['public', 'certificate', code], queryFn: () => mocks.verify(code), enabled: Boolean(code), retry: false }),
     useCertificateMutations: (id) => {
       const qc = useQueryClient()
@@ -35,6 +35,8 @@ vi.mock('../../data/certificates.js', async () => {
       return {
         issue: useMutation({ mutationFn: (ids) => mocks.issue(id, ids), onSuccess: after }),
         revoke: useMutation({ mutationFn: (v) => mocks.revoke(v.certificateId, v.reason), onSuccess: after }),
+        revokeParticipant: useMutation({ mutationFn: (v) => mocks.revokeAll(id, v.participantId, v.reason), onSuccess: after }),
+        reissue: useMutation({ mutationFn: (certId) => mocks.reissue(certId), onSuccess: after }),
       }
     },
   }
@@ -47,19 +49,31 @@ vi.mock('../../shared/certificates/CertificateView.jsx', () => ({ default: ({ pa
 const N = 'N1'
 const P = 'P1'
 const FIELDS = [
-  { var: 'participant_name', x: 0.5, y: 0.46, w: 0.6, align: 'center', font: 'Tajawal', size: 0.045, color: '#1a1a2e', weight: 700, direction: 'auto', max_lines: 1, shrink_to_fit: true },
+  { var: 'person_name', x: 0.5, y: 0.46, w: 0.6, align: 'center', font: 'Tajawal', size: 0.045, color: '#1a1a2e', weight: 700, direction: 'auto', max_lines: 1, shrink_to_fit: true },
   { var: 'verification_qr', x: 0.9, y: 0.82, w: 0.1, align: 'center', font: 'Tajawal', size: 0.1, color: '#000000', weight: 400, direction: 'ltr', max_lines: 1, shrink_to_fit: false },
 ]
 const defRows = (over = {}) => [{ id: 't1', version: 1, language: 'ar', file_path: `${P}/${N}/a.png`, file_kind: 'image', width_px: 2000, height_px: 1400, fields: FIELDS, ...over }]
+const cert = (id, code, name, over = {}) => ({ id, code, issued_at: '2026-10-13T08:00:00Z', revoked_at: null, revoked_reason: null, name, ...over })
+const person = (name, state, certificate = null, over = {}) => ({ founder_id: null, name, linked: state !== 'not_linked', state, certificate, ...over })
 const adminPayload = (over = {}) => ({
   project: { id: P, program_id: 'PG1', name_en: 'Project', completed_at: '2026-10-12T10:00:00Z', timezone: 'Asia/Riyadh' },
   language: 'ar', template: { id: 't1', version: 1, language: 'ar', width_px: 2000, height_px: 1400, has_name_field: true },
   others: 2,
   rows: [
-    { participant_id: 'a1', status: 'attended', needs_review: false, name: 'أحمد بن علي', company_name: 'Nile Labs', certificate: null },
-    { participant_id: 'a2', status: 'attended', needs_review: false, name: 'Sara Ali', company_name: 'Sara Ali', certificate: { id: 'c2', code: 'AB12-CD34-EF56', issued_at: '2026-10-13T08:00:00Z', revoked_at: null, revoked_reason: null, name: 'Sara Ali' } },
-    { participant_id: 'a3', status: 'attended', needs_review: true, name: 'Omar Zaki', company_name: 'Zaki Co', certificate: { id: 'c3', code: 'ZZ99-AA11-BB22', issued_at: '2026-10-13T08:00:00Z', revoked_at: '2026-10-13T09:00:00Z', revoked_reason: 'duplicate', name: 'Omar Zaki' } },
-    { participant_id: 'a4', status: 'withdrawn', needs_review: false, name: 'Lina Haddad', company_name: 'Haddad', certificate: { id: 'c4', code: 'LL44-HH55-DD66', issued_at: '2026-10-13T08:00:00Z', revoked_at: null, revoked_reason: null, name: 'Lina Haddad' } },
+    // never authorised: one founder with an account, one without
+    { participant_id: 'a1', status: 'attended', needs_review: false, name: 'Nile Labs', company_name: 'Nile Labs', grant: null,
+      founders: [person('أحمد بن علي', 'pending'), person('Lina Unlinked', 'not_linked')], counts: { people: 2, linked: 1, unlinked: 1, issued: 0, claimable: 0, revoked: 0 } },
+    // authorised: two founders hold THEIR OWN certificate, one waits for his account to open the page, one was revoked on purpose
+    { participant_id: 'a2', status: 'attended', needs_review: false, name: 'Cairo Co', company_name: 'Cairo Co', grant: { id: 'g2', granted_at: '2026-10-13T08:00:00Z', revoked_at: null, revoked_reason: null },
+      founders: [person('Sara Ali', 'issued', cert('c2', 'AB12-CD34-EF56', 'Sara Ali')), person('Omar Zaki', 'issued', cert('c5', 'CD56-EF78-GH90', 'Omar Zaki')), person('Hadi Late', 'claimable'),
+        person('Mona Said', 'revoked', cert('c7', 'MM77-NN88-PP99', 'Mona Said', { revoked_at: '2026-10-13T09:00:00Z', revoked_reason: 'typo' }))],
+      counts: { people: 4, linked: 4, unlinked: 0, issued: 2, claimable: 1, revoked: 1 } },
+    // the PARTICIPANT was revoked as a whole
+    { participant_id: 'a3', status: 'attended', needs_review: true, name: 'Zaki Co', company_name: 'Zaki Co', grant: { id: 'g3', granted_at: '2026-10-13T08:00:00Z', revoked_at: '2026-10-13T09:00:00Z', revoked_reason: 'duplicate' },
+      founders: [person('Omar Zaki', 'revoked', cert('c3', 'ZZ99-AA11-BB22', 'Omar Zaki', { revoked_at: '2026-10-13T09:00:00Z', revoked_reason: 'duplicate' }))], counts: { people: 1, linked: 1, unlinked: 0, issued: 0, claimable: 0, revoked: 1 } },
+    // withdrawn after the certificate was issued
+    { participant_id: 'a4', status: 'withdrawn', needs_review: false, name: 'Haddad', company_name: 'Haddad', grant: { id: 'g4', granted_at: '2026-10-13T08:00:00Z', revoked_at: null, revoked_reason: null },
+      founders: [person('Lina Haddad', 'issued', cert('c4', 'LL44-HH55-DD66', 'Lina Haddad'))], counts: { people: 1, linked: 1, unlinked: 0, issued: 1, claimable: 0, revoked: 0 } },
   ],
   ...over,
 })
@@ -87,11 +101,13 @@ beforeEach(() => {
   mocks.signed.mockResolvedValue('https://signed.example/t.png')
   mocks.loadImage.mockResolvedValue({ image: { width: 2000, height: 1400 }, width: 2000, height: 1400 })
   mocks.decode.mockResolvedValue({ image: { width: 2480, height: 1754 }, width: 2480, height: 1754 })
-  mocks.upload.mockResolvedValue({ path: `${P}/${N}/new.png`, mime: 'image/png', bytes: 4000 })
+  mocks.upload.mockResolvedValue({ path: `${P}/${N}/new.webp`, mime: 'image/webp', bytes: 4000, width: 2000, height: 1414, report: { kind: 'converted', sourceBytes: 40000, bytes: 4000 } })
   mocks.render.mockResolvedValue({ overflow: {}, boxes: {}, width: 2000, height: 1400 })
-  mocks.issue.mockImplementation(async (_id, ids) => ({ issued: ids ? ids.length : 1, existing: 0, skipped: 0, results: (ids ?? ['a1']).map((p) => ({ participant_id: p, status: 'issued', code: 'NEW1-NEW1-NEW1' })) }))
+  mocks.issue.mockImplementation(async (_id, ids) => { const list = ids ?? ['a1', 'a2']; return { issued: list.length, authorised: list.length, existing: 0, skipped: 0, results: list.map((p) => ({ participant_id: p, status: 'issued', created: 1 })) } })
   mocks.revoke.mockResolvedValue(undefined)
-  mocks.payload.mockResolvedValue({ id: 'c2', code: 'AB12-CD34-EF56', snapshot: { participant_name: 'Sara Ali' }, template: { language: 'en', width_px: 2000, height_px: 1400, file_path: 'x' }, fields: [] })
+  mocks.revokeAll.mockResolvedValue({ revoked: 2, grant_revoked: true })
+  mocks.reissue.mockResolvedValue({ status: 'issued', code: 'NEW1-NEW1-NEW1' })
+  mocks.payload.mockResolvedValue({ id: 'c2', code: 'AB12-CD34-EF56', snapshot: { person_name: 'Sara Ali' }, template: { language: 'en', width_px: 2000, height_px: 1400, file_path: 'x' }, fields: [] })
   mocks.download.mockResolvedValue(undefined)
 })
 afterEach(() => { Element.prototype.getBoundingClientRect = rectOf })
@@ -116,26 +132,26 @@ describe('Certificates: Edit / Template', () => {
   it('loads the template of the node language, draws the live preview with the long sample and lays a box over each field (fractions -> percent)', async () => {
     mount('edit')
     const stage = await screen.findByTestId('canvas-stage')
-    const name = await within(stage).findByTestId('field-participant_name')
+    const name = await within(stage).findByTestId('field-person_name')
     expect(name.style.left).toBe('20%')
     expect(name.style.width).toBe('60%')
     expect(within(stage).getByTestId('field-verification_qr').style.width).toBe('10%')
     expect(screen.getByText('A4 · landscape')).toBeInTheDocument()
     await waitFor(() => expect(mocks.render).toHaveBeenCalled())
     const call = mocks.render.mock.calls.at(-1)[0]
-    expect(call.values.participant_name).toMatch(/^عبد الرحمن/) // the long Arabic sample first, for an Arabic template
+    expect(call.values.person_name).toMatch(/^عبد الرحمن/) // the long Arabic sample first, for an Arabic template
     expect(call.verifyUrl).toMatch(/\/verify\/AB12-CD34-EF56$/)
-    expect(call.fields.map((f) => f.var)).toEqual(['participant_name', 'verification_qr'])
+    expect(call.fields.map((f) => f.var)).toEqual(['person_name', 'verification_qr'])
     // the long English sample is one click away and is redrawn
     await userEvent.setup().click(screen.getByTestId('sample-longEn'))
-    await waitFor(() => expect(mocks.render.mock.calls.at(-1)[0].values.participant_name).toMatch(/^Alexandria/))
+    await waitFor(() => expect(mocks.render.mock.calls.at(-1)[0].values.person_name).toMatch(/^Alexandria/))
   })
 
   it('moves a field with the arrow keys, edits it in the panel and saves ONE save_node with config + children.template (fractions, snake_case)', async () => {
     const user = userEvent.setup()
     const adapter = mount('edit')
     const spy = vi.spyOn(adapter, 'saveNode')
-    const name = await screen.findByTestId('field-participant_name')
+    const name = await screen.findByTestId('field-person_name')
     fireEvent.focus(name)
     fireEvent.keyDown(name, { key: 'ArrowRight' })
     fireEvent.keyDown(name, { key: 'ArrowDown', shiftKey: true })
@@ -156,16 +172,16 @@ describe('Certificates: Edit / Template', () => {
     expect(patch.config).toMatchObject({ language: 'ar', legacyKey: 'keep' })
     const t = opts.children.template
     expect(t).toMatchObject({ language: 'ar', file_path: `${P}/${N}/a.png`, file_kind: 'image', width_px: 2000, height_px: 1400 })
-    expect(t.fields.map((f) => f.var)).toEqual(['participant_name', 'program_name', 'verification_qr'])
+    expect(t.fields.map((f) => f.var)).toEqual(['person_name', 'program_name', 'verification_qr'])
     expect(t.fields[0]).toMatchObject({ x: 0.502, y: 0.47, w: 0.6, align: 'right', font: 'Manrope', direction: 'rtl', shrink_to_fit: false, max_lines: 1 })
-    expect(t.fields[1]).toMatchObject({ var: 'program_name', x: 0.5, y: 0.62 })
+    expect(t.fields[1]).toMatchObject({ var: 'program_name', x: 0.5, y: 0.63 })
     // the file did not change: nothing is removed from storage
     expect(mocks.remove).not.toHaveBeenCalledWith(expect.arrayContaining([`${P}/${N}/a.png`]))
   })
 
   it('drags a field with the pointer: the move is a fraction of the stage size', async () => {
     mount('edit')
-    const name = await screen.findByTestId('field-participant_name')
+    const name = await screen.findByTestId('field-person_name')
     fireEvent.pointerDown(name, { clientX: 300, clientY: 200, button: 0, pointerId: 1 })
     fireEvent.pointerMove(name, { clientX: 360, clientY: 242, pointerId: 1 }) // +10 % of 600, +10 % of 420
     fireEvent.pointerUp(name, { pointerId: 1 })
@@ -175,16 +191,48 @@ describe('Certificates: Edit / Template', () => {
 
   it('the side handle changes the box width around the centre; the QR has a size handle', async () => {
     mount('edit')
-    const name = await screen.findByTestId('field-participant_name')
+    const name = await screen.findByTestId('field-person_name')
     fireEvent.focus(name)
-    const handle = await screen.findByTestId('handle-right-participant_name')
+    const handle = await screen.findByTestId('handle-right-person_name')
     fireEvent.pointerDown(handle, { clientX: 500, clientY: 100, button: 0, pointerId: 2 })
     fireEvent.pointerMove(handle, { clientX: 530, clientY: 100, pointerId: 2 }) // +5 % each side -> +10 % width
     fireEvent.pointerUp(handle, { pointerId: 2 })
-    await waitFor(() => expect(screen.getByTestId('field-participant_name').style.width).toBe('70%'))
+    await waitFor(() => expect(screen.getByTestId('field-person_name').style.width).toBe('70%'))
     fireEvent.focus(screen.getByTestId('field-verification_qr'))
     expect(await screen.findByTestId('handle-size-verification_qr')).toBeInTheDocument()
     expect(screen.getByTestId('qr-size')).toBeInTheDocument()
+  })
+
+  it('offers the person name AND the company name as two variables and five samples (long Arabic / long English / long person / long company / short)', async () => {
+    const user = userEvent.setup()
+    mount('edit')
+    await screen.findByTestId('canvas-stage')
+    expect(screen.getByTestId('var-person_name')).toHaveTextContent('Person name')
+    expect(screen.getByTestId('var-company_name')).toHaveTextContent('Company name')
+    for (const k of ['longAr', 'longEn', 'longPerson', 'longCompany', 'short']) expect(screen.getByTestId(`sample-${k}`)).toBeInTheDocument()
+    // adding the company draws it with the sample's COMPANY name, next to the person name
+    await user.click(screen.getByTestId('var-company_name'))
+    expect(await screen.findByTestId('field-company_name')).toBeInTheDocument()
+    await user.click(screen.getByTestId('sample-longCompany'))
+    await waitFor(() => {
+      const call = mocks.render.mock.calls.at(-1)[0]
+      expect(call.values.person_name).toBe('Sara Ali')
+      expect(call.values.company_name).toMatch(/^International Sustainable/)
+      expect(call.fields.map((f) => f.var)).toEqual(['person_name', 'company_name', 'verification_qr'])
+    })
+  })
+
+  it('a template saved with the m38 key (participant_name) loads as person_name and saves as person_name', async () => {
+    mocks.def.mockImplementation(async () => defRows({ fields: [{ ...FIELDS[0], var: 'participant_name' }, FIELDS[1]] }))
+    const adapter = mount('edit')
+    const spy = vi.spyOn(adapter, 'saveNode')
+    expect(await screen.findByTestId('field-person_name')).toBeInTheDocument()
+    expect(screen.queryByTestId('no-name-warning')).toBeNull()
+    const user = userEvent.setup()
+    await user.click(screen.getByTestId('var-company_name'))
+    await user.click(screen.getByRole('button', { name: 'Save' }))
+    await waitFor(() => expect(spy).toHaveBeenCalledTimes(1))
+    expect(spy.mock.calls[0][3].children.template.fields.map((f) => f.var)).toEqual(['person_name', 'company_name', 'verification_qr'])
   })
 
   it('removing a field asks nothing but offers Undo; the draft stays dirty until saved', async () => {
@@ -199,11 +247,11 @@ describe('Certificates: Edit / Template', () => {
   })
 
   it('flags a text wider than its box (overflow) and a missing participant name', async () => {
-    mocks.render.mockResolvedValue({ overflow: { participant_name: true }, boxes: {} })
+    mocks.render.mockResolvedValue({ overflow: { person_name: true }, boxes: {} })
     mocks.def.mockImplementation(async () => defRows({ fields: [FIELDS[1]] }))
     mount('edit')
     expect(await screen.findByTestId('no-name-warning')).toBeInTheDocument()
-    await userEvent.setup().click(screen.getByTestId('var-participant_name'))
+    await userEvent.setup().click(screen.getByTestId('var-person_name'))
     expect(await screen.findByTestId('field-overflow')).toHaveTextContent('wider than its box')
   })
 
@@ -215,11 +263,11 @@ describe('Certificates: Edit / Template', () => {
     fireEvent.change(await screen.findByTestId('template-file'), { target: { files: [new File(['x'], 'tiny.png', { type: 'image/png' })] } })
     expect(await screen.findByTestId('template-problem')).toHaveTextContent('too small')
     fireEvent.change(screen.getByTestId('template-file'), { target: { files: [new File(['x'], 'cv.pdf', { type: 'application/pdf' })] } })
-    await waitFor(() => expect(screen.getByTestId('template-problem')).toHaveTextContent('Only PNG and JPEG'))
+    await waitFor(() => expect(screen.getByTestId('template-problem')).toHaveTextContent('Only PNG, JPEG and WebP'))
     expect(mocks.upload).not.toHaveBeenCalled()
   })
 
-  it('upload: a good image is uploaded as is, the dimensions are stored, and saving without any field still writes the template', async () => {
+  it('upload: a good image goes through the WebP pipeline, the STORED dimensions are kept (not the decoded source), and saving without any field still writes the template', async () => {
     const user = userEvent.setup()
     mocks.def.mockImplementation(async () => [])
     const adapter = mount('edit')
@@ -227,12 +275,23 @@ describe('Certificates: Edit / Template', () => {
     await screen.findByText('No template yet')
     fireEvent.change(screen.getByTestId('template-file'), { target: { files: [new File(['x'], 'cert.png', { type: 'image/png' })] } })
     await waitFor(() => expect(mocks.upload).toHaveBeenCalledTimes(1))
-    expect(mocks.upload.mock.calls[0][1]).toEqual({ projectId: P, nodeId: N })
-    expect(await screen.findByText('2480 x 1754 px')).toBeInTheDocument()
-    await user.click(screen.getByTestId('var-participant_name'))
+    expect(mocks.upload.mock.calls[0][1]).toMatchObject({ projectId: P, nodeId: N })
+    expect(await screen.findByText('2000 x 1414 px')).toBeInTheDocument() // the converted image's size, the source was 2480 x 1754
+    expect(await screen.findByText(/Optimised: /)).toBeInTheDocument() // the feedback of the pipeline (39 KB -> 3.9 KB)
+    await user.click(screen.getByTestId('var-person_name'))
     await user.click(screen.getByRole('button', { name: 'Save' }))
     await waitFor(() => expect(spy).toHaveBeenCalledTimes(1))
-    expect(spy.mock.calls[0][3].children.template).toMatchObject({ file_path: `${P}/${N}/new.png`, width_px: 2480, height_px: 1754, language: 'ar' })
+    expect(spy.mock.calls[0][3].children.template).toMatchObject({ file_path: `${P}/${N}/new.webp`, width_px: 2000, height_px: 1414, language: 'ar' })
+  })
+
+  it('upload: a WebP source is accepted like a PNG (the checks look at the decoded pixels, not the file type) and a PDF is refused', async () => {
+    mocks.def.mockImplementation(async () => [])
+    mount('edit')
+    await screen.findByText('No template yet')
+    fireEvent.change(screen.getByTestId('template-file'), { target: { files: [new File(['x'], 'design.webp', { type: 'image/webp' })] } })
+    await waitFor(() => expect(mocks.upload).toHaveBeenCalledTimes(1))
+    expect(mocks.decode).toHaveBeenCalledWith(expect.objectContaining({ name: 'design.webp' }))
+    expect(screen.getByTestId('template-file')).toHaveAttribute('accept', 'image/png,image/jpeg,image/webp')
   })
 
   it('a replaced image of this session is removed at once; an unsaved upload is removed when the editor closes', async () => {
@@ -240,10 +299,10 @@ describe('Certificates: Edit / Template', () => {
     const { unmount } = (() => { mount('edit'); return { unmount: () => {} } })()
     await screen.findByText('No template yet')
     fireEvent.change(screen.getByTestId('template-file'), { target: { files: [new File(['x'], 'cert.png', { type: 'image/png' })] } })
-    await screen.findByText('2480 x 1754 px')
-    mocks.upload.mockResolvedValueOnce({ path: `${P}/${N}/second.png`, mime: 'image/png', bytes: 4000 })
+    await screen.findByText('2000 x 1414 px')
+    mocks.upload.mockResolvedValueOnce({ path: `${P}/${N}/second.webp`, mime: 'image/webp', bytes: 4000, width: 2000, height: 1414 })
     fireEvent.change(screen.getByTestId('template-file'), { target: { files: [new File(['y'], 'cert2.png', { type: 'image/png' })] } })
-    await waitFor(() => expect(mocks.remove).toHaveBeenCalledWith([`${P}/${N}/new.png`]))
+    await waitFor(() => expect(mocks.remove).toHaveBeenCalledWith([`${P}/${N}/new.webp`]))
     unmount()
   })
 
@@ -255,6 +314,19 @@ describe('Certificates: Edit / Template', () => {
 
 describe('Certificates: Edit / Issue', () => {
   const openIssue = () => mount('edit', {}, `/projects/${P}/nodes/${N}?lang=en&tab=issue`)
+
+  it('issued certificates but the node is NOT shown to participants: a notice with a link to the settings (review: the founder page stayed empty with no explanation)', async () => {
+    openIssue()
+    const notice = await screen.findByTestId('issue-hidden')
+    expect(notice).toHaveTextContent('Founders cannot see their certificates yet')
+    expect(within(notice).getByTestId('issue-hidden-link')).toHaveAttribute('href', `/projects/${P}/nodes/${N}/settings`)
+  })
+
+  it('no notice once the node is shown to participants', async () => {
+    mount('edit', { show_to_participants: true }, `/projects/${P}/nodes/${N}?lang=en&tab=issue`)
+    await screen.findByTestId('issue-tab')
+    expect(screen.queryByTestId('issue-hidden')).toBeNull()
+  })
 
   it('before the project is completed: both buttons are disabled and the reason (with the Program Settings link) is shown', async () => {
     mocks.admin.mockImplementation(async () => adminPayload({ project: { ...adminPayload().project, completed_at: null } }))
@@ -274,45 +346,61 @@ describe('Certificates: Edit / Issue', () => {
     unmount()
   })
 
-  it('lists attended participants with their state, the name as printed, the flags and the count of the others', async () => {
+  it('lists the participants with their state, the FOUNDERS of each with THEIR certificate state, the flags and the count of the others', async () => {
     openIssue()
     const rows = await screen.findAllByTestId('issue-row')
     expect(rows.map((r) => r.dataset.state)).toEqual(['pending', 'issued', 'revoked', 'issued'])
-    expect(within(rows[0]).getByTestId('row-name')).toHaveTextContent('أحمد بن علي')
-    expect(within(rows[1]).getByTestId('row-code')).toHaveTextContent('AB12-CD34-EF56')
+    expect(within(rows[0]).getByTestId('row-name')).toHaveTextContent('Nile Labs')
+    expect(within(rows[0]).getByTestId('row-summary')).toHaveTextContent('0 of 2 founders have a certificate')
+    // founders of the second company: two issued (each with HIS OWN code), one waiting, one revoked
+    const people = within(rows[1]).getAllByTestId('person-row')
+    expect(people.map((x) => x.dataset.state)).toEqual(['issued', 'issued', 'claimable', 'revoked'])
+    expect(within(people[0]).getByTestId('person-name')).toHaveTextContent('Sara Ali')
+    expect(within(people[0]).getByTestId('person-code')).toHaveTextContent('AB12-CD34-EF56')
+    expect(within(people[1]).getByTestId('person-name')).toHaveTextContent('Omar Zaki')
+    expect(within(people[1]).getByTestId('person-code')).toHaveTextContent('CD56-EF78-GH90')
+    expect(within(people[2]).getByTestId('person-state')).toHaveTextContent('Waiting: created when he opens his page')
+    expect(within(people[3]).getByText(/Reason: typo/)).toBeInTheDocument()
+    expect(within(rows[1]).getByTestId('row-summary')).toHaveTextContent('2 of 4 founders have a certificate')
+    // a founder WITHOUT an account is shown as not linked, with the explanation
+    expect(within(within(rows[0]).getAllByTestId('person-row')[1]).getByTestId('person-hint')).toHaveTextContent('No account is linked to this founder yet')
     expect(within(rows[2]).getByText('Needs review: the acceptance changed in Selection.')).toBeInTheDocument()
-    expect(within(rows[2]).getByText(/Reason: duplicate/)).toBeInTheDocument()
-    expect(within(rows[3]).getByTestId('row-flag')).toHaveTextContent('No longer marked attended')
+    expect(within(rows[2]).getAllByText(/Reason: duplicate/).length).toBeGreaterThanOrEqual(1) // the participant's revocation and the founder's own line
+    expect(within(rows[3]).getByTestId('row-flag')).toHaveTextContent('Withdrawn from the program after the certificate was issued') // m40: withdrawn is its own explicit status
+    expect(within(rows[3]).getByTestId('row-withdrawn')).toHaveTextContent('Withdrawn')
     expect(screen.getByTestId('count-attended')).toHaveTextContent('3')
-    expect(screen.getByTestId('count-issued')).toHaveTextContent('2')
-    expect(screen.getByTestId('count-pending')).toHaveTextContent('1')
-    expect(screen.getByTestId('count-revoked')).toHaveTextContent('1')
+    expect(screen.getByTestId('count-issued')).toHaveTextContent('3')
+    expect(screen.getByTestId('count-claimable')).toHaveTextContent('1')
+    expect(screen.getByTestId('count-unlinked')).toHaveTextContent('1')
+    expect(screen.getByTestId('count-revoked')).toHaveTextContent('2')
     expect(screen.getByTestId('issue-others')).toHaveTextContent('2 participants are not marked attended and receive no certificate.')
     expect(screen.getByTestId('issue-ready')).toBeInTheDocument()
   })
 
-  it('"Issue to all attended" asks to confirm, calls the RPC with null (all) and shows the per-row result', async () => {
+  it('"Issue to all attended" asks to confirm, calls the RPC with null (all) and shows the totals', async () => {
     const user = userEvent.setup()
     openIssue()
     await screen.findAllByTestId('issue-row')
-    expect(screen.getByTestId('issue-all')).toHaveTextContent('Issue to all attended (1)') // revoked rows are NOT part of "all"
+    // never authorised (a1) + authorised with a founder waiting (a2); the participant whose authorisation was REVOKED is not part of "all"
+    expect(screen.getByTestId('issue-all')).toHaveTextContent('Issue to all attended (2)')
     await user.click(screen.getByTestId('issue-all'))
     const dlg = await screen.findByRole('dialog')
-    expect(within(dlg).getByText('Issue 1 certificate?')).toBeInTheDocument()
+    expect(within(dlg).getByText('Issue to 2 participants?')).toBeInTheDocument()
+    expect(within(dlg).getByText(/Every founder with an account linked now gets a certificate in his own name with his own code/)).toBeInTheDocument()
     await user.click(within(dlg).getByRole('button', { name: 'Issue' }))
     await waitFor(() => expect(mocks.issue).toHaveBeenCalledWith(N, null))
-    expect(await screen.findByTestId('issue-results')).toHaveTextContent('Issued 1. Already issued 0. Skipped 0.')
+    expect(await screen.findByTestId('issue-results')).toHaveTextContent('Authorised 2, created 2 certificates. Already authorised 0. Skipped 0.')
   })
 
-  it('"Issue to selected" sends exactly the chosen ids; a revoked row can be selected on purpose and the dialog says it gets a NEW code', async () => {
+  it('"Issue to selected" sends exactly the chosen ids; a participant whose authorisation was revoked can be selected on purpose and the dialog says its founders get NEW certificates', async () => {
     const user = userEvent.setup()
     openIssue()
     const rows = await screen.findAllByTestId('issue-row')
-    expect(within(rows[1]).queryByTestId('row-select')).toBeNull() // already issued: nothing to select
+    expect(within(rows[3]).queryByTestId('row-select')).toBeNull() // withdrawn: nothing to select
     await user.click(within(rows[2]).getByTestId('row-select'))
     await user.click(screen.getByTestId('issue-selected'))
     const dlg = await screen.findByRole('dialog')
-    expect(within(dlg).getByText(/1 of them was revoked before and gets a NEW certificate/)).toBeInTheDocument()
+    expect(within(dlg).getByText(/1 of them was revoked before: its founders get NEW certificates with new codes/)).toBeInTheDocument()
     await user.click(within(dlg).getByRole('button', { name: 'Issue' }))
     await waitFor(() => expect(mocks.issue).toHaveBeenCalledWith(N, ['a3']))
   })
@@ -328,27 +416,63 @@ describe('Certificates: Edit / Issue', () => {
     expect(screen.queryByTestId('issue-results')).toBeNull()
   })
 
-  it('revoking warns first, sends the reason and the certificate id', async () => {
+  it('revoking ONE founder warns first (his co-founders are not affected), sends the reason and HIS certificate id', async () => {
     const user = userEvent.setup()
     openIssue()
     const rows = await screen.findAllByTestId('issue-row')
-    await user.click(within(rows[1]).getByTestId('row-revoke'))
+    const sara = within(rows[1]).getAllByTestId('person-row')[0]
+    await user.click(within(sara).getByTestId('person-revoke'))
     const dlg = await screen.findByRole('dialog')
     expect(within(dlg).getByText(/will show this certificate as REVOKED/)).toBeInTheDocument()
+    expect(within(dlg).getByText(/certificates of his co-founders are not affected/)).toBeInTheDocument()
+    expect(within(dlg).getByText('Sara Ali')).toBeInTheDocument()
     await user.type(within(dlg).getByTestId('revoke-reason'), 'issued twice')
     await user.click(within(dlg).getByTestId('confirm-revoke'))
     await waitFor(() => expect(mocks.revoke).toHaveBeenCalledWith('c2', 'issued twice'))
+    expect(mocks.revokeAll).not.toHaveBeenCalled()
   })
 
-  it('preview and downloads of an issued certificate go through the render payload', async () => {
+  it('revoking the whole PARTICIPANT is a separate, stronger action: it names the participant and sends its id', async () => {
     const user = userEvent.setup()
     openIssue()
     const rows = await screen.findAllByTestId('issue-row')
-    await user.click(within(rows[1]).getByTestId('cert-download-png'))
+    expect(within(rows[0]).queryByTestId('row-revoke-all')).toBeNull() // nothing issued, not authorised
+    expect(within(rows[2]).queryByTestId('row-revoke-all')).toBeNull() // already revoked as a whole
+    await user.click(within(rows[1]).getByTestId('row-revoke-all'))
+    const dlg = await screen.findByRole('dialog')
+    expect(within(dlg).getByText(/Every active certificate of this participant is revoked and the participant is no longer authorised/)).toBeInTheDocument()
+    expect(within(dlg).getByText('Cairo Co')).toBeInTheDocument()
+    await user.type(within(dlg).getByTestId('revoke-all-reason'), 'cohort cancelled')
+    await user.click(within(dlg).getByTestId('confirm-revoke-all'))
+    await waitFor(() => expect(mocks.revokeAll).toHaveBeenCalledWith(N, 'a2', 'cohort cancelled'))
+    expect(await screen.findByText('Revoked 2 certificates.')).toBeInTheDocument()
+  })
+
+  it('a founder whose certificate was revoked is issued AGAIN on his own (confirm first); not while the whole participant is revoked', async () => {
+    const user = userEvent.setup()
+    openIssue()
+    const rows = await screen.findAllByTestId('issue-row')
+    const mona = within(rows[1]).getAllByTestId('person-row')[3]
+    await user.click(within(mona).getByTestId('person-reissue'))
+    const dlg = await screen.findByRole('dialog')
+    expect(within(dlg).getByText(/A new certificate with a new code is created for Mona Said/)).toBeInTheDocument()
+    await user.click(within(dlg).getByRole('button', { name: 'Issue new certificate' }))
+    await waitFor(() => expect(mocks.reissue).toHaveBeenCalledWith('c7'))
+    // the participant revoked as a whole: re-authorise the participant instead
+    expect(within(within(rows[2]).getAllByTestId('person-row')[0]).queryByTestId('person-reissue')).toBeNull()
+  })
+
+  it('preview and downloads of ONE founder\'s certificate go through the render payload (his own certificate id)', async () => {
+    const user = userEvent.setup()
+    openIssue()
+    const rows = await screen.findAllByTestId('issue-row')
+    const sara = within(rows[1]).getAllByTestId('person-row')[0]
+    await user.click(within(sara).getByTestId('cert-download-png'))
     await waitFor(() => expect(mocks.download).toHaveBeenCalledWith(expect.objectContaining({ code: 'AB12-CD34-EF56' }), 'png'))
-    await user.click(within(rows[1]).getByTestId('cert-download-pdf'))
+    expect(mocks.payload).toHaveBeenCalledWith('c2')
+    await user.click(within(sara).getByTestId('cert-download-pdf'))
     await waitFor(() => expect(mocks.download).toHaveBeenLastCalledWith(expect.anything(), 'pdf'))
-    await user.click(within(rows[1]).getByTestId('cert-preview'))
+    await user.click(within(sara).getByTestId('cert-preview'))
     expect(await screen.findByTestId('certificate-view-stub')).toHaveTextContent('AB12-CD34-EF56')
   })
 
@@ -362,7 +486,7 @@ describe('Certificates: Edit / Issue', () => {
   it('the Issue tab is also reachable from the tab button and keeps the deep link', async () => {
     const user = userEvent.setup()
     mount('edit')
-    await screen.findByTestId('field-participant_name')
+    await screen.findByTestId('field-person_name')
     await user.click(screen.getByTestId('tab-issue'))
     expect(await screen.findByTestId('issue-tab')).toBeInTheDocument()
     expect(screen.getByTestId('where')).toHaveTextContent('tab=issue')
@@ -399,8 +523,8 @@ describe('Certificates: Settings + View', () => {
     mount('view')
     expect(await screen.findByTestId('certificates-view')).toBeInTheDocument()
     await waitFor(() => expect(mocks.render).toHaveBeenCalled())
-    expect(mocks.render.mock.calls.at(-1)[0].values.participant_name).toMatch(/^عبد الرحمن/)
-    expect(await screen.findByText('2 issued · 1 waiting')).toBeInTheDocument()
+    expect(mocks.render.mock.calls.at(-1)[0].values.person_name).toMatch(/^عبد الرحمن/)
+    expect(await screen.findByText('3 issued · 1 not authorised yet')).toBeInTheDocument()
     expect(screen.getByRole('link', { name: 'Issue certificates' })).toHaveAttribute('href', `/projects/${P}/nodes/${N}/edit?tab=issue`)
   })
 
@@ -412,7 +536,7 @@ describe('Certificates: Settings + View', () => {
 })
 
 describe('Founder block: My certificate', () => {
-  const mine = [{ certificate_id: 'c2', node_id: N, project_id: P, name_en: 'Certificates', name_ar: 'الشهادات', code: 'AB12-CD34-EF56', issued_at: '2026-10-13T08:00:00Z', participant_name: 'Sara Ali', program_name: 'Athar Accelerator', project_name: 'Cohort 5', completed_on: '2026-10-12', language: 'en' }]
+  const mine = [{ certificate_id: 'c2', node_id: N, project_id: P, name_en: 'Certificates', name_ar: 'الشهادات', code: 'AB12-CD34-EF56', issued_at: '2026-10-13T08:00:00Z', participant_name: 'Sara Ali', person_name: 'Sara Ali', company_name: 'Nile Labs', program_name: 'Athar Accelerator', project_name: 'Cohort 5', completed_on: '2026-10-12', language: 'en' }]
   const mountFounder = () => renderWithProviders(<ConfirmProvider><FounderCertificateButton projectId={P} /></ConfirmProvider>, { route: '/?lang=en' })
 
   it('renders NOTHING when the database lists no certificate (not attended, not completed, revoked or not exposed): no teaser', async () => {
@@ -427,14 +551,41 @@ describe('Founder block: My certificate', () => {
     mocks.my.mockResolvedValue(mine)
     mountFounder()
     const block = await screen.findByTestId('founder-certificates')
-    expect(within(block).getByText('Sara Ali - Athar Accelerator')).toBeInTheDocument()
-    expect(within(block).getByText(/Code AB12-CD34-EF56/)).toBeInTheDocument()
+    expect(within(block).getByTestId('founder-certificate-person')).toHaveTextContent('Sara Ali')
+    expect(within(block).getByTestId('founder-certificate-company')).toHaveTextContent('Nile Labs')
+    expect(within(block).getByText('Athar Accelerator')).toBeInTheDocument()
+    // RTL review fix: ONLY the code sits in the dir=ltr monospace span; the (Arabic) label stays outside it
+    const code = within(block).getByTestId('founder-certificate-code')
+    expect(code).toHaveTextContent(/^AB12-CD34-EF56$/)
+    expect(code).toHaveAttribute('dir', 'ltr')
+    expect(code.parentElement).toHaveTextContent(/^Code AB12-CD34-EF56/)
     expect(within(block).getByText(/Issued on 13 October 2026/)).toBeInTheDocument()
     expect(within(block).getByRole('link', { name: 'Verify online' })).toHaveAttribute('href', '/verify/AB12-CD34-EF56?lang=en')
     expect(mocks.payload).not.toHaveBeenCalled() // listing costs nothing
     await user.click(within(block).getByTestId('cert-download-png'))
     await waitFor(() => expect(mocks.download).toHaveBeenCalledWith(expect.objectContaining({ code: 'AB12-CD34-EF56' }), 'png'))
     expect(mocks.payload).toHaveBeenCalledWith('c2')
+  })
+
+  it('two founders of ONE company each see (and download) only THEIR OWN certificate: his name, the same company, his own code', async () => {
+    const user = userEvent.setup()
+    const omar = [{ ...mine[0], certificate_id: 'c5', code: 'CD56-EF78-GH90', person_name: 'Omar Zaki', participant_name: 'Omar Zaki' }]
+    mocks.my.mockResolvedValue(omar)
+    mountFounder()
+    const block = await screen.findByTestId('founder-certificates')
+    expect(within(block).getAllByTestId('founder-certificate')).toHaveLength(1)
+    expect(within(block).getByTestId('founder-certificate-person')).toHaveTextContent('Omar Zaki')
+    expect(within(block).getByTestId('founder-certificate-company')).toHaveTextContent('Nile Labs')
+    expect(within(block).queryByText('Sara Ali')).toBeNull()
+    await user.click(within(block).getByTestId('cert-download-png'))
+    await waitFor(() => expect(mocks.payload).toHaveBeenCalledWith('c5')) // never the co-founder's id
+    expect(mocks.payload).not.toHaveBeenCalledWith('c2')
+  })
+
+  it('the Program page rows are used as they are (the server claimed on open): no second request', async () => {
+    renderWithProviders(<ConfirmProvider><FounderCertificateButton projectId={P} items={mine} /></ConfirmProvider>, { route: '/?lang=en' })
+    expect(await screen.findByTestId('founder-certificates')).toBeInTheDocument()
+    expect(mocks.my).not.toHaveBeenCalled()
   })
 
   it('a download the server refuses says so instead of failing silently', async () => {
@@ -449,16 +600,16 @@ describe('Founder block: My certificate', () => {
 })
 
 describe('Public verifier page', () => {
-  const full = { status: 'valid', valid: true, revoked: false, code: 'AB12-CD34-EF56', participant_name: 'Sara Ali', program_name: 'Athar Accelerator', project_name: 'Cohort 5', completed_on: '2026-10-12', issued_on: '2026-10-13', issuer: 'Athar', render: { code: 'AB12-CD34-EF56', snapshot: { participant_name: 'Sara Ali' }, template: { language: 'en', width_px: 2000, height_px: 1400, file_path: 'x' }, fields: [] } }
+  const full = { status: 'valid', valid: true, revoked: false, code: 'AB12-CD34-EF56', person_name: 'Sara Ali', company_name: 'Nile Labs', program_name: 'Athar Accelerator', project_name: 'Cohort 5', completed_on: '2026-10-12', issued_on: '2026-10-13', issuer: 'Athar', render: { code: 'AB12-CD34-EF56', snapshot: { person_name: 'Sara Ali', company_name: 'Nile Labs' }, template: { language: 'en', width_px: 2000, height_px: 1400, file_path: 'x' }, fields: [] } }
   const mountVerify = (path) => renderWithProviders(<Routes><Route path="/verify/:code?" element={<VerifyCertificatePage />} /></Routes>, { route: path })
 
-  it('valid: name, program, dates, issuer and code - and the certificate itself when the payload carries it', async () => {
+  it('valid: PERSON name, COMPANY name, program, dates, issuer and code - and the certificate itself when the payload carries it', async () => {
     mocks.verify.mockResolvedValue(full)
     mountVerify('/verify/ab12cd34ef56?lang=en')
     await waitFor(() => expect(mocks.verify).toHaveBeenCalledWith('AB12-CD34-EF56')) // normalised before the request
     expect(await screen.findByTestId('verify-status')).toHaveTextContent('Valid certificate')
     const facts = screen.getByTestId('verify-facts')
-    for (const text of ['Sara Ali', 'Athar Accelerator', 'Cohort 5', '12 October 2026', '13 October 2026', 'Athar', 'AB12-CD34-EF56']) expect(within(facts).getByText(text)).toBeInTheDocument()
+    for (const text of ['Sara Ali', 'Nile Labs', 'Athar Accelerator', 'Cohort 5', '12 October 2026', '13 October 2026', 'Athar', 'AB12-CD34-EF56']) expect(within(facts).getByText(text)).toBeInTheDocument()
     expect(await screen.findByTestId('certificate-view-stub')).toBeInTheDocument()
     expect(screen.getByTestId('verify-input')).toHaveValue('AB12-CD34-EF56')
   })

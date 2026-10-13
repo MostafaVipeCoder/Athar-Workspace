@@ -23,7 +23,10 @@ const extras = () => ({
   enrolls: false, pm_name: 'Mona PM', program_name: { en: 'Prog', ar: '' }, project_name: { en: 'Proj', ar: '' },
 })
 
-const mocks = vi.hoisted(() => ({ resolveList: vi.fn(), ensureItem: vi.fn(), patch: vi.fn(), setStatus: vi.fn(), exclude: vi.fn(), extras: vi.fn(), setScore: vi.fn(), send: vi.fn(), getDef: vi.fn() }))
+// an applicant marked WITHDRAWN (m40): still in the stage ("interview"), flagged by the DB, with the PM-only reason
+const withdrawnRow = () => ({ item_id: 'i4', source: { kind: 'form_response', id: 'r4', state: 'ok' }, display: { title_en: 'Wadi Labs', subtitle_en: 'Sara' }, contact: { email: 'f4@x.io' }, fields: {}, overlay: {}, status: 'interview', sort_order: null, excluded: false, withdrawn: true, withdrawal: { at: '2026-10-12T09:00:00Z', reason: 'left the program', source: 'participant' }, cursor: { s: 3, k: 'i4' } })
+
+const mocks = vi.hoisted(() => ({ resolveList: vi.fn(), ensureItem: vi.fn(), patch: vi.fn(), setStatus: vi.fn(), exclude: vi.fn(), withdraw: vi.fn(), reinstate: vi.fn(), extras: vi.fn(), setScore: vi.fn(), send: vi.fn(), getDef: vi.fn() }))
 
 vi.mock('../../data/lists.js', async () => {
   const { useQuery, useMutation, useQueryClient } = await import('@tanstack/react-query')
@@ -31,7 +34,7 @@ vi.mock('../../data/lists.js', async () => {
   const listItems = async (id, { filter = {}, kind = 'generic' } = {}) => {
     const all = (await mocks.resolveList(id)).map((r) => normalizeListItem(r, kind))
     const st = filter.status ? (Array.isArray(filter.status) ? filter.status : [filter.status]) : null
-    return all.filter((i) => (!st || st.includes(i.status)) && (filter.include_excluded || !i.excluded))
+    return all.filter((i) => (!st || st.includes(i.status)) && (filter.include_excluded || !i.excluded) && (filter.include_withdrawn || !i.withdrawn))
   }
   const materializeItem = async (listId, item) => item.itemId ?? mocks.ensureItem(listId, item.source.kind, item.source.id)
   return {
@@ -46,6 +49,10 @@ vi.mock('../../data/lists.js', async () => {
         patchOverlay: m(async ({ item, patch }) => mocks.patch(await materializeItem(id, item), patch)),
         setStatus: m(async ({ item, status, reason = null }) => mocks.setStatus(await materializeItem(id, item), status, reason)),
         exclude: m(async ({ item, excluded }) => mocks.exclude(await materializeItem(id, item), excluded)),
+        withdraw: m(async ({ item, reason = null }) => mocks.withdraw(await materializeItem(id, item), reason)),
+        reinstate: m(async ({ item }) => mocks.reinstate(await materializeItem(id, item))),
+        bulkWithdraw: m(async ({ items, reason = null }) => { for (const it of items) await mocks.withdraw(await materializeItem(id, it), reason) }),
+        bulkReinstate: m(async ({ items }) => { for (const it of items) await mocks.reinstate(await materializeItem(id, it)) }),
         reorder: m(async () => null), addManual: m(async () => null), updateManual: m(async () => null), remove: m(async () => null), detach: m(async () => null), addNetworkPick: m(async () => null), addCompanyPick: m(async () => null),
         bulkStatus: m(async ({ items, status, reason = null }) => { for (const it of items) await mocks.setStatus(await materializeItem(id, it), status, reason) }),
         bulkExclude: m(async () => null),
@@ -130,6 +137,77 @@ describe('Selection node', () => {
     await user.click(within(dlg).getByTestId('reason-confirm'))
     await waitFor(() => expect(mocks.ensureItem).toHaveBeenCalledWith('S', 'form_response', 'r2'))
     expect(mocks.setStatus).toHaveBeenCalledWith('new-id', 'rejected', 'out of scope')
+  })
+
+  it('Edit: WITHDRAWN applicants stay on the board with a red chip OUTSIDE the stage counts; the "Withdrawn" pill narrows to them; the resolver default (consumers) never returns them', async () => {
+    const user = userEvent.setup()
+    mocks.resolveList.mockImplementation(async () => [...rows(), withdrawnRow()])
+    mount('edit')
+    await waitFor(() => expect(screen.getByTestId('stage-interview')).toHaveTextContent('Interview (1)')) // Nile only: Wadi is withdrawn
+    expect(await screen.findByTestId('stage-withdrawn')).toHaveTextContent('Withdrawn (1)')
+    expect(await screen.findAllByTestId('item-row')).toHaveLength(3) // the stage pills list the people still in the program, matching their counts
+    await user.selectOptions(screen.getByTestId('presence-filter'), '') // ... and the PM can still see everybody
+    const rowsEl = await screen.findAllByTestId('item-row')
+    expect(rowsEl).toHaveLength(4)
+    const wadi = rowsEl.find((r) => within(r).queryByText('Wadi Labs'))
+    expect(within(wadi).getByTestId('withdrawn-chip')).toHaveTextContent('Withdrawn')
+    expect(within(wadi).getByTestId('withdrawn-reason')).toHaveTextContent('Reason: left the program')
+    expect(within(wadi).queryByTestId('withdraw')).toBeNull()
+    await user.click(screen.getByTestId('stage-withdrawn'))
+    await waitFor(() => expect(screen.getAllByTestId('item-row')).toHaveLength(1))
+    expect(within(screen.getByTestId('item-row')).getByText('Wadi Labs')).toBeInTheDocument()
+    const { listItems } = await import('../../data/lists.js')
+    expect((await listItems('S', { filter: {} })).map((i) => i.source.id)).not.toContain('r4') // default = what the next steps get
+    expect((await listItems('S', { filter: { include_withdrawn: true } })).map((i) => i.source.id)).toContain('r4')
+  })
+
+  it('Edit: "Mark as withdrawn" asks (what happens + an optional reason), materialises a virtual applicant, and its Undo reinstates', async () => {
+    const user = userEvent.setup()
+    mount('edit')
+    const rowsEl = await screen.findAllByTestId('item-row')
+    expect(screen.queryByTestId('stage-withdrawn')).toBeNull() // nobody withdrawn: no pill
+    expect(screen.queryByRole('button', { name: /Hide/ })).toBeNull()
+    const delta = rowsEl.find((r) => within(r).queryByText('Delta Farms'))
+    await user.click(within(delta).getByTestId('withdraw'))
+    const dlg = await screen.findByRole('dialog')
+    expect(dlg).toHaveTextContent('Mark "Delta Farms" as withdrawn?')
+    expect(dlg).toHaveTextContent('no e-mail is sent')
+    await user.type(within(dlg).getByTestId('withdraw-reason'), 'not interested any more')
+    await user.click(within(dlg).getByTestId('withdraw-confirm'))
+    await waitFor(() => expect(mocks.ensureItem).toHaveBeenCalledWith('S', 'form_response', 'r2'))
+    expect(mocks.withdraw).toHaveBeenCalledWith('new-id', 'not interested any more')
+    await user.click(await screen.findByRole('button', { name: 'Undo' }))
+    await waitFor(() => expect(mocks.reinstate).toHaveBeenCalledWith('new-id'))
+  })
+
+  it('Edit: the drawer of a withdrawn applicant explains it, shows the reason and offers Reinstate; an active one offers Mark as withdrawn', async () => {
+    const user = userEvent.setup()
+    mocks.resolveList.mockImplementation(async () => [...rows(), withdrawnRow()])
+    mount('edit')
+    await screen.findAllByTestId('item-row')
+    await user.click(await screen.findByTestId('stage-withdrawn'))
+    await user.click(await screen.findByRole('button', { name: 'Wadi Labs' }))
+    const drawer = await screen.findByTestId('applicant-drawer')
+    expect(within(drawer).getByTestId('drawer-withdrawn')).toHaveTextContent('Withdrawn')
+    expect(within(drawer).getByTestId('drawer-withdrawn-box')).toHaveTextContent('Reason: left the program')
+    expect(screen.queryByTestId('drawer-withdraw')).toBeNull()
+    await user.click(within(drawer).getByTestId('drawer-reinstate'))
+    await waitFor(() => expect(mocks.reinstate).toHaveBeenCalledWith('i4'))
+    await user.click(screen.getAllByRole('button', { name: 'Close' })[0])
+    await user.click(screen.getByRole('tab', { name: /^All stages/ }))
+    await user.click(await screen.findByRole('button', { name: 'Delta Farms' }))
+    expect(await screen.findByTestId('drawer-withdraw')).toBeInTheDocument()
+  })
+
+  it('Edit: the e-mails tab leaves withdrawn applicants out of the recipients (and says so)', async () => {
+    const user = userEvent.setup()
+    mocks.resolveList.mockImplementation(async () => [...rows(), withdrawnRow()])
+    mount('edit')
+    await screen.findAllByTestId('item-row')
+    await user.click(screen.getByTestId('tab-emails'))
+    const tab = screen.getByTestId('emails-tab')
+    expect(within(tab).getAllByTestId('recipient-row')).toHaveLength(1) // Nile only: Wadi (interview stage) is withdrawn
+    expect(within(tab).getByTestId('withdrawn-left-out')).toHaveTextContent('1 withdrawn applicant of this stage is left out.')
   })
 
   it('Edit: the drawer shows labelled answers, the review, scores and e-mails; saving my score materialises first', async () => {

@@ -22,8 +22,8 @@ const LOOK = {
 
 /**
  * /verify/:code? (public; the as-is /verify-certificate/:code redirects here): type or scan a code and get VALID / REVOKED / NOT FOUND
- * with the name, program and dates only (get_public_certificate_verification: no ids, no contact data, rate limited, switched off per
- * node). For a valid certificate whose node shows it, the certificate itself is drawn in the browser by the same renderer as the
+ * with the PERSON name, the COMPANY name, the program and the dates only (get_public_certificate_verification: no ids, no contact data, rate
+ * limited, switched off per node; every founder of a company has a certificate of his own with his own code). For a valid certificate whose node shows it, the certificate itself is drawn in the browser by the same renderer as the
  * downloads (the QR on it points back here). Mobile first, ar / en.
  */
 export default function VerifyCertificatePage() {
@@ -50,6 +50,7 @@ export default function VerifyCertificatePage() {
   const status = result?.status ?? null
   const look = LOOK[status] ?? null
   const invalidTyped = Boolean(requested) && !normalized
+  const person = result?.person_name ?? result?.participant_name
 
   return (
     <div className="space-y-6 py-4" data-testid="verify-page">
@@ -78,7 +79,8 @@ export default function VerifyCertificatePage() {
           </div>
           {status !== 'not_found' && (
             <dl className="grid gap-x-6 gap-y-3 sm:grid-cols-2" data-testid="verify-facts">
-              <Fact label={t('certificates.verify.awarded')} value={result.participant_name} strong />
+              <Fact label={t('certificates.verify.awarded')} value={person} strong />
+              <Fact label={t('certificates.verify.company')} value={result.company_name} />
               <Fact label={t('certificates.verify.program')} value={result.program_name} />
               {result.project_name && <Fact label={t('certificates.verify.project')} value={result.project_name} />}
               <Fact label={t('certificates.verify.completed')} value={formatCertDate(result.completed_on, lang)} />
@@ -92,7 +94,7 @@ export default function VerifyCertificatePage() {
       )}
       {status === 'valid' && result.render && (
         <Suspense fallback={<Loading />}>
-          <CertificateView payload={result.render} label={t('certificates.view.alt', { name: result.participant_name })} />
+          <CertificateView payload={result.render} label={t('certificates.view.alt', { name: person })} />
         </Suspense>
       )}
       {look && (

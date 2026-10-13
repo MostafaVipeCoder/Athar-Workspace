@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
   buildMatrix, candidatesFromItems, dayEndMinutes, dayTimes, defaultDayId, distributionSheets, draftFromModel, draftToChildren, effectiveDay, emptyDay, formatMMSS, liveRound,
   mentorMeetings, myMeetings, nameOf, pickMentoringSlot, normalizeDistConfig, normalizePayload, roundNeighbour, roundPairs, roundSequence, rulesFromRows, serverOffsetMs, timerRemaining,
-  toReplaceRows, totalFromEnd, validateDraft, validateTimetable, windowFromAgendaSlot,
+  toReplaceRows, totalFromEnd, toMatchingInput, validateDraft, validateTimetable, windowFromAgendaSlot, withdrawnIdsOf,
 } from './distributionLogic.js'
 
 const payload = (over = {}) => ({
@@ -129,6 +129,35 @@ describe('validateTimetable', () => {
   })
 })
 
+describe('WITHDRAWN (m40)', () => {
+  const days = [{ id: 'd1', index: 0, slots: 2, startMinutes: 600, slotMinutes: 20, gapMinutes: 0, mentorIds: ['m1', 'm2'] }]
+  const s = (slot, mentorId, companyId) => ({ dayId: 'd1', slot, mentorId, companyId })
+
+  it('the PM payload flags withdrawn mentors / companies; withdrawnIdsOf collects them; candidates never include them', () => {
+    const model = normalizePayload(payload({ mentors: [{ id: 'm1', name_en: 'A' }, { id: 'm2', name_en: 'B', withdrawn: true }], companies: [{ id: 'c1', name_en: 'Co', withdrawn: true }, { id: 'c2', name_en: 'Co 2' }] }))
+    expect([...withdrawnIdsOf(model)].sort()).toEqual(['c1', 'm2'])
+    expect(model.mentors.get('m1').withdrawn).toBe(false)
+    expect(candidatesFromItems([{ itemId: 'x', withdrawn: true, entity: { title: { en: 'W' } } }, { itemId: 'y', entity: { title: { en: 'Y' } } }]).map((c) => c.key)).toEqual(['y'])
+    expect(withdrawnIdsOf(null).size).toBe(0)
+  })
+
+  it('a stored timetable with a withdrawn company / mentor reports a WARNING (not "no longer in the list"); a clean one reports nothing', () => {
+    const v = validateTimetable({ days, sessions: [s(0, 'm1', 'c1'), s(0, 'm2', 'c2'), s(1, 'm1', 'c2')], uniquePairing: false, companyIds: ['c2'], withdrawn: new Set(['c1', 'm2']) })
+    const codes = v.issues.map((i) => i.code).sort()
+    expect(codes).toEqual(['company_withdrawn', 'mentor_withdrawn'])
+    expect(v.issues.every((i) => i.severity === 'warning')).toBe(true)
+    expect(v.issues.find((i) => i.code === 'company_withdrawn')).toMatchObject({ companyId: 'c1', slotIndex: 0 })
+    expect(validateTimetable({ days, sessions: [s(0, 'm1', 'c2')], uniquePairing: false, companyIds: ['c2'], withdrawn: new Set() }).issues).toEqual([])
+  })
+
+  it('the generator input leaves withdrawn mentors out of every day (the DB would refuse them)', () => {
+    const model = normalizePayload(payload({ mentors: [{ id: 'm1', name_en: 'A' }, { id: 'm2', name_en: 'B', withdrawn: true }] }))
+    const input = toMatchingInput(model, [], ['c1'], {})
+    expect(input.days[0].mentorIds).toEqual(['m1'])
+    expect(model.days[0].mentorIds).toEqual(['m1', 'm2']) // the model itself is untouched: the Setup keeps showing the withdrawn mentor with a chip
+  })
+})
+
 describe('matrix, rounds and timer', () => {
   const model = normalizePayload(payload())
 
@@ -181,6 +210,13 @@ describe('matrix, rounds and timer', () => {
     expect(roundPairs(model, 'd1', 0, 'en').map((p) => p.mentor.id)).toEqual(['m2', 'm1'])
     expect(roundPairs(model, 'd1', 1, 'en')).toHaveLength(1) // m2 has no company in slot 1
     expect(roundPairs(model, null, 0)).toEqual([])
+  })
+
+  it('the live board never announces a withdrawn company or mentor (the PM payload still carries them, flagged)', () => {
+    const m = normalizePayload(payload({ mentors: [{ id: 'm1', name_en: 'Zed Mentor' }, { id: 'm2', name_en: 'Amy Mentor', withdrawn: true }], companies: [{ id: 'c1', name_en: 'Acme', withdrawn: true }, { id: 'c2', name_en: 'Beta' }] }))
+    // slot 0: m1 + c1 (company withdrawn) and m2 (mentor withdrawn) + c2; slot 1: m1 + c2 stays
+    expect(roundPairs(m, 'd1', 0, 'en')).toEqual([])
+    expect(roundPairs(m, 'd1', 1, 'en').map((p) => p.mentor.id + '/' + p.company.id)).toEqual(['m1/c2'])
   })
 })
 

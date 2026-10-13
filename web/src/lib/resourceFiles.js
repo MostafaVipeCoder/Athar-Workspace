@@ -3,6 +3,9 @@
  * size ceilings of the private `resources` bucket (db/migrations m07 + m36). The server re-checks everything
  * (`save_children_library`, bucket limits); this is the same rule on the client for instant feedback. Pure.
  */
+import { newId } from './id.js'
+import { thumbPath } from './image/paths.js'
+
 export const MAX_FILE_BYTES = 50 * 1024 * 1024
 /** An image is re-encoded to WebP in the browser, so the source may be larger than the stored result. */
 export const MAX_IMAGE_SOURCE_BYTES = 10 * 1024 * 1024
@@ -26,7 +29,7 @@ export const FILE_ACCEPT = [...Object.keys(FILE_TYPES), '.pdf', '.docx', '.xlsx'
 const EXT_TO_MIME = { pdf: 'application/pdf', docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', pptx: 'application/vnd.openxmlformats-officedocument.presentationml.presentation', mp3: 'audio/mpeg', m4a: 'audio/mp4', wav: 'audio/wav', ogg: 'audio/ogg', mp4: 'video/mp4', png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', webp: 'image/webp' }
 
 export const isImageMime = (mime) => /^image\//.test(String(mime ?? ''))
-export const uuid = () => (globalThis.crypto?.randomUUID?.() ?? `${Date.now().toString(16)}-${Math.random().toString(16).slice(2)}`)
+export { newId as uuid }
 
 /** The mime of a picked file: the browser value when it is one we know, else derived from the extension (docx often has none). */
 export function mimeOf(file) {
@@ -46,5 +49,5 @@ export function validateFile(file) {
   return null
 }
 
-/** The derived thumbnail path of a stored image: `<uuid>.webp` -> `<uuid>_t.webp` (same convention as lib/image). */
-export const thumbOf = (path) => String(path ?? '').replace(/(\.[a-z0-9]+)$/i, '_t$1')
+/** The derived thumbnail path of a stored image: `<uuid>.webp` -> `<uuid>_t.webp` (the ONE convention, lib/image/paths). */
+export const thumbOf = (path) => thumbPath(path)

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { canReorder, filterItems, moveItem, sortItems, DEFAULT_MANAGER_STATE } from './manager.logic.js'
+import { canReorder, filterItems, isLegacyHidden, moveItem, sortItems, DEFAULT_MANAGER_STATE } from './manager.logic.js'
 import { rowsToManualFields, listItemColumns } from './export.js'
 import { normalizeListItem } from '../../lib/entities.js'
 
@@ -11,9 +11,17 @@ const items = [
 ]
 
 describe('manager.logic', () => {
-  it('filters by term (title + notes), status, source and hidden flag', () => {
-    expect(filterItems(items, DEFAULT_MANAGER_STATE).map((i) => i.id)).toEqual(['a', 'virtual:form_response:r'])
-    expect(filterItems(items, { ...DEFAULT_MANAGER_STATE, showHidden: true })).toHaveLength(3)
+  it('filters by term (title + notes), status, source and presence (active / withdrawn / legacy hidden)', () => {
+    // the PM keeps seeing everybody by default: withdrawn people and legacy hidden items carry a chip instead of vanishing
+    expect(filterItems(items, DEFAULT_MANAGER_STATE).map((i) => i.id)).toEqual(['a', 'virtual:form_response:r', 'c'])
+    expect(filterItems(items, { ...DEFAULT_MANAGER_STATE, presence: 'active' }).map((i) => i.id)).toEqual(['a', 'virtual:form_response:r'])
+    expect(filterItems(items, { ...DEFAULT_MANAGER_STATE, presence: 'legacy' }).map((i) => i.id)).toEqual(['c'])
+    expect(filterItems(items, { ...DEFAULT_MANAGER_STATE, presence: 'withdrawn' })).toHaveLength(0)
+    const withdrawn = [...items, row('w', 'Wendy', { withdrawn: true })]
+    expect(filterItems(withdrawn, { ...DEFAULT_MANAGER_STATE, presence: 'withdrawn' }).map((i) => i.id)).toEqual(['w'])
+    expect(filterItems(withdrawn, { ...DEFAULT_MANAGER_STATE, presence: 'active' }).map((i) => i.id)).toEqual(['a', 'virtual:form_response:r'])
+    expect(isLegacyHidden(items[2])).toBe(true)
+    expect(isLegacyHidden(row('x', 'X', { excluded: true, withdrawn: true }))).toBe(false) // converted: withdrawn wins
     expect(filterItems(items, { ...DEFAULT_MANAGER_STATE, term: 'call' }).map((i) => i.id)).toEqual(['virtual:form_response:r'])
     expect(filterItems(items, { ...DEFAULT_MANAGER_STATE, status: 'confirmed' }).map((i) => i.id)).toEqual(['a'])
     expect(filterItems(items, { ...DEFAULT_MANAGER_STATE, status: '__none' }).map((i) => i.id)).toEqual(['virtual:form_response:r'])

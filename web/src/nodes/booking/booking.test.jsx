@@ -139,6 +139,30 @@ describe('Booking node', () => {
     await waitFor(() => expect(mocks.updateProvider).toHaveBeenCalledWith('p1', { booking_email: 'other@x.io' }))
   })
 
+  it('Edit (m40 withdrawn): a provider whose item was withdrawn stays as a NAMED "Withdrawn" row (no longer an anonymous orphan), cannot be switched on; a withdrawn booker is flagged for the PM and nothing is cancelled', async () => {
+    const user = userEvent.setup()
+    mocks.admin.mockImplementation(async () => {
+      const a = adminData()
+      a.providers = [...a.providers, { id: 'p9', list_item_id: 'w1', advance_notice_min: null, booking_email: null, is_active: false, sort_order: null, created_at: '2' }]
+      a.bookings = [{ ...a.bookings[0], booker_item_id: 'wb1' }]
+      return a
+    })
+    mocks.extras.mockImplementation(async () => ({ ...extrasData(), withdrawn_items: [{ id: 'w1', name_en: 'Walid Mentor', name_ar: 'وليد' }, { id: 'wb1', name_en: 'Delta Farms', name_ar: '' }], invitations: [{ id: 'iv1', booker_item_id: 'wb1', company_en: 'Delta Farms', company_ar: '', email: 'f@x.io', used: false, revoked_at: null, withdrawn: true }] }))
+    mount('edit')
+    const rows = await screen.findAllByTestId('provider-row')
+    expect(rows).toHaveLength(3)
+    const walid = rows.find((r) => within(r).queryByText('Walid Mentor'))
+    expect(within(walid).getByTestId('provider-withdrawn')).toHaveTextContent('Withdrawn')
+    expect(within(walid).getByText('Not offered on the public page')).toBeInTheDocument()
+    expect(within(walid).queryByText('Not in the connected list any more')).toBeNull()
+    expect(within(walid).getByTestId('provider-enabled')).toBeDisabled()
+    await user.click(screen.getByTestId('tab-bookings'))
+    const row = await screen.findByTestId('booking-row')
+    expect(within(row).getByTestId('booker-withdrawn')).toHaveTextContent('Withdrawn')
+    expect(within(row).getByRole('button', { name: /Cancel/ })).toBeEnabled() // the PM decides; nothing is cancelled automatically
+    expect(mocks.cancel).not.toHaveBeenCalled()
+  })
+
   it('Edit / Availability: the generator previews whole slots in the project zone, skips overlaps and creates ISO instants', async () => {
     const user = userEvent.setup()
     mount('edit')

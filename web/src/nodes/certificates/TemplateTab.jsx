@@ -1,5 +1,5 @@
 import { useMemo, useRef, useState } from 'react'
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { AlertTriangle, Check, ImagePlus, Plus, RefreshCw } from 'lucide-react'
 import { useLanguage } from '../../i18n/LanguageProvider.jsx'
 import { useToast } from '../../ui/Toast.jsx'
@@ -9,25 +9,32 @@ import { EmptyState, Loading } from '../../ui/States.jsx'
 import { cn } from '../../lib/cn.js'
 import { removeTemplateFiles, signedTemplateUrl, uploadTemplateFile } from '../../data/certificates.js'
 import { VARIABLES, SAMPLES, SAMPLE_KEYS, certValues, defaultField, sortFields } from '../../lib/certificates/layout.js'
-import { TEMPLATE_ACCEPT, checkTemplateSize, decodeTemplateFile, loadTemplateImage, validateTemplateFile } from '../../lib/certificates/templateFile.js'
+import { TEMPLATE_ACCEPT, checkTemplateSize, decodeTemplateFile, loadTemplateImage, peekTemplateSize, validateTemplateFile } from '../../lib/certificates/templateFile.js'
+import { describeReport } from '../../lib/image/index.js'
 import { buildPublicUrl } from '../../lib/links.js'
 import CanvasEditor from './CanvasEditor.jsx'
 import FieldPanel from './FieldPanel.jsx'
 import './i18n.js'
 
 /**
- * Template tab (design 07 section 4.3): upload the certificate design (PNG / JPEG, validated and uploaded as is to the private bucket),
- * place the variables on a live canvas (drag, side handles, keys), style each field, and test with a long Arabic and a long English
- * name. The draft lives in Edit.jsx (ONE save_node with `children.template`); this component only edits it.
+ * Template tab (design 07 section 4.3): upload the certificate design (PNG / JPEG / WebP: checked on its DECODED pixels, then converted to
+ * WebP by the universal pipeline, profile 'template', and stored in the private bucket), place the variables on a live canvas (drag, side
+ * handles, keys) - the PERSON name and the COMPANY name are two separate boxes -, style each field, and test with long Arabic and long English
+ * person and company names. The draft lives in Edit.jsx (ONE save_node with `children.template`); this component only edits it.
  * Files uploaded in the session are tracked in `assets` so a discarded draft does not leave orphans in the bucket.
+ * The size checks read the file HEADER (no decode); the live preview is the STORED, converted WebP (what every certificate will be drawn on), loaded through
+ * a signed URL: the multi-megapixel SOURCE is never kept as a bitmap, and a replaced preview bitmap is closed.
  */
+const imageKey = (path) => ['certificate', 'templateImage', path]
+
 export default function TemplateTab({ draft, setDraft, language, projectId, nodeId, assets, versionNote }) {
   const { t } = useLanguage()
   const toast = useToast()
   const input = useRef(null)
+  const qc = useQueryClient()
   const [busy, setBusy] = useState(null) // 'checking' | 'uploading'
+  const [progress, setProgress] = useState(null) // { stage, percent } of the WebP conversion
   const [problem, setProblem] = useState(null) // a blocked upload: { errors: [], file }
-  const [local, setLocal] = useState({}) // path -> decoded image of a file uploaded in this session
   const [selected, setSelected] = useState(null)
   const [sampleKey, setSampleKey] = useState(language === 'ar' ? 'longAr' : 'longEn')
   const [overflow, setOverflow] = useState({})
@@ -35,12 +42,19 @@ export default function TemplateTab({ draft, setDraft, language, projectId, node
 
   const path = draft?.filePath ?? null
   const remote = useQuery({
-    queryKey: ['certificate', 'templateImage', path],
+    queryKey: imageKey(path),
     queryFn: async () => loadTemplateImage(await signedTemplateUrl(path)),
-    enabled: Boolean(path) && !local[path],
+    enabled: Boolean(path),
     staleTime: 30 * 60 * 1000,
   })
-  const loaded = path ? (local[path] ?? remote.data ?? null) : null
+  const loaded = path ? (remote.data ?? null) : null
+
+  /** A preview bitmap that is replaced is closed (its pixels are freed at once) and its cache entry dropped, so coming back to that path reloads it. */
+  function releasePreview(oldPath) {
+    const prev = qc.getQueryData(imageKey(oldPath))
+    try { prev?.image?.close?.() } catch { /* already closed */ }
+    qc.removeQueries({ queryKey: imageKey(oldPath), exact: true })
+  }
 
   const sample = SAMPLES[sampleKey]
   const values = useMemo(() => certValues(sample.snapshot, sample.code, language), [sample, language])
@@ -71,39 +85,48 @@ export default function TemplateTab({ draft, setDraft, language, projectId, node
     const bad = validateTemplateFile(file)
     if (bad) { setProblem({ errors: [`file.${bad}`], file: file.name }); return }
     setBusy('checking')
-    let decoded
-    try {
-      decoded = await decodeTemplateFile(file)
-    } catch {
-      setBusy(null)
-      setProblem({ errors: ['decode'], file: file.name })
-      return
+    let dims = await peekTemplateSize(file) // the header says it: no bitmap
+    if (!dims) {
+      try {
+        const decoded = await decodeTemplateFile(file) // an unusual header: decode ONCE for the two numbers, then free it
+        dims = { width: decoded.width, height: decoded.height }
+        try { decoded.image?.close?.() } catch { /* nothing to free */ }
+      } catch {
+        setBusy(null)
+        setProblem({ errors: ['decode'], file: file.name })
+        return
+      }
     }
-    const check = checkTemplateSize(decoded.width, decoded.height)
+    const check = checkTemplateSize(dims.width, dims.height)
     if (check.errors.length) {
       setBusy(null)
       setProblem({ errors: check.errors.map((e) => `size.${e}`), file: file.name })
       return
     }
     setBusy('uploading')
+    setProgress({ stage: 'checking', percent: 0 })
     try {
-      const up = await uploadTemplateFile(file, { projectId, nodeId })
+      const up = await uploadTemplateFile(file, { projectId, nodeId, onProgress: (pr) => setProgress(pr.stage === 'done' ? { stage: 'uploading', percent: 100 } : pr) })
       assets.current.files.add(up.path)
       if (draft?.filePath) {
         // an image of this session that is replaced is garbage at once; a saved image is removed after the save (it may be an older version's)
         if (assets.current.files.has(draft.filePath)) { assets.current.files.delete(draft.filePath); removeTemplateFiles([draft.filePath]) } else assets.current.garbage.add(draft.filePath)
+        releasePreview(draft.filePath)
       }
-      setLocal((l) => ({ ...l, [up.path]: { image: decoded.image, width: decoded.width, height: decoded.height } }))
-      setDraft((d) => ({ filePath: up.path, widthPx: decoded.width, heightPx: decoded.height, version: d?.version ?? 0, fields: d?.fields ?? [] }))
+      // the STORED image is the converted WebP (at most 4000 px): its size is what the template row keeps (the fields are fractions); the preview loads it below
+      setDraft((d) => ({ filePath: up.path, widthPx: up.width || dims.width, heightPx: up.height || dims.height, version: d?.version ?? 0, fields: d?.fields ?? [] }))
+      if (up.report) { const d = describeReport(up.report); toast.info(t(d.key, d.vars)) }
     } catch (e) {
-      setProblem({ errors: [e?.messageKey?.startsWith('certificates.err.') ? e.messageKey.replace('certificates.', '') : 'upload'], file: file.name })
+      const key = e?.messageKey ?? ''
+      setProblem({ errors: [key.startsWith('certificates.err.') ? key.replace('certificates.', '') : key.startsWith('errors.image.') ? key : 'upload'], file: file.name })
     } finally {
       setBusy(null)
+      setProgress(null)
     }
   }
   const onDrop = (e) => { e.preventDefault(); setDragging(false); choose(e.dataTransfer?.files?.[0]) }
 
-  const problemText = (code) => t(`certificates.${code.startsWith('err.') ? code : `err.${code}`}`)
+  const problemText = (code) => (code.startsWith('errors.') ? t(code) : t(`certificates.${code.startsWith('err.') ? code : `err.${code}`}`))
 
   return (
     <div className="space-y-5" data-testid="template-tab">
@@ -118,11 +141,19 @@ export default function TemplateTab({ draft, setDraft, language, projectId, node
             <input ref={input} type="file" accept={TEMPLATE_ACCEPT} className="sr-only" tabIndex={-1} aria-hidden="true" data-testid="template-file" onChange={(e) => { choose(e.target.files?.[0]); e.target.value = '' }} />
             <Button variant={draft ? 'outline' : 'primary'} loading={Boolean(busy)} onClick={() => input.current?.click()} data-testid="choose-template">
               {draft ? <RefreshCw className="h-4 w-4" aria-hidden="true" /> : <ImagePlus className="h-4 w-4" aria-hidden="true" />}
-              {busy === 'uploading' ? t('certificates.tpl.image.uploading') : busy === 'checking' ? t('certificates.tpl.image.checking') : draft ? t('certificates.tpl.image.replace') : t('certificates.tpl.image.choose')}
+              {busy === 'uploading' ? t('certificates.tpl.image.converting') : busy === 'checking' ? t('certificates.tpl.image.checking') : draft ? t('certificates.tpl.image.replace') : t('certificates.tpl.image.choose')}
             </Button>
           </div>
         </div>
 
+        {busy === 'uploading' && progress && (
+          <div role="status" aria-live="polite" className="space-y-1" data-testid="template-progress">
+            <p className="text-xs text-muted-foreground">{t(`image.stage.${progress.stage}`)}</p>
+            <div className="h-1.5 w-full max-w-sm overflow-hidden rounded-full bg-surface" aria-hidden="true">
+              <div className={cn('h-full rounded-full bg-primary transition-[width] duration-200', progress.stage === 'uploading' && 'animate-pulse')} style={{ width: `${Math.max(4, Math.min(100, progress.percent ?? 0))}%` }} />
+            </div>
+          </div>
+        )}
         {draft && size && (
           <div className="flex flex-wrap items-center gap-2" data-testid="template-facts">
             <Badge tone="neutral"><span dir="ltr">{t('certificates.tpl.image.size', { width: draft.widthPx, height: draft.heightPx })}</span></Badge>
@@ -189,7 +220,7 @@ export default function TemplateTab({ draft, setDraft, language, projectId, node
                   )
                 })}
               </ul>
-              {!fields.some((f) => f.var === 'participant_name') && <p className="text-xs text-destructive-text" data-testid="no-name-warning">{t('certificates.edit.noName')}</p>}
+              {!fields.some((f) => f.var === 'person_name') && <p className="text-xs text-destructive-text" data-testid="no-name-warning">{t('certificates.edit.noName')}</p>}
             </section>
             <FieldPanel field={field} width={draft.widthPx} overflow={Boolean(field && overflow[field.var])} onChange={(next) => changeField(next.var, next)} onRemove={removeVariable} />
           </div>

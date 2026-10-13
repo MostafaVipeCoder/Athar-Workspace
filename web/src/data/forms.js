@@ -2,7 +2,8 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { db } from './client.js'
 import { AppError, fromSupabase, unwrap } from './errors.js'
 import { keys } from './queryKeys.js'
-import { removeImage } from './storage.js'
+import { newId } from '../lib/id.js'
+import { removeImage, storeImage, uploadObject } from './storage.js'
 
 /**
  * Form Builder data (design 04 section 3.7, 03 sections 6.2/9): the PM reads `forms`/`form_sections`/`form_questions`/
@@ -119,17 +120,22 @@ export function validateUploadFile(file) {
   if (!file) return 'form.err.fileRequired'
   const ext = String(file.name ?? '').split('.').pop()?.toLowerCase()
   if (!UPLOAD_EXTENSIONS.includes(ext)) return 'form.err.fileType'
-  if (file.size > UPLOAD_MAX_BYTES) return 'form.err.fileSize'
+  // a picture is converted to a small WebP before it is sent, so it is judged by the pipeline's own ceiling (lib/image MAX_SOURCE_BYTES), not by the stored-file limit
+  const isPicture = (UPLOAD_MIME[ext] ?? '').startsWith('image/')
+  if (!isPicture && file.size > UPLOAD_MAX_BYTES) return 'form.err.fileSize'
   return null
 }
 export async function uploadFormFile(projectId, nodeId, file) {
   const problem = validateUploadFile(file)
   if (problem) throw new AppError('validation', { messageKey: problem, retryable: false })
   const ext = String(file.name).split('.').pop().toLowerCase()
-  const path = `${projectId}/${nodeId}/${crypto.randomUUID()}.${ext}`
-  const { error } = await db().storage.from(UPLOAD_BUCKET).upload(path, file, { contentType: UPLOAD_MIME[ext] ?? file.type, cacheControl: '3600', upsert: false })
-  if (error) throw fromSupabase(error)
-  return path
+  const id = newId()
+  if ((UPLOAD_MIME[ext] ?? '').startsWith('image/')) {
+    // a picture a respondent attaches is converted to WebP like every other image (08 section 17.3); the stored name is `<uuid>.webp`
+    const stored = await storeImage(file, { bucket: UPLOAD_BUCKET, path: (e) => `${projectId}/${nodeId}/${id}.${e}`, profile: 'attachment', cacheControl: '3600' })
+    return stored.path
+  }
+  return uploadObject(UPLOAD_BUCKET, `${projectId}/${nodeId}/${id}.${ext}`, file, { contentType: UPLOAD_MIME[ext] ?? file.type, cacheControl: '3600' })
 }
 /** PM read of an uploaded file (select policy: project managers). */
 export async function signedFileUrl(path, expiresIn = 600) {

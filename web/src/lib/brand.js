@@ -10,7 +10,7 @@ export const BRAND = {
   /** The header-size file the site serves (150x50). */
   logoSmall: `${base}brand/athar-logo-150x50.png`,
   /** Light-grey geometric circle pattern used behind the site hero (login, public pages). */
-  pattern: `${base}brand/pattern.png`,
+  pattern: `${base}brand/pattern.webp`,
   favicon: `${base}brand/favicon.png`,
   siteUrl: 'https://www.athareg.com/',
 }

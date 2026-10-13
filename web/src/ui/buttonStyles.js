@@ -6,7 +6,7 @@ import { cn } from '../lib/cn.js'
  *  - primary   = the site CTA: yellow fill, black text, radius 8, grow on hover (the only button athareg.com has);
  *  - secondary = Athar blue fill, white text (app-only derivation);
  *  - outline   = black 2px outline that fills black on hover; ghost = text with a soft grey hover; link = blue text;
- *  - destructive = the site error red with white text (text darkened on hover for contrast).
+ *  - destructive = the DARK error red (the `destructive-text` token, about 6.5:1 with white; the site's pale #f56c6c is 2.8:1 and is for borders / tints only).
  * Yellow is used ONLY as a fill with black text, never as text on white.
  */
 export const BUTTON_VARIANTS = {
@@ -14,12 +14,12 @@ export const BUTTON_VARIANTS = {
   secondary: 'bg-primary text-primary-foreground hover:bg-primary/90',
   outline: 'border-2 border-foreground bg-transparent text-foreground hover:bg-foreground hover:text-background',
   ghost: 'bg-transparent text-foreground hover:bg-surface',
-  destructive: 'bg-destructive text-destructive-foreground hover:bg-destructive-text',
+  destructive: 'bg-destructive-text text-destructive-foreground hover:bg-destructive-text/90',
   link: 'bg-transparent text-primary underline-offset-4 hover:underline',
 }
 
 export const BUTTON_SIZES = {
-  sm: 'min-h-9 px-4 text-sm',
+  sm: 'min-h-11 px-4 text-sm lg:min-h-9',     // 44 px tap target on a phone (review), the compact 36 px with a pointer
   md: 'min-h-11 px-6 text-base',
   lg: 'min-h-12 px-6 text-md font-bold',
   icon: 'min-h-11 min-w-11 p-0',

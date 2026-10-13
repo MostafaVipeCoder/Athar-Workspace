@@ -49,6 +49,9 @@ const TOKEN_KEYS = {
   selection_bad_base_url: 'selection.err.badBaseUrl',
   selection_daily_cap: 'selection.err.dailyCap',
   selection_not_enrolling: 'selection.err.notEnrolling',
+  // m40 withdrawn (hint = token)
+  withdrawn_invalid: 'entity.withdraw.err.invalid',
+  item_withdrawn: 'entity.withdraw.err.itemWithdrawn',
   // m34 booking (hint = token; `booking_invalid` carries "<field>:<reason>" in detail)
   slot_unavailable: 'booking.err.slotUnavailable',
   slot_too_soon: 'booking.err.slotTooSoon',
@@ -80,6 +83,9 @@ const TOKEN_KEYS = {
   certificate_not_attended: 'certificates.err.notAttended',
   certificate_no_name: 'certificates.err.noName',
   certificate_rate_limited: 'certificates.err.rateLimited',
+  // m42 certificates per founder
+  certificate_grant_revoked: 'certificates.err.grantRevoked',
+  certificate_not_linked: 'certificates.err.notLinked',
 }
 
 function tokenOf(error) {

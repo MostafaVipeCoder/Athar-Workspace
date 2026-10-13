@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
-  SAMPLES, anchorX, certValues, defaultField, detectDirection, fieldBox, fieldFromRow, fieldToRow, fontString, formatCertDate, layoutText, moveField, normalizeField,
+  SAMPLES, VARIABLE_KEYS, anchorX, certValues, defaultField, detectDirection, fieldBox, fieldFromRow, fieldToRow, fontString, formatCertDate, layoutText, moveField, normalizeField, normalizeVar,
   nudge, resizeField, sortFields, validateFields, wrapLines,
 } from './layout.js'
 
@@ -9,7 +9,7 @@ const measure = (s, px) => s.length * px * 0.5
 
 describe('fractional placement', () => {
   it('turns fractions into pixels of any canvas size (the preview scale never matters)', () => {
-    const f = defaultField('participant_name') // x .5, y .46, w .6, size .045
+    const f = defaultField('person_name') // x .5, y .46, w .6, size .045
     const big = fieldBox(f, 3508, 2480)
     const small = fieldBox(f, 1000, 707)
     expect(big.cx).toBeCloseTo(1754)
@@ -32,7 +32,7 @@ describe('fractional placement', () => {
   })
 
   it('clamps fractions into their legal ranges and keeps the QR square', () => {
-    const f = normalizeField({ var: 'participant_name', x: 1.7, y: -3, w: 9, size: 5, color: 'red', weight: 123, align: 'diagonal', direction: 'up', maxLines: 99 })
+    const f = normalizeField({ var: 'person_name', x: 1.7, y: -3, w: 9, size: 5, color: 'red', weight: 123, align: 'diagonal', direction: 'up', maxLines: 99 })
     expect(f.x).toBe(1)
     expect(f.y).toBe(0)
     expect(f.w).toBe(1)
@@ -51,7 +51,7 @@ describe('fractional placement', () => {
     const f = defaultField('program_name')
     const moved = moveField(f, 0.1, -0.2)
     expect(moved.x).toBeCloseTo(0.6)
-    expect(moved.y).toBeCloseTo(0.42)
+    expect(moved.y).toBeCloseTo(0.43)
     expect(moveField(f, 5, 5)).toMatchObject({ x: 1, y: 1 })
     const wider = resizeField(f, 0.1)
     expect(wider.w).toBeCloseTo(f.w + 0.1)
@@ -72,18 +72,18 @@ describe('fractional placement', () => {
   })
 
   it('sorts fields by variable and validates the draft', () => {
-    const fields = [defaultField('verification_qr'), defaultField('participant_name')]
-    expect(sortFields(fields).map((f) => f.var)).toEqual(['participant_name', 'verification_qr'])
+    const fields = [defaultField('verification_qr'), defaultField('person_name')]
+    expect(sortFields(fields).map((f) => f.var)).toEqual(['person_name', 'verification_qr'])
     expect(validateFields(fields)).toEqual([])
     expect(validateFields([defaultField('program_name')])).toEqual([{ code: 'noName' }])
-    expect(validateFields([defaultField('participant_name'), defaultField('participant_name')])).toContainEqual({ code: 'duplicate', var: 'participant_name' })
+    expect(validateFields([defaultField('person_name'), defaultField('person_name')])).toContainEqual({ code: 'duplicate', var: 'person_name' })
   })
 })
 
 describe('text layout: auto-fit width, wrapping, direction', () => {
   const W = 1000
   const H = 700
-  const base = normalizeField({ var: 'participant_name', x: 0.5, y: 0.5, w: 0.5, size: 0.05, shrinkToFit: true }) // box 500 px, font 50 px
+  const base = normalizeField({ var: 'person_name', x: 0.5, y: 0.5, w: 0.5, size: 0.05, shrinkToFit: true }) // box 500 px, font 50 px
 
   it('keeps the base size when the text fits', () => {
     const laid = layoutText(measure, 'Sara Ali', base, W, H) // 8 chars * 25 = 200 px
@@ -152,8 +152,8 @@ describe('text layout: auto-fit width, wrapping, direction', () => {
   })
 
   it('builds the canvas font string with the Arabic fallback behind every Latin font', () => {
-    expect(fontString(normalizeField({ var: 'participant_name', font: 'Manrope', weight: 600 }), 48)).toBe('600 48px "Manrope", "Tajawal", sans-serif')
-    expect(fontString(normalizeField({ var: 'participant_name', font: 'Tajawal', weight: 800 }), 31.234)).toBe('800 31.23px "Tajawal", sans-serif')
+    expect(fontString(normalizeField({ var: 'person_name', font: 'Manrope', weight: 600 }), 48)).toBe('600 48px "Manrope", "Tajawal", sans-serif')
+    expect(fontString(normalizeField({ var: 'person_name', font: 'Tajawal', weight: 800 }), 31.234)).toBe('800 31.23px "Tajawal", sans-serif')
   })
 })
 
@@ -169,15 +169,76 @@ describe('printed values', () => {
   })
 
   it('maps a snapshot + code to every variable', () => {
-    const v = certValues({ participant_name: 'Sara Ali', company_name: 'Nile Labs', program_name: 'Athar', project_name: 'C5', completed_on: '2026-10-12', issued_on: '2026-10-13' }, 'AB12-CD34-EF56', 'en')
-    expect(v).toEqual({ participant_name: 'Sara Ali', company_name: 'Nile Labs', program_name: 'Athar', project_name: 'C5', completion_date: '12 October 2026', issue_date: '13 October 2026', verification_code: 'AB12-CD34-EF56' })
-    expect(certValues(null, null).participant_name).toBe('')
+    const v = certValues({ person_name: 'Sara Ali', company_name: 'Nile Labs', program_name: 'Athar', project_name: 'C5', completed_on: '2026-10-12', issued_on: '2026-10-13' }, 'AB12-CD34-EF56', 'en')
+    expect(v).toEqual({ person_name: 'Sara Ali', company_name: 'Nile Labs', program_name: 'Athar', project_name: 'C5', completion_date: '12 October 2026', issue_date: '13 October 2026', verification_code: 'AB12-CD34-EF56' })
+    expect(certValues(null, null).person_name).toBe('')
   })
 
   it('ships a long Arabic and a long English sample to test overflow', () => {
-    expect(SAMPLES.longAr.snapshot.participant_name.length).toBeGreaterThan(30)
-    expect(detectDirection(SAMPLES.longAr.snapshot.participant_name)).toBe('rtl')
-    expect(SAMPLES.longEn.snapshot.participant_name.length).toBeGreaterThan(40)
-    expect(detectDirection(SAMPLES.longEn.snapshot.participant_name)).toBe('ltr')
+    expect(SAMPLES.longAr.snapshot.person_name.length).toBeGreaterThan(30)
+    expect(detectDirection(SAMPLES.longAr.snapshot.person_name)).toBe('rtl')
+    expect(SAMPLES.longEn.snapshot.person_name.length).toBeGreaterThan(40)
+    expect(detectDirection(SAMPLES.longEn.snapshot.person_name)).toBe('ltr')
+  })
+
+  it('ships long Arabic / long English PERSON and COMPANY names, and two mixed samples that stress one box at a time', () => {
+    expect(Object.keys(SAMPLES)).toEqual(['longAr', 'longEn', 'longPerson', 'longCompany', 'short'])
+    for (const k of Object.keys(SAMPLES)) {
+      expect(SAMPLES[k].snapshot.person_name).toBeTruthy()
+      expect(SAMPLES[k].snapshot.company_name).toBeTruthy()
+    }
+    expect(detectDirection(SAMPLES.longAr.snapshot.company_name)).toBe('rtl')
+    expect(SAMPLES.longAr.snapshot.company_name.length).toBeGreaterThan(30)
+    expect(SAMPLES.longEn.snapshot.company_name.length).toBeGreaterThan(40)
+    expect(SAMPLES.longPerson.snapshot.person_name.length).toBeGreaterThan(40)
+    expect(SAMPLES.longPerson.snapshot.company_name.length).toBeLessThan(15)
+    expect(SAMPLES.longCompany.snapshot.person_name.length).toBeLessThan(15)
+    expect(SAMPLES.longCompany.snapshot.company_name.length).toBeGreaterThan(40)
+  })
+})
+
+describe('person_name (owner decision 08 section 17.2) and the legacy participant_name alias', () => {
+  it('the person and the company are two separate variables, the person comes first', () => {
+    expect(VARIABLE_KEYS.slice(0, 2)).toEqual(['person_name', 'company_name'])
+    expect(VARIABLE_KEYS).not.toContain('participant_name')
+  })
+
+  it('the m38 key is read as an alias everywhere and never written again', () => {
+    expect(normalizeVar('participant_name')).toBe('person_name')
+    expect(normalizeVar('company_name')).toBe('company_name')
+    expect(normalizeField({ var: 'participant_name', x: 0.5, y: 0.5, w: 0.5 }).var).toBe('person_name')
+    expect(defaultField('participant_name').var).toBe('person_name')
+    expect(fieldFromRow({ var: 'participant_name', x: 0.5, y: 0.5, w: 0.5, align: 'center', font: 'Tajawal', size: 0.04, color: '#1a1a2e', weight: 700, direction: 'auto', max_lines: 1, shrink_to_fit: false }).var).toBe('person_name')
+    expect(fieldToRow({ var: 'participant_name', x: 0.5, y: 0.5, w: 0.5 }).var).toBe('person_name')
+    // a draft holding the alias still has its name field; two spellings of the same variable are a duplicate
+    expect(validateFields([{ var: 'participant_name' }])).toEqual([])
+    expect(validateFields([{ var: 'participant_name' }, { var: 'person_name' }])).toContainEqual({ code: 'duplicate', var: 'person_name' })
+  })
+
+  it('an old snapshot (participant_name) still prints the person name; the new key wins', () => {
+    expect(certValues({ participant_name: 'Old Name' }, 'X', 'en').person_name).toBe('Old Name')
+    expect(certValues({ participant_name: 'Old Name', person_name: 'New Name' }, 'X', 'en').person_name).toBe('New Name')
+  })
+
+  it('the default boxes of the person and the company do not overlap on an A4 landscape certificate', () => {
+    const W = 3508
+    const H = 2480
+    const person = fieldBox(defaultField('person_name'), W, H)
+    const company = fieldBox(defaultField('company_name'), W, H)
+    expect(person.top + person.height).toBeLessThan(company.top)
+    const program = fieldBox(defaultField('program_name'), W, H)
+    expect(company.top + company.height).toBeLessThan(program.top)
+    expect(program.top + program.height).toBeLessThan(fieldBox(defaultField('project_name'), W, H).top)
+  })
+
+  it('a long COMPANY name shrinks inside its own box while a short person keeps its size (auto-fit is per field)', () => {
+    const measure = (s, px) => s.length * px * 0.5
+    const W = 2000
+    const person = layoutText(measure, SAMPLES.longCompany.snapshot.person_name, defaultField('person_name'), W, 1400)
+    const company = layoutText(measure, SAMPLES.longCompany.snapshot.company_name, defaultField('company_name'), W, 1400)
+    expect(person.fontPx).toBeCloseTo(0.045 * W)
+    expect(person.overflow).toBe(false)
+    expect(company.fontPx).toBeLessThan(0.028 * W)
+    expect(company.overflow).toBe(false)
   })
 })

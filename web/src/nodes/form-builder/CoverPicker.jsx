@@ -11,8 +11,7 @@ import { useToast } from '../../ui/Toast.jsx'
 import { useConfirm } from '../../ui/ConfirmDialog.jsx'
 import { useFormCovers, useFormMutations } from '../../data/forms.js'
 import { publicImageUrl, publicThumbUrl, uploadImage } from '../../data/storage.js'
-import { IMAGE } from '../../lib/constants.js'
-import { validateImageFile } from '../../lib/image.js'
+import { acceptFor, convertToWebp, describeReport, validateImageFile } from '../../lib/image/index.js'
 
 /**
  * Cover library (as-is CoverLibraryModal without its crash, docs/04 A-24): covers of the project + the global ones,
@@ -31,13 +30,16 @@ export function CoverPicker({ projectId, nodeId, userId, currentId, onSelect, on
     const file = e.target.files?.[0]
     e.target.value = ''
     if (!file) return
-    const problem = validateImageFile(file)
+    const problem = validateImageFile(file, 'cover')
     if (problem) { toast.error(t(`errors.${problem}`)); return }
     setBusy(true)
     try {
+      // universal WebP (08 section 17.3): converted once here (cached for the upload below); the saving goes into the toast
+      const { report } = await convertToWebp(file, { profile: 'cover' })
       const imagePath = await uploadImage(file, { ownerId: projectId, kind: 'form-cover' })
       const cover = await m.createCover.mutateAsync({ name: file.name.replace(/\.[^.]+$/, ''), imagePath, userId })
-      toast.success(t('form.cover.uploaded'))
+      const saved = describeReport(report)
+      toast.success(`${t('form.cover.uploaded')} ${t(saved.key, saved.vars)}`)
       onSelect(cover)
     } catch (err) {
       toast.error(t(err?.messageKey ?? 'errors.unknown'))
@@ -59,7 +61,7 @@ export function CoverPicker({ projectId, nodeId, userId, currentId, onSelect, on
   return (
     <Modal open onClose={onClose} title={t('form.cover.title')} description={t('form.cover.hint')} closeLabel={t('common.close')} className="sm:max-w-3xl"
       footer={<>
-        <input ref={inputRef} type="file" accept={IMAGE.accept.join(',')} className="sr-only" onChange={pick} aria-label={t('form.cover.upload')} />
+        <input ref={inputRef} type="file" accept={acceptFor('cover')} className="sr-only" onChange={pick} aria-label={t('form.cover.upload')} />
         <Button variant="outline" onClick={onClose}>{t('common.close')}</Button>
         <Button loading={busy} onClick={() => inputRef.current?.click()} data-testid="cover-upload"><ImagePlus className="h-4 w-4" aria-hidden="true" />{t('form.cover.upload')}</Button>
       </>}

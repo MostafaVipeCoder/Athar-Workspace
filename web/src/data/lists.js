@@ -17,7 +17,11 @@ export async function getListMeta(nodeId) {
   return { subkind: row?.subkind ?? 'generic' }
 }
 
-/** One page of resolve_list (raw rows). filter: { include_excluded, status, with_fields }. */
+/**
+ * One page of resolve_list (raw rows). filter: { include_excluded, include_withdrawn, status, with_fields }.
+ * Default = what the consumers get: withdrawn items (m40) and legacy "hidden" items are left out. The PM managers pass
+ * `include_withdrawn: true` (+ `include_excluded: true`) to keep them visible with their chip.
+ */
 export async function resolveList(nodeId, { filter = {}, limit = PAGE, after = null } = {}) {
   return unwrap(await db().rpc('resolve_list', { p_list: nodeId, p_filter: filter, p_limit: limit, p_after: after })) ?? []
 }
@@ -48,6 +52,14 @@ export async function materializeItem(listId, item) {
   if (item.itemId) return item.itemId
   return ensureItem(listId, item.source.kind, item.source.id)
 }
+/** The row ids of MANY items (a virtual one gets its overlay row): ONE `ensure_items` call for all the virtual ones, order kept. */
+export async function materializeItems(listId, items) {
+  const virtual = items.filter((i) => !i.itemId)
+  if (virtual.length === 0) return items.map((i) => i.itemId)
+  const created = await ensureItems(listId, virtual.map((i) => ({ kind: i.source.kind, id: i.source.id })))
+  const byItem = new Map(virtual.map((i, idx) => [i, created[idx]]))
+  return items.map((i) => i.itemId ?? byItem.get(i))
+}
 export async function patchItemOverlay(itemId, patch) {
   unwrap(await db().rpc('patch_item_overlay', { p_item: itemId, p_patch: patch }))
 }
@@ -57,8 +69,24 @@ export async function setItemStatus(itemId, status, reason = null) {
 export async function reorderItems(listId, ids) {
   unwrap(await db().rpc('reorder_items', { p_list: listId, p_ids: ids }))
 }
+/**
+ * LEGACY "hidden" flag (the 2 migrated experts): the UI no longer creates it. Only used to RESTORE a legacy hidden item
+ * (`excluded = false`); marking an item withdrawn through `setItemWithdrawn` converts it.
+ */
 export async function excludeItem(itemId, excluded = true) {
   unwrap(await db().rpc('exclude_item', { p_item: itemId, p_excluded: excluded }))
+}
+/**
+ * m40 "Withdrawn" (decision 17.1): the PM marks (or reinstates) ONE materialised item. The DB decides where the fact lives
+ * (the participant row for a form-response / company item, the item itself otherwise) and every consumer derives it.
+ * Returns { item_id, withdrawn, participant_id?, status?, removed? }.
+ */
+export async function setItemWithdrawn(itemId, withdrawn = true, reason = null) {
+  return unwrap(await db().rpc('set_item_withdrawn', { p_item: itemId, p_withdrawn: withdrawn, p_reason: reason || null }))
+}
+/** BULK withdraw / reinstate in ONE atomic call (m43 `set_items_withdrawn`: all or nothing, at most 500). Was 2N sequential round trips. */
+export async function setItemsWithdrawn(itemIds, withdrawn = true, reason = null) {
+  return unwrap(await db().rpc('set_items_withdrawn', { p_items: itemIds, p_withdrawn: withdrawn, p_reason: reason || null }))
 }
 export async function addManualItem(listId, fields) {
   return unwrap(await db().rpc('add_manual_item', { p_list: listId, p_fields: fields }))
@@ -128,14 +156,24 @@ export function useListMutations(nodeId, { onChanged } = {}) {
     await qc.invalidateQueries({ queryKey: keys.node(nodeId) })
     await onChanged?.()
   }
+  // a withdrawal changes what EVERY list / stage / consumer of the project resolves (the fact is shared by identity, m40):
+  // refresh all the cached node queries and the participants, not only this node and its downstream
+  const afterWithdrawal = async () => {
+    await Promise.all([qc.invalidateQueries({ queryKey: ['node'] }), qc.invalidateQueries({ queryKey: ['participants'] })])
+    await onChanged?.()
+  }
   // a tiny custom hook (constant call count) so the rules-of-hooks lint is satisfied
-  const useM = (mutationFn) => useMutation({ mutationFn, onSuccess: after, meta: { silent: true } })
+  const useM = (mutationFn, onSuccess = after) => useMutation({ mutationFn, onSuccess, meta: { silent: true } })
   const m = useM
   return {
     patchOverlay: m(async ({ item, patch }) => patchItemOverlay(await materializeItem(nodeId, item), patch)),
     /** `reason` is stored by the DB for selection stages only (selection_reviews); lists ignore it. */
     setStatus: m(async ({ item, status, reason = null }) => setItemStatus(await materializeItem(nodeId, item), status, reason)),
+    /** Legacy hidden -> restore only (see excludeItem). */
     exclude: m(async ({ item, excluded }) => excludeItem(await materializeItem(nodeId, item), excluded)),
+    /** Mark as withdrawn (optional reason) / reinstate. A virtual item gets its overlay row first (the RPC needs a row). */
+    withdraw: useM(async ({ item, reason = null }) => setItemWithdrawn(await materializeItem(nodeId, item), true, reason), afterWithdrawal),
+    reinstate: useM(async ({ item }) => setItemWithdrawn(await materializeItem(nodeId, item), false), afterWithdrawal),
     /** `items` = the FULL ordered list (every item, filtered views must not reorder: docs/03 section 7.3). */
     reorder: m(async ({ items }) => {
       const virtual = items.filter((i) => !i.itemId)
@@ -155,9 +193,9 @@ export function useListMutations(nodeId, { onChanged } = {}) {
     bulkStatus: m(async ({ items, status, reason = null }) => {
       for (const item of items) await setItemStatus(await materializeItem(nodeId, item), status, reason)
     }),
-    bulkExclude: m(async ({ items, excluded }) => {
-      for (const item of items) await excludeItem(await materializeItem(nodeId, item), excluded)
-    }),
+    // ONE ensure_items + ONE atomic set_items_withdrawn, ONE refresh (afterWithdrawal): nothing is half done when an item fails
+    bulkWithdraw: useM(async ({ items, reason = null }) => setItemsWithdrawn(await materializeItems(nodeId, items), true, reason), afterWithdrawal),
+    bulkReinstate: useM(async ({ items }) => setItemsWithdrawn(await materializeItems(nodeId, items), false), afterWithdrawal),
     ensureViewLink: useMutation({ mutationFn: () => ensureViewLink(nodeId), onSuccess: () => qc.invalidateQueries({ queryKey: keys.viewLink(nodeId) }), meta: { silent: true } }),
   }
 }

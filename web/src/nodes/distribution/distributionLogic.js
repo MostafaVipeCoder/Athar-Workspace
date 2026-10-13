@@ -5,6 +5,7 @@
  * round used when no timer round is running, "who do I meet next" for a company, and the Excel sheets.
  * Everything wall-clock goes through `lib/time` with the PROJECT zone (as-is CON-10: "today" came from the UTC calendar).
  */
+import { isActiveItem } from '../../lib/entities.js'
 import { currentSlotIndex, formatHHMM, parseHHMM, roundMinutes, secondsUntilSlotEnd, slotsFrom, slotsPerRound } from '../../lib/time/slots.js'
 import { minutesOfDayInTz, resolveTimeZone, secondsOfDayInTz, todayInTz, toInstant } from '../../lib/time/tz.js'
 
@@ -27,7 +28,14 @@ export const defaultDistributionConfig = () => ({ timer: { ...TIMER_DEFAULTS } }
 const bi = (en, ar) => ({ en: text(en).trim(), ar: text(ar).trim() })
 
 export function entityFromRow(r) {
-  return { id: r.id, name: bi(r.name_en, r.name_ar), sub: bi(r.sub_en, r.sub_ar), image: r.image_path || null, room: text(r.room).trim(), missing: Boolean(r.missing) }
+  // `withdrawn` (m40, PM payload only): the mentor / company was marked withdrawn; the public / platform payloads simply omit it
+  return { id: r.id, name: bi(r.name_en, r.name_ar), sub: bi(r.sub_en, r.sub_ar), image: r.image_path || null, room: text(r.room).trim(), missing: Boolean(r.missing), withdrawn: Boolean(r.withdrawn) }
+}
+/** Ids of the mentors / companies of the model that are marked withdrawn (PM payload). */
+export function withdrawnIdsOf(model) {
+  const out = new Set()
+  for (const e of [...(model?.mentors?.values() ?? []), ...(model?.companies?.values() ?? [])]) if (e.withdrawn) out.add(e.id)
+  return out
 }
 /** Display name in `lang`, falling back to the other language. */
 export const nameOf = (e, lang = 'en') => (e ? e.name[lang] || e.name.en || e.name.ar || '' : '')
@@ -212,7 +220,7 @@ export function candidatesFromItems(items) {
   const out = []
   for (const it of items ?? []) {
     const key = it.itemId ?? it.id
-    if (!key || seen.has(key) || it.missing || it.excluded) continue
+    if (!key || seen.has(key) || it.missing || !isActiveItem(it)) continue
     seen.add(key)
     out.push({ key, item: it, name: it.entity?.title ?? { en: '', ar: '' }, sub: it.entity?.subtitle ?? { en: '', ar: '' }, virtual: !it.itemId })
   }
@@ -232,7 +240,8 @@ export function toMatchingInput(model, rulesRows, companyIds, { scope = 'all', t
     }
   }
   return {
-    days: model.days.map((d) => ({ id: d.id, dayIndex: d.index, slots: d.slots, startMinutes: d.startMinutes, slotMinutes: d.slotMinutes, gapMinutes: d.gapMinutes, mentorIds: d.mentorIds, locked: d.locked })),
+    // a withdrawn mentor is not on any day for the generator (the DB refuses to place one); the Setup keeps showing it with a chip
+    days: model.days.map((d) => ({ id: d.id, dayIndex: d.index, slots: d.slots, startMinutes: d.startMinutes, slotMinutes: d.slotMinutes, gapMinutes: d.gapMinutes, mentorIds: d.mentorIds.filter((id) => !model.mentors?.get(id)?.withdrawn), locked: d.locked })),
     rules,
     companyIds,
     existing: model.sessions.map((s) => ({ dayId: s.dayId, slotIndex: s.slot, mentorId: s.mentorId, companyId: s.companyId, manual: s.manual })),
@@ -255,7 +264,7 @@ export const randomSeed = () => Math.floor(Math.random() * 2 ** 31) + 1
  * became inconsistent after a config change (mentor window edited, day shortened, mentor removed from a day, company removed from the list).
  * `rules` = { [mentorId]: { days, maxSlots, from(min), to(min) } } as built by toMatchingInput.
  */
-export function validateTimetable({ days, sessions, rules = {}, uniquePairing = true, companyIds = null }) {
+export function validateTimetable({ days, sessions, rules = {}, uniquePairing = true, companyIds = null, withdrawn = null }) {
   const issues = []
   const dayById = new Map(days.map((d) => [d.id, d]))
   const seenCell = new Map()
@@ -274,6 +283,7 @@ export function validateTimetable({ days, sessions, rules = {}, uniquePairing = 
       continue
     }
     if (!day.mentorIds.includes(s.mentorId)) push('mentor_not_in_day', 'error', s)
+    if (withdrawn?.has(s.mentorId)) push('mentor_withdrawn', 'warning', s)
     const rule = rules[s.mentorId]
     if (rule) {
       const start = day.startMinutes + s.slot * (day.slotMinutes + day.gapMinutes)
@@ -287,7 +297,8 @@ export function validateTimetable({ days, sessions, rules = {}, uniquePairing = 
       unmatched.set(s.dayId, (unmatched.get(s.dayId) ?? 0) + 1)
       continue
     }
-    if (known && !known.has(s.companyId)) push('company_missing', 'warning', s)
+    if (withdrawn?.has(s.companyId)) push('company_withdrawn', 'warning', s)
+    else if (known && !known.has(s.companyId)) push('company_missing', 'warning', s)
     const ok = `${s.dayId}|${s.slot}|${s.companyId}`
     if (!seenCompany.has(ok)) seenCompany.set(ok, [])
     seenCompany.get(ok).push(s)
@@ -394,7 +405,8 @@ export function liveRound(model, timer, now = new Date(), offsetMs = 0) {
 export function roundPairs(model, dayId, slotIndex, lang = 'en') {
   if (dayId === null || slotIndex === null || slotIndex === undefined) return []
   return model.sessions
-    .filter((s) => s.dayId === dayId && s.slot === slotIndex && s.companyId)
+    // m40: the live board announces nobody who is marked WITHDRAWN (the PM payload still carries them, flagged)
+    .filter((s) => s.dayId === dayId && s.slot === slotIndex && s.companyId && !model.companies.get(s.companyId)?.withdrawn && !model.mentors.get(s.mentorId)?.withdrawn)
     .map((s) => ({ session: s, mentor: model.mentors.get(s.mentorId), company: model.companies.get(s.companyId) }))
     .sort((a, b) => nameOf(a.mentor, lang).localeCompare(nameOf(b.mentor, lang), lang))
 }
