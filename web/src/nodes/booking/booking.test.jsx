@@ -1,0 +1,272 @@
+import { describe, expect, it, vi, beforeEach } from 'vitest'
+import { screen, within, waitFor, fireEvent } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
+import { Route, Routes } from 'react-router-dom'
+import { renderWithProviders } from '../../test/render.jsx'
+import { ConfirmProvider } from '../../ui/ConfirmDialog.jsx'
+import { AuthContext } from '../../app/AuthContext.js'
+import NodeHost from '../_kit/NodeHost.jsx'
+import { createMemoryAdapter } from '../_kit/memoryAdapter.js'
+import manifest from './manifest.js'
+
+const mocks = vi.hoisted(() => ({
+  admin: vi.fn(), extras: vi.fn(), link: vi.fn(), page: vi.fn(), create: vi.fn(), cancelPublic: vi.fn(),
+  upsert: vi.fn(), updateProvider: vi.fn(), addSlots: vi.fn(), deleteSlots: vi.fn(), cancel: vi.fn(), restore: vi.fn(), reschedule: vi.fn(), retry: vi.fn(), ensureLink: vi.fn(),
+  listItems: vi.fn(), ensureItem: vi.fn(),
+}))
+
+vi.mock('../../data/booking.js', async () => {
+  const { useQuery, useMutation, useQueryClient } = await import('@tanstack/react-query')
+  return {
+    getBookingLink: (id) => mocks.link(id),
+    getPublicBookingPage: (ref, o) => mocks.page(ref, o),
+    createBooking: (ref, slot, booker, invite) => mocks.create(ref, slot, booker, invite),
+    cancelBooking: (id, token) => mocks.cancelPublic(id, token),
+    useBookingAdmin: (id) => useQuery({ queryKey: ['node', id, 'bookingAdmin'], queryFn: () => mocks.admin(id) }),
+    useBookingExtras: (id) => useQuery({ queryKey: ['node', id, 'bookingExtras'], queryFn: () => mocks.extras(id) }),
+    useBookingLink: (id) => useQuery({ queryKey: ['node', id, 'bookingLink'], queryFn: () => mocks.link(id) }),
+    usePublicBooking: (ref, { host = null, invite = null } = {}) => useQuery({ queryKey: ['public', 'booking', ref, host, invite], queryFn: () => mocks.page(ref, { host, invite }), enabled: Boolean(ref) }),
+    useBookingMutations: (id) => {
+      const qc = useQueryClient()
+      const after = () => qc.invalidateQueries({ queryKey: ['node', id] })
+      const useM = (fn) => useMutation({ mutationFn: fn, onSuccess: after })
+      const m = useM
+      return {
+        upsertProvider: m(({ row }) => mocks.upsert(id, row)), updateProvider: m(({ providerId, patch }) => mocks.updateProvider(providerId, patch)), deleteProvider: m(async () => null),
+        addSlots: m(({ providerId, slots }) => mocks.addSlots(id, providerId, slots)), setSlotBlocked: m(async () => null), deleteSlots: m(({ ids }) => mocks.deleteSlots(ids)),
+        cancel: m(({ bookingId }) => mocks.cancel(bookingId)), restore: m(({ bookingId }) => mocks.restore(bookingId)), reschedule: m(({ bookingId, slotId }) => mocks.reschedule(bookingId, slotId)), retrySync: m(({ bookingId }) => mocks.retry(bookingId)),
+        ensureLink: useMutation({ mutationFn: () => mocks.ensureLink(id) }),
+      }
+    },
+  }
+})
+vi.mock('../../data/lists.js', async () => {
+  const { normalizeListItem } = await import('../../lib/entities.js')
+  return {
+    getListMeta: async () => ({ subkind: 'expert' }),
+    listItems: async (id, { kind = 'generic' } = {}) => (await mocks.listItems(id)).map((r) => normalizeListItem(r, kind)),
+    materializeItem: async (listId, item) => item.itemId ?? mocks.ensureItem(listId, item.source.kind, item.source.id),
+  }
+})
+vi.mock('../../data/storage.js', () => ({ publicImageUrl: (p) => (p ? `http://img/${p}` : ''), publicThumbUrl: (p) => (p ? `http://img/t/${p}` : ''), uploadImage: vi.fn() }))
+
+const auth = { user: { id: 'u1', email: 'pm@x.io' }, profile: { full_name: 'Mona PM' }, roles: ['project_manager'], status: 'authed', hasRole: () => false, can: () => true }
+const anon = { user: null, profile: null, roles: [], status: 'anon', hasRole: () => false, can: () => false }
+const node = { id: 'B', project_id: 'P', type: 'booking', type_version: 1, name_en: 'Mentor sessions', name_ar: 'جلسات', visibility: 'public', show_to_participants: false, config: {}, rev: 1 }
+const graph = {
+  project: { id: 'P', timezone: 'Africa/Cairo' },
+  nodes: [{ id: 'B', type: 'booking', name_en: 'Mentor sessions' }, { id: 'L', type: 'list', name_en: 'Mentors' }],
+  edges: [{ from_node_id: 'L', from_port: 'items', to_node_id: 'B', to_port: 'mentors', is_enabled: true }],
+}
+const adminData = () => ({
+  settings: { node_id: 'B', mode: 'mentor', default_advance_notice_min: 1440, meeting_link_mode: 'unique', shared_meet_link: null, organizer_connection_id: null },
+  providers: [{ id: 'p1', list_item_id: 'li1', advance_notice_min: null, booking_email: 'book@x.io', is_active: true, sort_order: null, created_at: '1' }],
+  slots: [
+    { id: 's1', provider_id: 'p1', starts_at: '2027-03-10T08:00:00Z', ends_at: '2027-03-10T08:30:00Z', is_blocked: false },
+    { id: 's2', provider_id: 'p1', starts_at: '2027-03-10T08:35:00Z', ends_at: '2027-03-10T09:05:00Z', is_blocked: false },
+  ],
+  bookings: [{ id: 'b1', slot_id: 's1', status: 'confirmed', booker_email: 'f@x.io', booker_name: 'Mona Fathy', booker_company_name: 'Delta Farms', meet_link: null, legacy_calendar_event_id: null, lang: 'en', created_at: '2026-10-01T10:00:00Z' }],
+})
+const extrasData = () => ({ jobs: [{ id: 'j1', booking_id: 'b1', kind: 'calendar_create', status: 'pending', connection_id: null, created_at: '1' }], emails: [{ id: 'o1', booking_id: 'b1', email_key: 'booking_confirmation', status: 'queued', created_at: '1' }], invitations: [], connections: [], pm_name: 'Mona PM', program_name: { en: 'Prog', ar: '' }, project_name: { en: 'Proj', ar: '' }, timezone: 'Africa/Cairo' })
+const listRows = () => [
+  { item_id: 'li1', source: { kind: 'network_expert', id: 'e1', state: 'ok' }, display: { title_en: 'Mentor One', subtitle_en: 'CEO' }, contact: { email: 'm1@x.io' }, overlay: {}, status: null, sort_order: 1, excluded: false },
+  { item_id: null, source: { kind: 'network_expert', id: 'e2', state: 'ok' }, display: { title_en: 'Mentor Two' }, contact: { email: 'm2@x.io' }, overlay: {}, status: null, sort_order: null, excluded: false },
+]
+const pagePayload = (over = {}) => ({
+  status: 'open', mode: 'mentor', node_id: 'B', name_en: 'Mentor sessions', name_ar: '', slug: 'bk1', audience: 'public', timezone: 'Africa/Cairo', default_advance_notice_min: 1440, meeting_link_mode: 'unique',
+  config: { page: { title: { en: 'Book a mentor', ar: '' }, intro: { en: '', ar: '' } } }, invitee: null,
+  providers: [{ id: 'p1', name_en: 'Mentor One', name_ar: 'منتور', title_en: 'CEO', photo_path: null }],
+  slots: [{ id: 's1', provider_id: 'p1', starts_at: '2027-03-10T08:00:00Z', ends_at: '2027-03-10T08:30:00Z' }, { id: 's3', provider_id: 'p1', starts_at: '2027-03-11T08:00:00Z', ends_at: '2027-03-11T08:30:00Z' }],
+  ...over,
+})
+
+function mount(mode, over = {}) {
+  const adapter = createMemoryAdapter({ nodes: [{ ...node, ...over }], edges: graph.edges })
+  renderWithProviders(
+    <AuthContext.Provider value={auth}><ConfirmProvider><NodeHost mode={mode} node={{ ...node, ...over }} graph={graph} projectId="P" adapter={adapter} /></ConfirmProvider></AuthContext.Provider>,
+    { route: '/projects/P/nodes/B?lang=en' },
+  )
+  return adapter
+}
+async function mountPublic(route, authValue = anon) {
+  const { default: PublicBookingPage } = await import('../../app/pages/PublicBookingPage.jsx')
+  renderWithProviders(
+    <AuthContext.Provider value={authValue}><Routes><Route path="/book/:nodeRef/:hostRef?" element={<PublicBookingPage />} /></Routes></AuthContext.Provider>,
+    { route },
+  )
+}
+
+beforeEach(() => {
+  vi.clearAllMocks()
+  mocks.admin.mockImplementation(async () => adminData())
+  mocks.extras.mockImplementation(async () => extrasData())
+  mocks.link.mockResolvedValue({ linkId: 'l1', slug: 'bk1', enabled: true })
+  mocks.listItems.mockImplementation(async () => listRows())
+  mocks.ensureItem.mockResolvedValue('li2')
+  mocks.upsert.mockResolvedValue({ id: 'p2' })
+  mocks.updateProvider.mockResolvedValue(null)
+  mocks.addSlots.mockResolvedValue({ created: 2, overlapped: 0, invalid: 0, ids: [] })
+  mocks.deleteSlots.mockResolvedValue(null)
+  mocks.cancel.mockResolvedValue(null)
+  mocks.restore.mockResolvedValue(null)
+  mocks.reschedule.mockResolvedValue({ changed: true })
+  mocks.page.mockImplementation(async () => pagePayload())
+  mocks.create.mockResolvedValue({ booking_id: 'b9', slot_id: 's1', starts_at: '2027-03-10T08:00:00Z', ends_at: '2027-03-10T08:30:00Z', status: 'confirmed', meet_link: null, cancel_token: 'tok123', lang: 'en' })
+  mocks.cancelPublic.mockResolvedValue(null)
+})
+
+describe('Booking node', () => {
+  it('manifest: two presets, link resolver, the two v1 e-mails, ports mirror the DB row', () => {
+    expect(manifest.presets.map((p) => p.key)).toEqual(['mentor', 'interview'])
+    expect(manifest.ports.out.find((p) => p.key === 'link').resolve).toBeTypeOf('function')
+    expect(manifest.ports.in.map((p) => p.key)).toEqual(['mentors', 'bookers', 'schedule'])
+    expect(manifest.emails.map((e) => e.key)).toEqual(['booking_confirmation', 'booking_cancellation'])
+  })
+
+  it('Edit / Providers: the connected list items by reference; enabling a virtual item materialises it then creates the overlay row', async () => {
+    const user = userEvent.setup()
+    mount('edit')
+    const rows = await screen.findAllByTestId('provider-row')
+    expect(rows).toHaveLength(2)
+    expect(within(rows[0]).getByText('Mentor One')).toBeInTheDocument()
+    expect(within(rows[0]).getByTestId('provider-enabled')).toBeChecked()
+    expect(within(rows[0]).getByTestId('provider-email')).toHaveValue('book@x.io')
+    await user.click(within(rows[1]).getByTestId('provider-enabled'))
+    await waitFor(() => expect(mocks.ensureItem).toHaveBeenCalledWith('L', 'network_expert', 'e2'))
+    expect(mocks.upsert).toHaveBeenCalledWith('B', { list_item_id: 'li2', is_active: true, booking_email: 'm2@x.io' })
+    fireEvent.change(within(rows[0]).getByTestId('provider-email'), { target: { value: 'other@x.io' } })
+    fireEvent.blur(within(rows[0]).getByTestId('provider-email'))
+    await waitFor(() => expect(mocks.updateProvider).toHaveBeenCalledWith('p1', { booking_email: 'other@x.io' }))
+  })
+
+  it('Edit / Availability: the generator previews whole slots in the project zone, skips overlaps and creates ISO instants', async () => {
+    const user = userEvent.setup()
+    mount('edit')
+    await screen.findAllByTestId('provider-row')
+    await user.click(screen.getByTestId('tab-slots'))
+    fireEvent.change(screen.getByTestId('slots-date'), { target: { value: '2027-03-10' } })
+    fireEvent.change(screen.getByTestId('gen-from'), { target: { value: '10:00' } })
+    fireEvent.change(screen.getByTestId('gen-to'), { target: { value: '12:00' } })
+    // 10:00-10:30, 10:35-11:05 exist already (08:00Z / 08:35Z in March = UTC+2): 11:10-11:40 is the only fresh one
+    expect(screen.getByTestId('gen-preview')).toHaveTextContent('1 slots will be created (2 overlap')
+    await user.click(screen.getByTestId('gen-run'))
+    await waitFor(() => expect(mocks.addSlots).toHaveBeenCalledWith('B', 'p1', [{ starts_at: '2027-03-10T09:10:00.000Z', ends_at: '2027-03-10T09:40:00.000Z' }]))
+    const day = await screen.findByTestId('slot-day')
+    const slotRows = within(day).getAllByTestId('slot-row')
+    expect(slotRows.map((r) => r.dataset.state)).toEqual(['booked', 'free'])
+    await user.click(within(slotRows[1]).getByRole('button', { name: /Delete 10:35/ }))
+    await waitFor(() => expect(mocks.deleteSlots).toHaveBeenCalledWith(['s2']))
+    expect(await screen.findByText('1 slots deleted.')).toBeInTheDocument()
+  })
+
+  it('Edit / Bookings: sync state from the queue, cancel with confirm + Undo (restore), reschedule to a free slot', async () => {
+    const user = userEvent.setup()
+    mount('edit')
+    await screen.findAllByTestId('provider-row')
+    await user.click(screen.getByTestId('tab-bookings'))
+    const row = await screen.findByTestId('booking-row')
+    expect(within(row).getByText('Mona Fathy')).toBeInTheDocument()
+    expect(within(row).getByText('Mentor One')).toBeInTheDocument()
+    expect(within(row).getByTestId('sync-badge')).toHaveTextContent('Waiting for a Google connection')
+    expect(screen.getByTestId('waiting-connection')).toBeInTheDocument()
+    expect(within(row).getByText(/Confirmation · Queued/)).toBeInTheDocument()
+    await user.click(within(row).getByRole('button', { name: /Reschedule/ }))
+    const dlg = await screen.findByRole('dialog')
+    const free = within(dlg).getAllByTestId('move-slot')
+    expect(free).toHaveLength(1) // s2 is the only free slot of p1
+    await user.click(free[0])
+    await waitFor(() => expect(mocks.reschedule).toHaveBeenCalledWith('b1', 's2'))
+    await user.click(within(row).getByRole('button', { name: /Cancel booking/ }))
+    const confirmDlg = await screen.findByRole('dialog')
+    expect(confirmDlg).toHaveTextContent('Cancel the booking of "Mona Fathy"?')
+    await user.click(within(confirmDlg).getByRole('button', { name: 'Confirm' }))
+    await waitFor(() => expect(mocks.cancel).toHaveBeenCalledWith('b1'))
+    await user.click(await screen.findByRole('button', { name: 'Undo' }))
+    await waitFor(() => expect(mocks.restore).toHaveBeenCalledWith('b1'))
+  })
+
+  it('Settings: ONE save carries name + visibility + config + children.settings; shared mode without a link is blocked inline', async () => {
+    const user = userEvent.setup()
+    const adapter = mount('settings')
+    await screen.findByTestId('booking-settings')
+    expect(screen.getByTestId('who-can-book')).toHaveTextContent('Anyone with the link')
+    await user.selectOptions(screen.getByTestId('settings-mode'), 'interview')
+    expect(screen.getByTestId('who-can-book')).toHaveTextContent('Invited companies only')
+    await user.click(screen.getByLabelText(/One shared link/))
+    await user.click(screen.getByRole('button', { name: 'Save' }))
+    expect(await screen.findByText('Shared mode needs a link.')).toBeInTheDocument()
+    fireEvent.change(screen.getByTestId('settings-shared-link'), { target: { value: 'https://meet.google.com/abc-defg-hij' } })
+    await user.click(screen.getByLabelText(/Public \(anyone/))
+    await user.click(screen.getByRole('button', { name: 'Save' }))
+    await waitFor(() => expect(adapter.snapshot().nodes[0].rev).toBe(2))
+    const saved = adapter.snapshot().nodes[0]
+    expect(saved.visibility).toBe('public')
+    expect(saved.children.settings).toMatchObject({ mode: 'interview', meeting_link_mode: 'shared', shared_meet_link: 'https://meet.google.com/abc-defg-hij', organizer_connection_id: null, default_advance_notice_min: 1440 })
+    expect(saved.config.emails.booking_confirmation.subject).toContain('{{provider_name}}')
+    expect(screen.getByTestId('settings-connection')).toHaveValue('')
+  })
+
+  it('View: the PM preview renders the public page through the same component with booking disabled', async () => {
+    mount('view')
+    expect(await screen.findByTestId('booking-page')).toBeInTheDocument()
+    expect(mocks.page).toHaveBeenCalledWith('bk1', { host: null, invite: null })
+    expect(screen.getByText('Book a mentor')).toBeInTheDocument()
+    expect(screen.getAllByTestId('day-pill')).toHaveLength(2)
+  })
+
+  it('Public page: slot -> details (prefilled for a signed-in founder) -> create_booking with the invitation token -> success without a Meet link', async () => {
+    const user = userEvent.setup()
+    mocks.page.mockImplementation(async () => pagePayload({ mode: 'interview', invitee: { item_id: 'li9', company_en: 'Nile Robotics', company_ar: '', name: 'Abdel Rahman Ali', email: 'ar@x.io' } }))
+    await mountPublic('/book/bk1?invite=tok&lang=en')
+    expect(await screen.findByTestId('booking-page')).toBeInTheDocument()
+    expect(mocks.page).toHaveBeenCalledWith('bk1', { host: null, invite: 'tok' })
+    await user.click(screen.getAllByTestId('day-pill')[0])
+    await user.click(screen.getAllByTestId('slot-button')[0])
+    const form = await screen.findByTestId('booking-form')
+    expect(within(form).getByLabelText('Full name')).toHaveValue('Abdel Rahman Ali')
+    expect(within(form).getByLabelText('E-mail')).toHaveValue('ar@x.io')
+    expect(form).toHaveTextContent('Nile Robotics')
+    await user.click(within(form).getByTestId('confirm-booking'))
+    await waitFor(() => expect(mocks.create).toHaveBeenCalledWith('bk1', 's1', { name: 'Abdel Rahman Ali', email: 'ar@x.io', lang: 'en' }, 'tok'))
+    expect(await screen.findByTestId('booking-success')).toBeInTheDocument()
+    expect(screen.getByTestId('meet-later')).toBeInTheDocument()
+    expect(screen.getByText(/\?cancel=b9&token=tok123/)).toBeInTheDocument()
+    // the booked slot must leave the list: the page payload is fetched again and the success card survives the refresh
+    await waitFor(() => expect(mocks.page.mock.calls.length).toBeGreaterThan(1))
+    expect(screen.getByTestId('booking-success')).toBeInTheDocument()
+  })
+
+  it('Public page: a server rejection (slot taken) is shown and the slot is released; invitation_required and the cancel link flow', async () => {
+    const user = userEvent.setup()
+    const { AppError } = await import('../../data/errors.js')
+    const err = new AppError('validation', { messageKey: 'booking.err.slotUnavailable' })
+    err.token = 'slot_unavailable'
+    mocks.create.mockRejectedValueOnce(err)
+    await mountPublic('/book/bk1?lang=en', auth)
+    await screen.findByTestId('booking-page')
+    await user.click(screen.getAllByTestId('slot-button')[0])
+    const form = await screen.findByTestId('booking-form')
+    expect(within(form).getByLabelText('Full name')).toHaveValue('Mona PM')
+    expect(within(form).getByLabelText('E-mail')).toHaveValue('pm@x.io')
+    await user.type(within(form).getByLabelText('Company'), 'Delta Farms')
+    await user.click(within(form).getByTestId('confirm-booking'))
+    expect(await screen.findByTestId('booking-error')).toHaveTextContent('This time was just taken')
+    expect(mocks.create).toHaveBeenCalledWith('bk1', 's1', { name: 'Mona PM', email: 'pm@x.io', company_name: 'Delta Farms', lang: 'en' }, null)
+    expect(screen.queryByTestId('booking-form')).not.toBeInTheDocument()
+  })
+
+  it('Public page: invitation_required state', async () => {
+    mocks.page.mockImplementation(async () => ({ status: 'invitation_required', mode: 'interview', name_en: 'Interviews', config: {} }))
+    await mountPublic('/book/bk2?lang=en')
+    expect(await screen.findByText('A personal invitation is needed')).toBeInTheDocument()
+  })
+
+  it('Public page: the cancel link asks once then calls cancel_booking with the token', async () => {
+    const user = userEvent.setup()
+    await mountPublic('/book/bk1?cancel=b9&token=tok123&lang=en')
+    const flow = await screen.findByTestId('cancel-flow')
+    await user.click(within(flow).getByTestId('cancel-confirm'))
+    await waitFor(() => expect(mocks.cancelPublic).toHaveBeenCalledWith('b9', 'tok123'))
+    expect(await screen.findByText('Your booking was cancelled.')).toBeInTheDocument()
+  })
+})

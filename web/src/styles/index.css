@@ -1,0 +1,323 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/*
+ * Athar visual identity (docs/design/08-decisions-log.md section 16 + web/design-system/tokens.css).
+ * Palette decision (owner, 2026-10-12): Athar Blue #1a27c9 = primary, Yellow #ffe91e = accent / CTA (black text on it),
+ * black only as a secondary touch (headings, footer, overlays). Greys, surfaces, text, forms and the error red follow
+ * the site. Light mode only (no dark mode on the site); a `[data-surface="dark"]` scope styles the black bands.
+ * Values are HSL triplets for Tailwind's `hsl(var(--x))` convention (web/tailwind.config.js).
+ */
+@layer base {
+  :root {
+    /* raw site palette (verbatim, for the few places that need a literal) */
+    --athar-black: #000000;
+    --athar-yellow: #ffe91e;
+    --athar-blue: #1a27c9;
+    --athar-ink: #364151;
+    --athar-grey-100: #f2f2f2;
+    --athar-grey-50: #f8f8f8;
+    --athar-grey-25: #fafafa;
+    --athar-grey-200: #eaeaea;
+    --athar-grey-300: #dadbdd;
+    --athar-grey-500: #868e96;
+    --athar-grey-600: #7a7a7a;
+    --athar-grey-700: #606266;
+    --athar-error: #f56c6c;
+
+    /* semantic */
+    --background: 0 0% 100%; /* #ffffff page */
+    --foreground: 0 0% 0%; /* #000000 headings + copy */
+    --body-foreground: 216 20% 26%; /* #364151 Astra body / labels */
+    --card: 0 0% 100%;
+    --card-foreground: 0 0% 0%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 0 0% 0%;
+    --surface: 0 0% 95%; /* #f2f2f2 soft panels, form card */
+    --surface-2: 0 0% 97%; /* #f8f8f8 CTA band, canvas */
+    --primary: 235 77% 45%; /* #1a27c9 Athar blue */
+    --primary-foreground: 0 0% 100%;
+    --accent: 54 100% 56%; /* #ffe91e yellow: CTA fills, highlights (never as text on white) */
+    --accent-foreground: 0 0% 0%;
+    --cta: 54 100% 56%; /* alias of accent for the CTA button */
+    --cta-foreground: 0 0% 0%;
+    --secondary: 0 0% 0%; /* black: dark surfaces, footer, secondary touch */
+    --secondary-foreground: 0 0% 95%; /* #f2f2f2 on black */
+    --muted: 0 0% 97%; /* #f8f8f8 */
+    --muted-foreground: 0 0% 40%; /* #666 (site muted #7a7a7a fails AA at small sizes; darkened for text) */
+    --border: 0 0% 92%; /* #eaeaea */
+    --input: 220 4% 86%; /* #dadbdd */
+    --input-background: 0 0% 98%; /* #fafafa */
+    --ring: 235 77% 45%; /* blue focus ring */
+    --destructive: 0 87% 70%; /* #f56c6c (site) for borders/fills */
+    --destructive-foreground: 0 0% 100%;
+    --destructive-text: 0 72% 42%; /* darker red for text on white (AA) */
+    /* derived status tones (not on the site; chosen to sit with blue/yellow) */
+    --success: 152 65% 33%; /* #1d8a4a */
+    --success-foreground: 0 0% 100%;
+    --warning: 54 100% 56%; /* yellow doubles as warning (fill with black text) */
+    --warning-foreground: 0 0% 0%;
+    --info: 207 90% 44%; /* #0b75d9 */
+    --info-foreground: 0 0% 100%;
+
+    /* typography */
+    --font-display: 'Hepta Slab', Georgia, serif;
+    --font-sans: 'Manrope', system-ui, sans-serif;
+    --font-sans-2: 'Questrial', 'Manrope', sans-serif;
+    --font-arabic: 'Tajawal', 'Manrope', system-ui, sans-serif;
+    --tracking-heading: 0.8px;
+    --word-spacing-heading: 0.1em;
+    --leading-heading: 1.1;
+    --leading-body: 1.6;
+
+    /* layout, radii, shadows, motion */
+    --header-height: 80px;
+    --radius: 8px; /* buttons */
+    --radius-sm: 6px; /* hero buttons, form submit */
+    --radius-input: 7px;
+    --radius-xs: 5px; /* mobile menu toggle */
+    --radius-card: 15px; /* cards, images, panels, modals */
+    --shadow-image: 0 0 10px 0 rgba(0, 0, 0, 0.2);
+    --shadow-dropdown: 0 4px 10px -2px rgba(0, 0, 0, 0.1);
+    --overlay-card: rgba(0, 0, 0, 0.7);
+    --overlay-hero: rgba(0, 0, 0, 0.8);
+    --duration: 300ms;
+    --duration-fast: 150ms;
+    --hover-scale: 1.05;
+  }
+
+  /* Dark surface scope (footer, black heroes, overlays). Not a theme toggle. */
+  [data-surface='dark'] {
+    --background: 0 0% 0%;
+    --foreground: 0 0% 95%;
+    --card: 0 0% 7%;
+    --card-foreground: 0 0% 95%;
+    --muted: 0 0% 12%;
+    --muted-foreground: 0 0% 70%;
+    --border: 0 0% 18%;
+    --ring: 54 100% 56%;
+    --primary: 54 100% 56%; /* on black the brand accent is yellow */
+    --primary-foreground: 0 0% 0%;
+  }
+
+  /* Arabic: Tajawal, no heading tracking (breaks joining), taller lines, headings +1 weight step. */
+  :lang(ar) {
+    --font-display: var(--font-arabic);
+    --font-sans: var(--font-arabic);
+    --font-sans-2: var(--font-arabic);
+    --tracking-heading: 0;
+    --word-spacing-heading: 0;
+    --leading-heading: 1.3;
+    --leading-body: 1.8;
+  }
+
+  * {
+    @apply border-border;
+    box-sizing: border-box;
+  }
+  html,
+  body {
+    overflow-x: hidden;
+    /* `clip` hides the horizontal overflow WITHOUT making body a scroll container, so `position: sticky` (the site header, the landing nav) works */
+    overflow-x: clip;
+    max-width: 100vw;
+  }
+  body {
+    @apply bg-background text-foreground antialiased selection:bg-accent/40 selection:text-foreground;
+    font-family: var(--font-sans);
+    line-height: var(--leading-body);
+  }
+  /* Headings: the site sets every heading in Hepta Slab (800) with 0.8px tracking; h3+ keep Manrope (card titles). */
+  h1,
+  h2,
+  .font-display {
+    font-family: var(--font-display);
+    letter-spacing: var(--tracking-heading);
+    word-spacing: var(--word-spacing-heading);
+    line-height: var(--leading-heading);
+  }
+  h1 {
+    font-weight: 800;
+  }
+  h2 {
+    font-weight: 700;
+  }
+  h3,
+  h4,
+  h5,
+  h6 {
+    font-weight: 700;
+    line-height: 1.3;
+  }
+  :lang(ar) h1,
+  :lang(ar) h2,
+  :lang(ar) .font-display {
+    font-weight: 800;
+  }
+  .font-questrial {
+    font-family: var(--font-sans-2);
+  }
+  /* Native checkbox / radio follow the brand (no custom control; the site has none). */
+  input[type='checkbox'],
+  input[type='radio'] {
+    accent-color: hsl(var(--primary));
+    width: 1rem;
+    height: 1rem;
+    flex-shrink: 0;
+  }
+  input[type='checkbox'] {
+    border-radius: 3px;
+  }
+  :focus-visible {
+    @apply outline-none ring-2 ring-ring ring-offset-2 ring-offset-background;
+  }
+  [data-surface='dark'] :focus-visible {
+    @apply ring-offset-black;
+  }
+  /* Canvas chrome (React Flow) in the palette */
+  .react-flow__controls {
+    @apply overflow-hidden rounded-input border border-border shadow-dropdown;
+  }
+  .react-flow__controls-button {
+    @apply border-b border-border bg-background text-foreground;
+  }
+  .react-flow__controls-button:hover {
+    @apply bg-surface;
+  }
+  .react-flow__minimap {
+    @apply rounded-input border border-border;
+  }
+  .react-flow__attribution {
+    @apply rounded-input bg-background/80 text-muted-foreground;
+  }
+}
+
+@layer components {
+  /* Chevron of native selects (one inline SVG, currentColor-ish grey #606266), mirrored in RTL. */
+  .select-chevron {
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23606266' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-size: 16px 16px;
+    background-position: right 12px center;
+  }
+  [dir='rtl'] .select-chevron {
+    background-position: left 12px center;
+  }
+  /* The site header: white, 80px, 1px #eaeaea bottom border, 1200px container with 20px side padding. */
+  .site-header {
+    @apply sticky top-0 z-30 border-b border-border bg-background safe-top;
+  }
+  .site-header-inner {
+    @apply mx-auto flex min-h-header w-full max-w-container-wide items-center gap-2 px-3 sm:gap-3 sm:px-5;
+  }
+  /* Nav link of the site: Manrope 17px, black, blue on hover, 2px yellow underline when active. */
+  .nav-link {
+    @apply inline-flex min-h-11 items-center border-b-2 border-transparent px-3 text-base text-foreground transition-colors duration-300 hover:text-primary xl:px-[17px] xl:text-nav;
+  }
+  .nav-link[aria-current='page'],
+  .nav-link.active {
+    @apply border-accent font-semibold;
+  }
+  .nav-link-inverse {
+    @apply text-athar-grey-100/85 hover:text-accent;
+  }
+  .nav-link-inverse[aria-current='page'],
+  .nav-link-inverse.active {
+    @apply border-accent text-athar-grey-100;
+  }
+  /* Section container of the app (cards, panels): 15px radius, 1px border, no shadow. */
+  .panel {
+    @apply rounded-card border border-border bg-card;
+  }
+}
+
+@layer utilities {
+  .transition-premium {
+    transition-property: all;
+    transition-duration: 300ms;
+    transition-timing-function: ease;
+  }
+  .safe-bottom {
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+  }
+  .safe-top {
+    padding-top: env(safe-area-inset-top, 0px);
+  }
+  .tap-target {
+    min-height: 44px;
+    min-width: 44px;
+  }
+  /* Hover motion of the site (`.elementor-animation-grow`, scale 1.1 / 300ms) toned to 1.05 for app density. */
+  .hover-grow {
+    transition: transform var(--duration) ease, filter var(--duration) ease;
+  }
+  .hover-grow:hover,
+  .hover-grow:focus-visible {
+    transform: scale(var(--hover-scale));
+  }
+  .hover-grow:active {
+    transform: scale(1);
+  }
+  @media (hover: none) {
+    .hover-grow:hover {
+      transform: none;
+    }
+  }
+  /* Text-over-image cards: black overlay 0.7 (site program cards) / 0.8 (heroes). */
+  .overlay-card::after,
+  .overlay-hero::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+  }
+  .overlay-card::after {
+    background: var(--overlay-card);
+  }
+  .overlay-hero::after {
+    background: var(--overlay-hero);
+  }
+  .heading-tracking {
+    letter-spacing: var(--tracking-heading);
+    word-spacing: var(--word-spacing-heading);
+  }
+  .leading-heading {
+    line-height: var(--leading-heading);
+  }
+}
+
+/* Print (public agenda page, as-is "print layout" without the duplicated markup): chrome hidden, every day printed. */
+@media print {
+  .site-header,
+  footer,
+  nav[aria-label='Founder'],
+  [data-env-banner] {
+    display: none !important;
+  }
+  main {
+    max-width: none !important;
+    padding: 0 !important;
+  }
+  .agenda-tab [role='tabpanel'] {
+    display: block !important;
+    break-inside: avoid;
+    margin-bottom: 1.5rem;
+  }
+  a[href]::after {
+    content: '';
+  }
+  * {
+    box-shadow: none !important;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}

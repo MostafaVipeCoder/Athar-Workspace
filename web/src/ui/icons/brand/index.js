@@ -1,0 +1,8 @@
+export { UsersIcon } from './UsersIcon.jsx'
+export { FlaskIcon } from './FlaskIcon.jsx'
+export { ShareIcon } from './ShareIcon.jsx'
+export { LaptopCodeIcon } from './LaptopCodeIcon.jsx'
+export { EnvelopeOpenIcon } from './EnvelopeOpenIcon.jsx'
+export { PhoneAltIcon } from './PhoneAltIcon.jsx'
+export { SearchIcon } from './SearchIcon.jsx'
+export { BrandIcon } from './BrandIcon.jsx'

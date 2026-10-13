@@ -1,0 +1,84 @@
+import { registerMessages } from '../../../i18n/core.js'
+
+/** Founder platform dictionary (step 8): Home, the Programs list and the Program page with its blocks. */
+registerMessages('founder', {
+  en: {
+    // home
+    'home.hello': 'Hello, {name}', 'home.welcome': 'Welcome',
+    'home.subtitle': 'Your programs and everything you need for them, in one place.',
+    'home.programs': 'My programs', 'home.seeAll': 'See all programs',
+    // programs list
+    'programs.title': 'My programs', 'programs.subtitle': 'The programs and cohorts you take part in.',
+    'programs.empty': 'No programs yet',
+    'programs.emptyBody': 'A program appears here when the program team adds you, or when your application to a program is accepted.',
+    'programs.loadFailed': 'Your programs could not be loaded.',
+    'programs.open': 'Open {name}', 'programs.openCard': 'Open',
+    'programs.withdrawnToggle': { one: 'Withdrawn program ({count})', other: 'Withdrawn programs ({count})' },
+    'programs.withdrawnNote': 'You have withdrawn from this program. Only its status is shown.',
+    'programs.in': 'In {place}',
+    // status
+    'status.accepted': 'Accepted', 'status.attended': 'Attended', 'status.withdrawn': 'Withdrawn', 'status.completed': 'Completed',
+    'status.withdrawalRequested': 'Withdrawal requested', 'status.label': 'Your status',
+    // program page
+    'page.back': 'My programs', 'page.loadFailed': 'This program could not be loaded.',
+    'page.empty': 'Nothing to show yet', 'page.emptyBody': 'The program team has not published anything for this program yet. Come back soon.',
+    'page.notAvailable': 'This program is not available', 'page.notAvailableBody': 'You are not a participant of this program, or it no longer exists.',
+    'page.withdrawn': 'You have withdrawn from this program', 'page.withdrawnBody': 'Its content is no longer shown to you. If this is a mistake, contact the program team.',
+    'header.timezone': 'Times in {tz}', 'header.program': 'Program',
+    'nav.label': 'Sections of this program',
+    // blocks
+    'block.description': 'About this program', 'block.agenda': 'Program Agenda', 'block.mentors': 'Mentors', 'block.companies': 'Companies',
+    'block.details': 'Location and logistics', 'block.library': 'Resource Library', 'block.landing': 'Opportunities', 'block.schedule': 'My schedule',
+    'block.certificate': 'My certificate',
+    'nav.description': 'About', 'nav.agenda': 'Agenda', 'nav.mentors': 'Mentors', 'nav.companies': 'Companies', 'nav.details': 'Location',
+    'nav.library': 'Library', 'nav.landing': 'Opportunities', 'nav.schedule': 'My schedule', 'nav.certificate': 'Certificate',
+    'block.more': 'See more', 'block.less': 'See less',
+    'block.error': 'This section could not be loaded.', 'block.retry': 'Try again', 'block.unavailable': 'This section is not available any more.',
+    // agenda block
+    'agenda.now': 'Happening now', 'agenda.next': 'Next up', 'agenda.upcoming': 'Starts with', 'agenda.until': 'until {time}',
+    // people blocks
+    'people.empty': 'Nothing to show here yet.', 'people.loadMore': 'Show more',
+    // details block
+    'details.location': 'Location', 'details.openMap': 'Open in maps', 'details.mapOf': 'Open the map of {place}',
+    'details.offlineDays': { one: '{count} day in person', other: '{count} days in person' },
+    'details.offlineLabel': 'In-person attendance', 'details.transportation': 'Transportation',
+    'details.provided': 'Transportation is provided', 'details.self_arranged': 'Everyone arranges their own transportation',
+    // schedule block
+    'schedule.hint': 'Who you meet next, and when and where.',
+  },
+  ar: {
+    'home.hello': 'أهلاً {name}', 'home.welcome': 'أهلاً بك',
+    'home.subtitle': 'برامجك وكل ما تحتاجه لها في مكان واحد.',
+    'home.programs': 'برامجي', 'home.seeAll': 'عرض كل البرامج',
+    'programs.title': 'برامجي', 'programs.subtitle': 'البرامج والدفعات التي تشارك فيها.',
+    'programs.empty': 'لا توجد برامج بعد',
+    'programs.emptyBody': 'يظهر البرنامج هنا عندما يضيفك فريق البرنامج، أو عندما يُقبل طلبك للمشاركة فيه.',
+    'programs.loadFailed': 'تعذّر تحميل برامجك.',
+    'programs.open': 'فتح {name}', 'programs.openCard': 'فتح',
+    'programs.withdrawnToggle': { zero: 'لا برامج منسحب منها', one: 'برنامج منسحب منه', two: 'برنامجان منسحب منهما', few: '{count} برامج منسحب منها', many: '{count} برنامجاً منسحباً منها', other: '{count} برنامج منسحب منها' },
+    'programs.withdrawnNote': 'لقد انسحبت من هذا البرنامج. تظهر حالته فقط.',
+    'programs.in': 'في {place}',
+    'status.accepted': 'مقبول', 'status.attended': 'حضر', 'status.withdrawn': 'منسحب', 'status.completed': 'مكتمل',
+    'status.withdrawalRequested': 'طلب انسحاب', 'status.label': 'حالتك',
+    'page.back': 'برامجي', 'page.loadFailed': 'تعذّر تحميل هذا البرنامج.',
+    'page.empty': 'لا شيء لعرضه بعد', 'page.emptyBody': 'لم ينشر فريق البرنامج أي محتوى لهذا البرنامج حتى الآن. عد قريباً.',
+    'page.notAvailable': 'هذا البرنامج غير متاح', 'page.notAvailableBody': 'أنت لست مشاركاً في هذا البرنامج، أو لم يعد موجوداً.',
+    'page.withdrawn': 'لقد انسحبت من هذا البرنامج', 'page.withdrawnBody': 'لم يعد محتواه يظهر لك. إذا كان ذلك خطأً فتواصل مع فريق البرنامج.',
+    'header.timezone': 'المواعيد بتوقيت {tz}', 'header.program': 'البرنامج',
+    'nav.label': 'أقسام هذا البرنامج',
+    'block.description': 'عن البرنامج', 'block.agenda': 'أجندة البرنامج', 'block.mentors': 'المرشدون', 'block.companies': 'الشركات',
+    'block.details': 'الموقع والتنقّل', 'block.library': 'مكتبة المصادر', 'block.landing': 'الفرص', 'block.schedule': 'جدولي',
+    'block.certificate': 'شهادتي',
+    'nav.description': 'عن البرنامج', 'nav.agenda': 'الأجندة', 'nav.mentors': 'المرشدون', 'nav.companies': 'الشركات', 'nav.details': 'الموقع',
+    'nav.library': 'المكتبة', 'nav.landing': 'الفرص', 'nav.schedule': 'جدولي', 'nav.certificate': 'الشهادة',
+    'block.more': 'عرض المزيد', 'block.less': 'عرض أقل',
+    'block.error': 'تعذّر تحميل هذا القسم.', 'block.retry': 'حاول مرة أخرى', 'block.unavailable': 'هذا القسم لم يعد متاحاً.',
+    'agenda.now': 'يجري الآن', 'agenda.next': 'التالي', 'agenda.upcoming': 'يبدأ بـ', 'agenda.until': 'حتى {time}',
+    'people.empty': 'لا شيء لعرضه هنا بعد.', 'people.loadMore': 'عرض المزيد',
+    'details.location': 'الموقع', 'details.openMap': 'فتح في الخرائط', 'details.mapOf': 'فتح خريطة {place}',
+    'details.offlineDays': { zero: 'لا أيام حضورية', one: 'يوم حضوري واحد', two: 'يومان حضوريان', few: '{count} أيام حضورية', many: '{count} يوماً حضورياً', other: '{count} يوم حضوري' },
+    'details.offlineLabel': 'الحضور الفعلي', 'details.transportation': 'التنقّل',
+    'details.provided': 'التنقّل مُوفَّر', 'details.self_arranged': 'يتولّى كل مشارك تنقّله بنفسه',
+    'schedule.hint': 'مَن ستقابل بعد ذلك، ومتى وأين.',
+  },
+})

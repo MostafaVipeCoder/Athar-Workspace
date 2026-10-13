@@ -1,0 +1,28 @@
+/* Landing page (landing-page.html motion + a few effects Tailwind has no utility for). Colours come from the app tokens. */
+@keyframes landing-wiggle {
+  0%, 100% { transform: scale(1) rotate(0deg); box-shadow: 0 4px 16px rgb(0 0 0 / 0.08); }
+  18% { transform: scale(1.12) rotate(-8deg); box-shadow: 0 0 0 6px hsl(var(--primary) / 0.14); }
+  36% { transform: scale(1.08) rotate(6deg); box-shadow: 0 0 0 4px hsl(var(--primary) / 0.08); }
+  54% { transform: scale(1.1) rotate(-4deg); box-shadow: 0 0 0 5px hsl(var(--primary) / 0.12); }
+  72% { transform: scale(1.04) rotate(2deg); box-shadow: 0 0 0 3px hsl(var(--primary) / 0.06); }
+}
+@keyframes landing-pulse {
+  0%, 100% { box-shadow: 0 2px 8px hsl(var(--primary) / 0.08); }
+  45% { box-shadow: 0 0 0 6px hsl(var(--primary) / 0.12); }
+  75% { box-shadow: 0 0 0 10px hsl(var(--primary) / 0.03); }
+}
+.landing-wiggle { animation: landing-wiggle 2.6s ease-in-out infinite; }
+.landing-wiggle:hover, .landing-wiggle:focus-visible { animation: none; transform: scale(1.12); }
+.landing-pulse { animation: landing-pulse 3s ease-in-out infinite; }
+.landing-pulse:hover, .landing-pulse:focus-visible { animation: none; }
+.landing-carousel { scrollbar-width: none; -webkit-overflow-scrolling: touch; }
+.landing-carousel::-webkit-scrollbar { display: none; }
+.landing-dots { background-image: radial-gradient(circle, hsl(var(--primary) / 0.28) 1.5px, transparent 1.5px); background-size: 24px 24px; }
+.landing-clamp { display: -webkit-box; -webkit-box-orient: vertical; overflow: hidden; }
+.landing-grid-overlay::before, .landing-grid-overlay::after { content: ''; position: absolute; pointer-events: none; z-index: 2; }
+.landing-grid-overlay::before { top: 33.333%; bottom: 33.333%; inset-inline: 0; border-block: 1px dashed rgb(255 255 255 / 0.65); }
+.landing-grid-overlay::after { inset-inline: 33.333%; top: 0; bottom: 0; border-inline: 1px dashed rgb(255 255 255 / 0.65); }
+@media (prefers-reduced-motion: reduce) {
+  .landing-wiggle, .landing-pulse { animation: none; }
+  .landing-page * { scroll-behavior: auto !important; transition-duration: 0.01ms !important; }
+}

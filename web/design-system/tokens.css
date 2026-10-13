@@ -1,0 +1,179 @@
+/*
+ * Athar design tokens — derived from https://www.athareg.com/ (extracted 2026-10-12).
+ * Raw site values are kept verbatim under --athar-*; the semantic layer (--primary, --background, ...)
+ * keeps the existing shadcn-style names used by web/src/styles/index.css so it can replace that :root block.
+ * Values in HSL triplets (no hsl() wrapper) match the Tailwind `hsl(var(--x))` convention already in web/tailwind.config.js.
+ */
+
+:root {
+  /* ---------- raw brand palette (site: Astra global colours + Elementor kit-332) ---------- */
+  --athar-black: #000000;        /* ast-global-color-0: headings, overlays, footer */
+  --athar-yellow: #ffe91e;       /* ast-global-color-1: every CTA, hover, accents */
+  --athar-yellow-kit: #ffe92c;   /* elementor kit "primary": icon-box icons (brand doc value) */
+  --athar-slate: #0f172a;        /* ast-global-color-2: hero button text */
+  --athar-ink: #364151;          /* ast-global-color-3: Astra body text / labels */
+  --athar-grey-100: #f2f2f2;     /* ast-global-color-4: light text on dark, form card bg */
+  --athar-grey-50: #f8f8f8;      /* program-page CTA band */
+  --athar-grey-25: #fafafa;      /* input background */
+  --athar-grey-200: #eaeaea;     /* header border */
+  --athar-grey-300: #dadbdd;     /* input border */
+  --athar-grey-400: #d1dae5;     /* ast-global-color-6 (defined, unused) */
+  --athar-grey-500: #868e96;     /* placeholder */
+  --athar-grey-600: #7a7a7a;     /* kit "text": muted paragraphs */
+  --athar-grey-700: #606266;     /* input text */
+  --athar-white: #ffffff;
+  --athar-blue: #1a27c9;         /* kit custom 211eb06: stats counters only */
+  --athar-blue-link: #0b75d9;    /* Astra default link colour (theme default, not brand) */
+  --athar-error: #f56c6c;        /* Fluent Forms danger (only error colour on site) */
+  --athar-overlay: 0 0 0;        /* black overlay rgb; use with / .7 or / .8 */
+
+  /* ---------- semantic (light, the only mode the site has) ---------- */
+  --background: 0 0% 100%;              /* #ffffff */
+  --foreground: 0 0% 0%;                /* #000000 headings + Elementor copy */
+  --body-foreground: 216 20% 26%;       /* #364151 default body (Astra) */
+  --card: 0 0% 100%;
+  --card-foreground: 0 0% 0%;
+  --popover: 0 0% 100%;
+  --popover-foreground: 0 0% 0%;
+  --surface: 0 0% 95%;                  /* #f2f2f2 form card / soft panels */
+  --surface-2: 0 0% 97%;                /* #f8f8f8 CTA band */
+  --primary: 54 100% 56%;               /* #ffe91e */
+  --primary-foreground: 0 0% 0%;        /* black text on yellow */
+  --secondary: 0 0% 0%;                 /* black (dark surfaces, footer) */
+  --secondary-foreground: 0 0% 95%;     /* #f2f2f2 on black */
+  --accent: 235 77% 45%;                /* #1a27c9 Athar blue: stats / highlights only */
+  --accent-foreground: 0 0% 100%;
+  --muted: 0 0% 97%;                    /* #f8f8f8 */
+  --muted-foreground: 0 0% 48%;         /* #7a7a7a */
+  --border: 0 0% 92%;                   /* #eaeaea */
+  --input: 220 4% 86%;                  /* #dadbdd */
+  --input-background: 0 0% 98%;         /* #fafafa */
+  --ring: 0 0% 0%;                      /* black focus ring on light (site has none; derived) */
+  --destructive: 0 87% 70%;             /* #f56c6c */
+  --destructive-foreground: 0 0% 100%;
+  /* derived status tones (NOT on the site; chosen to sit with yellow/black) */
+  --success: 152 60% 36%;               /* #23a455 (kit custom colour) */
+  --success-foreground: 0 0% 100%;
+  --warning: 54 100% 56%;               /* yellow doubles as warning */
+  --warning-foreground: 0 0% 0%;
+  --info: 207 90% 44%;                  /* #0b75d9 Astra link blue */
+  --info-foreground: 0 0% 100%;
+
+  /* ---------- dark surface (used inside heroes/footer; not a global dark mode) ---------- */
+  --dark-background: 0 0% 0%;
+  --dark-foreground: 0 0% 95%;          /* #f2f2f2 */
+  --dark-primary: 54 100% 56%;
+  --dark-primary-foreground: 0 0% 0%;
+  --dark-muted-foreground: 0 0% 48%;
+  --dark-ring: 54 100% 56%;             /* yellow focus ring on black */
+
+  /* ---------- typography ---------- */
+  --font-display: "Hepta Slab", Georgia, serif;
+  --font-sans: "Manrope", system-ui, sans-serif;
+  --font-sans-2: "Questrial", "Manrope", sans-serif;      /* secondary paragraphs */
+  --font-arabic: "Tajawal", "Manrope", system-ui, sans-serif;   /* platform choice; site has no Arabic */
+  --font-arabic-display: "Tajawal", "Noto Kufi Arabic", sans-serif;
+  --text-root: 17px;                    /* html{font-size:106.25%} */
+  --text-xs: 12px;                      /* form error */
+  --text-sm: 16px;                      /* header button, counter label */
+  --text-base: 17px;                    /* body, nav, inputs */
+  --text-md: 18px;                      /* lead/paragraphs, hero button */
+  --text-lg: 20px;                      /* program CTA button */
+  --text-xl: 22px;                      /* icon-box title */
+  --text-2xl: 30px;                     /* contact sub-headings, mobile section h2 */
+  --text-3xl: 35px;                     /* program section h2 */
+  --text-4xl: 40px;                     /* CTA band / mission h2 */
+  --text-5xl: 45px;                     /* program card title */
+  --text-6xl: 55px;                     /* home section h2, page hero (tablet) */
+  --text-7xl: 65px;                     /* page hero (desktop) */
+  --text-8xl: 70px;                     /* home hero h1 (42px mobile) */
+  --text-9xl: 80px;                     /* "Let's Talk!" */
+  --leading-none: 1;
+  --leading-tight: 1.2;
+  --leading-snug: 1.3;
+  --leading-normal: 1.5;
+  --leading-relaxed: 1.6;
+  --leading-body: 1.857;                /* 31.57px on 17px */
+  --tracking-heading: 0.8px;            /* every heading; 0 for Arabic */
+  --tracking-display: 4px;              /* "Let's Talk!" only */
+  --word-spacing-heading: 0.1em;
+  --weight-display: 800;
+  --weight-heading: 700;
+  --weight-button: 700;                 /* 600 header, 500 forms */
+  --weight-body: 400;
+  --weight-label: 500;
+
+  /* ---------- layout ---------- */
+  --container: 1140px;
+  --container-wide: 1200px;
+  --container-narrow: 750px;
+  --gutter: 10px;                       /* section side padding on the site; use 16px+ in the app */
+  --header-height: 80px;
+  --logo-width: 150px;
+  --logo-height: 50px;
+  --section-y: 100px;
+  --section-y-sm: 50px;
+  --section-y-xs: 25px;
+  --card-min-height: 400px;
+  --card-padding: 10px;
+  --panel-padding: 25px;
+  --field-gap: 20px;
+  --icon-gap: 15px;
+  --bp-mobile: 767px;
+  --bp-tablet: 1024px;
+  --bp-header: 921px;
+  --bp-wide: 1201px;
+
+  /* ---------- radii ---------- */
+  --radius: 8px;                        /* buttons (program + header) */
+  --radius-sm: 6px;                     /* hero buttons, form submit */
+  --radius-input: 7px;
+  --radius-xs: 5px;                     /* mobile toggle */
+  --radius-card: 15px;                  /* cards, images, panels */
+  --radius-pill: 9999px;
+
+  /* ---------- shadows ---------- */
+  --shadow-image: 0 0 10px 0 rgba(0, 0, 0, 0.2);
+  --shadow-dropdown: 0 4px 10px -2px rgba(0, 0, 0, 0.1);
+  --shadow-none: none;                  /* cards and buttons carry no shadow */
+
+  /* ---------- overlays ---------- */
+  --overlay-card: rgba(0, 0, 0, 0.7);
+  --overlay-hero: rgba(0, 0, 0, 0.8);
+
+  /* ---------- motion ---------- */
+  --duration-fast: 150ms;               /* inputs */
+  --duration: 300ms;                    /* buttons, containers, icons */
+  --duration-entrance: 1250ms;          /* Elementor fadeInUp default [uncertain] */
+  --ease: ease;
+  --hover-scale: 1.1;                   /* site value; recommend 1.03 in dense UI */
+
+  /* ---------- icon sizes ---------- */
+  --icon-sm: 20px;                      /* icon lists */
+  --icon-lg: 50px;                      /* icon boxes */
+  --icon-chrome: 24px;                  /* hamburger / close */
+}
+
+/* Convenience: a dark surface scope (footer, hero overlays, dark cards). Not a theme toggle. */
+.athar-dark,
+[data-surface="dark"] {
+  --background: var(--dark-background);
+  --foreground: var(--dark-foreground);
+  --primary: var(--dark-primary);
+  --primary-foreground: var(--dark-primary-foreground);
+  --muted-foreground: var(--dark-muted-foreground);
+  --ring: var(--dark-ring);
+  --border: 0 0% 15%;
+}
+
+/* Arabic: no tracking on headings, taller lines. */
+:lang(ar) {
+  --font-display: var(--font-arabic-display);
+  --font-sans: var(--font-arabic);
+  --tracking-heading: 0;
+  --tracking-display: 0;
+  --word-spacing-heading: 0;
+  --leading-none: 1.25;
+  --leading-tight: 1.35;
+  --leading-body: 1.8;
+}
