@@ -1,0 +1,13 @@
+# Shared brief for design-document authors
+
+Project: Athar project-management platform (React 19 + Vite + Supabase). We are DESIGNING a refactor of the project-management part (Program -> Project -> canvas of Nodes connected by Edges). NOTHING IS IMPLEMENTED YET and this task is documentation only.
+
+Read first (in this order): docs/design/00-conceptual-model.md (authoritative terms and decisions), docs/13-refactor-vision-and-decisions.md and docs/11-owner-clarifications.md (owner decisions), docs/README.md, then the as-is docs 01-10 that are relevant to your document (they describe the current code and DB, with file:line refs). Read the actual source when a detail matters.
+
+Rules:
+- Write ONLY your assigned file(s) under docs/design/. Do not modify source code, migrations, .gitignore, or other docs.
+- NO changes to the live Supabase project: do not use the Supabase MCP tools at all. If you need data/schema facts, use the LOCAL database copy (read-only SELECTs): `docker exec supabase_db_stack psql -U postgres -d postgres -At -c "<sql>"` (a local Docker Postgres loaded from the live export) or the files in local-db/export/. Never print password hashes, keys or personal data.
+- Clearly label every statement as [Decided] (owner said so; cite docs/11 or docs/13), [As-is] (found in code/DB; cite file:line or table), or [Proposal] (your recommendation; give the reason and the alternatives considered). Do not silently invent requirements. Put anything the owner must decide into a section "Open Decisions for the Owner" (numbered, each with options and your recommendation).
+- Professional English markdown, tables, mermaid diagrams where useful, concrete (field names, JSON shapes, SQL sketches where helpful). Keep consistency with 00-conceptual-model.md terms; if you must deviate or find a gap/contradiction in it, record it in a section "Notes on 00-conceptual-model" rather than editing it.
+- Stack constraints [Decided]: stay on React + JavaScript on Supabase; AI-generated nodes are deferred (do not design them); public vs platform-only is optional per item; connected data is displayed by reference (no duplication) and refreshes after the source is saved; list items = reference to source row + extra list-specific fields; participant status accepted/attended/withdrawn; certificates only for attended; emails preferably from each PM's own Gmail (Google Workspace @athareg.com), fallback startups@athareg.com; existing data must be migrated, nothing lost.
+- At the end reply with a SHORT summary (what the doc contains, the main design choices, the top open decisions). No secrets/PII.

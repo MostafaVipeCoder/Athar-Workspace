@@ -22,6 +22,7 @@ React 19 + Vite 7 (JavaScript, no TypeScript sources) · Tailwind 3 · react-rou
 | 10 | [Consolidated open questions](10-open-questions.md) | Everything the analysts need the owner to explain |
 | 11 | [Owner clarifications](11-owner-clarifications.md) | Owner's answers so far (RLS, roles, deploy target, Apps Script, key status) |
 | 12 | [Apps Script poller behaviour](12-apps-script-poller-behavior.md) | What the deployed every-minute script does per booking row |
+| 13 | [Refactor vision & decisions](13-refactor-vision-and-decisions.md) | New node/canvas concept, decisions so far, deferred items, landing-page reference, open design questions |
 
 ## Cross-cutting facts that span several documents
 (Detail and references are in the linked documents.)
@@ -39,3 +40,6 @@ React 19 + Vite 7 (JavaScript, no TypeScript sources) · Tailwind 3 · react-rou
 - Static analysis of the repository by reading source files; the live Supabase project (read-only SELECT queries and advisors) was used for the database comparison. Nothing was executed against production, no source file was modified, and no migration was applied.
 - Line numbers refer to the working tree at snapshot time (including uncommitted changes).
 - No secret values are reproduced in these documents. Note that some secrets exist in repo files (see 08/09) and should be handled separately.
+
+## Design documents (refactor — draft, nothing implemented)
+Folder `docs/design/`: [00 conceptual model](design/00-conceptual-model.md) · [01 node catalog](design/01-node-catalog.md) · [02 data flow & connections](design/02-data-flow-and-connections.md) · [03 roles, permissions & RLS](design/03-roles-permissions-and-rls.md) · [07 emails, integrations & certificates](design/07-emails-integrations-and-certificates.md) · [08 decisions log](design/08-decisions-log.md). [04 database design](design/04-database-design.md) · [05 migration plan](design/05-migration-plan.md) · [06 frontend architecture](design/06-frontend-architecture.md). All design documents are drafts; nothing is implemented.
