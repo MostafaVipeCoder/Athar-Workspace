@@ -28,3 +28,7 @@ dist-ssr
 
 # Local database export (contains personal data and password hashes - never commit)
 local-db/
+
+# Alumni exports may contain national IDs; screenshots are review artefacts (15 MB), keep them out of git
+web/alumni-*.xlsx
+web/design-system/applied/
