@@ -188,7 +188,8 @@ begin
 
   select r.rev into v_rev from public.node_revisions r where r.node_id = p_node for update;
   if v_rev is distinct from p_expected_rev and not coalesce(p_force, false) then
-    raise exception 'conflict: current rev %', v_rev using errcode = '40001', detail = v_rev::text;
+    -- NOT 40001: PostgREST retries a serialization failure for ever (a stale save would hang the request; found in the m50 review, fixed by m52). P0001 + hint token + detail = the current rev.
+    raise exception 'revision_conflict: current rev %', v_rev using errcode = 'P0001', hint = 'revision_conflict', detail = v_rev::text;
   end if;
   if coalesce(p_force, false) and v_rev is distinct from p_expected_rev and not app_private.is_project_owner(v_project) then
     raise exception 'only the project owner may overwrite a newer revision' using errcode = '42501';

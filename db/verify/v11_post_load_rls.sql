@@ -155,7 +155,7 @@ select stage1_test.okrun('S01 save_node with typed children (questions)',
 select stage1_test.val('S02 revision bumped exactly once by save_node (children triggers suppressed)',
   $q$select (rev - current_setting('stage1.id_revF0')::bigint)::text from public.node_revisions where node_id = stage1_test.id('F')$q$, '1');
 select stage1_test.val('S03 questions stored relationally', $q$select count(*)::text from public.form_questions where node_id = stage1_test.id('F')$q$, '2');
-select stage1_test.fails('S04 stale revision raises 40001 (conflict)', $q$select public.save_node(stage1_test.id('F'), 1, '{"name_en":"stale"}')$q$, '40001');
+select stage1_test.fails('S04 stale revision raises the revision_conflict refusal (P0001, never 40001: PostgREST retries that for ever)', $q$select public.save_node(stage1_test.id('F'), 1, '{"name_en":"stale"}')$q$, 'P0001');
 select stage1_test.fails('S05 unknown patch key is rejected', $q$select public.save_node(stage1_test.id('F'), (select rev from public.node_revisions where node_id = stage1_test.id('F')), '{"id":"x"}')$q$, '22023');
 select stage1_test.fails('S06 oversize config is rejected (> 256 KB)',
   $q$select public.save_node(stage1_test.id('F'), (select rev from public.node_revisions where node_id = stage1_test.id('F')), jsonb_build_object('config', jsonb_build_object('x', repeat('a', 300000))))$q$);

@@ -92,7 +92,7 @@ insert into chk select 'V02.3b field_semantics seeded', '6', count(*)::text, cas
 -- Every target table is compared with the number the stage-2a load must produce (05 6.2, adjusted for the 20 company merges);
 -- tables that must stay empty (nothing to load / worker tables) are asserted to be empty.
 do $$
-declare r record; n bigint; bad text := ''; tot int := 0; want bigint;
+declare r record; n bigint; bad text := ''; tot int := 0; want bigint; v_m90 timestamptz := (select max(finished_at) from migration.run where phase = 'm90_finalize_stage2a'); v_has_created boolean;
   exp jsonb := jsonb_build_object(
     'agenda_days',37,'agenda_slots',248,'booking_providers',6,'booking_settings',6,'booking_slots',55,'bookings',30,'companies',141,
     'distribution_day_mentors',139,'distribution_days',9,'distribution_mentor_rules',3,'distribution_sessions',716,'distributions',2,'edges',53,
@@ -104,11 +104,21 @@ begin
   for r in select schemaname, tablename from pg_tables where schemaname in ('public','app_private') order by 1, 2 loop
     execute format('select count(*) from %I.%I', r.schemaname, r.tablename) into n;
     tot := tot + 1;
-    if r.tablename in ('form_rate_limits', 'certificate_verify_limits') then continue; end if;      -- transient anti-abuse counters, not business data
-    want := coalesce((exp ->> r.tablename)::bigint, 0);          -- not listed = must be empty
-    if n <> want then bad := bad || r.schemaname || '.' || r.tablename || '=' || n || '(want ' || want || ') '; end if;
+    if r.tablename in ('form_rate_limits', 'certificate_verify_limits', 'image_conversions', 'alumni_probe_limits', 'alumni_lookups') then continue; end if;      -- transient anti-abuse counters, the m45 image-conversion audit and the m49 vocabulary seed / probe limiter: not business data
+    want := coalesce((exp ->> r.tablename)::bigint, 0);          -- not listed = no row from the migration
+    -- (m52) HERMETIC: rows added by later builds and by real use are legitimate. A migrated table must not LOSE a loaded row (n >= want); a table the migration does not fill
+    -- must hold no row that predates the end of the load (where it has a created_at; a table without one cannot be dated and is tolerated).
+    if want > 0 then
+      if n < want then bad := bad || r.schemaname || '.' || r.tablename || '=' || n || '(want >= ' || want || ') '; end if;
+    else
+      select exists (select 1 from information_schema.columns c where c.table_schema = r.schemaname and c.table_name = r.tablename and c.column_name = 'created_at') into v_has_created;
+      if v_has_created then
+        execute format('select count(*) from %I.%I where created_at <= %L', r.schemaname, r.tablename, v_m90) into n;
+        if n <> 0 then bad := bad || r.schemaname || '.' || r.tablename || '=' || n || ' rows before the load ended (want 0) '; end if;
+      end if;
+    end if;
   end loop;
-  insert into chk values ('V10.4 target tables hold exactly the loaded data (' || tot || ' checked)', 'none', coalesce(nullif(bad, ''), 'none'), case when bad = '' then 'ok' else 'mismatch' end);
+  insert into chk values ('V10.4 target tables hold the loaded data (none lost) and no row of a table the migration does not fill predates the load (' || tot || ' checked)', 'none', coalesce(nullif(bad, ''), 'none'), case when bad = '' then 'ok' else 'mismatch' end);
 end $$;
 
 -- ---------------------------------------------------------------- census vs the design (04 section 4.2 / 5)
@@ -204,12 +214,12 @@ insert into chk select 'SEC.4 authenticated privileges on app_private/migration 
     where a.grantee = (select oid from pg_roles where rolname = 'authenticated') and c.relnamespace in ('app_private'::regnamespace,'migration'::regnamespace) and c.relkind in ('r','p','v','S')) = 0 then 'ok' else 'mismatch' end;
 -- the only EXECUTE grants anon has are the exhaustive RPC list of 04 5.9 (PUBLIC execute revoked everywhere)
 insert into chk select 'SEC.5 functions anon may execute (04 5.9)',
-  'cancel_booking,cert_template_readable,create_booking,form_upload_allowed,get_agenda_view,get_distribution_timer,get_distribution_view,get_public_booking_page,get_public_certificate_verification,get_public_form,get_public_landing,get_public_library,get_public_list,get_public_tab,library_file_readable,resolve_ref,submit_public_form,track_landing_event,track_node_event,validate_invitation,validate_staff_invitation,verify_certificate',
+  'cancel_booking,cert_template_readable,create_booking,form_upload_allowed,get_agenda_view,get_distribution_timer,get_distribution_view,get_public_booking_page,get_public_certificate_verification,get_public_form,get_public_landing,get_public_library,get_public_list,get_public_tab,library_file_readable,list_alumni_lookups,list_public_alumni_directory,resolve_ref,submit_public_form,track_landing_event,track_node_event,validate_invitation,validate_staff_invitation,verify_certificate',
   coalesce((select string_agg(distinct p.proname, ',' order by p.proname) from pg_proc p
      where p.pronamespace in ('public'::regnamespace, 'app_private'::regnamespace, 'migration'::regnamespace) and has_function_privilege('anon', p.oid, 'EXECUTE')), 'none'),
   case when coalesce((select string_agg(distinct p.proname, ',' order by p.proname) from pg_proc p
      where p.pronamespace in ('public'::regnamespace, 'app_private'::regnamespace, 'migration'::regnamespace) and has_function_privilege('anon', p.oid, 'EXECUTE')), 'none')
-     = 'cancel_booking,cert_template_readable,create_booking,form_upload_allowed,get_agenda_view,get_distribution_timer,get_distribution_view,get_public_booking_page,get_public_certificate_verification,get_public_form,get_public_landing,get_public_library,get_public_list,get_public_tab,library_file_readable,resolve_ref,submit_public_form,track_landing_event,track_node_event,validate_invitation,validate_staff_invitation,verify_certificate' then 'ok' else 'mismatch' end;
+     = 'cancel_booking,cert_template_readable,create_booking,form_upload_allowed,get_agenda_view,get_distribution_timer,get_distribution_view,get_public_booking_page,get_public_certificate_verification,get_public_form,get_public_landing,get_public_library,get_public_list,get_public_tab,library_file_readable,list_alumni_lookups,list_public_alumni_directory,resolve_ref,submit_public_form,track_landing_event,track_node_event,validate_invitation,validate_staff_invitation,verify_certificate' then 'ok' else 'mismatch' end;
 -- every function of ours has a fixed search_path; every SECURITY DEFINER too
 insert into chk select 'SEC.6 functions without fixed search_path (public/app_private/migration)', '0',
   (select count(*) from pg_proc p where p.pronamespace in ('public'::regnamespace,'app_private'::regnamespace,'migration'::regnamespace)
@@ -233,12 +243,12 @@ insert into chk select 'RT.1 supabase_realtime publication tables', 'public.node
   coalesce((select string_agg(schemaname || '.' || tablename, ',' order by tablename) from pg_publication_tables where pubname = 'supabase_realtime'), 'none'),
   case when coalesce((select string_agg(schemaname || '.' || tablename, ',' order by tablename) from pg_publication_tables where pubname = 'supabase_realtime'), 'none') = 'public.node_revisions' then 'ok' else 'mismatch' end;
 -- Storage: new buckets exist, no open policy on event-assets for writing, orphan policies gone
-insert into chk select 'ST.1 new buckets present (the 5 designed ones; stage 2b adds the private migration-archive)', 'certificate-templates,form-uploads,founder-assets,public-assets,resources',
-  (select string_agg(id, ',' order by id) from storage.buckets where id <> 'event-assets' and id <> 'migration-archive'),
-  case when (select string_agg(id, ',' order by id) from storage.buckets where id <> 'event-assets' and id <> 'migration-archive') = 'certificate-templates,form-uploads,founder-assets,public-assets,resources' then 'ok' else 'mismatch' end;
-insert into chk select 'ST.2 buckets: only public-assets is public (+legacy event-assets)', 'event-assets,public-assets',
-  (select string_agg(id, ',' order by id) from storage.buckets where public),
-  case when (select string_agg(id, ',' order by id) from storage.buckets where public) = 'event-assets,public-assets' then 'ok' else 'mismatch' end;
+insert into chk select 'ST.1 new buckets present (the 5 designed ones; stage 2b adds the private migration-archive, m45 the public og-images, both ignored here)', 'certificate-templates,form-uploads,founder-assets,public-assets,resources',
+  (select string_agg(id, ',' order by id) from storage.buckets where id not in ('event-assets', 'migration-archive', 'og-images')),
+  case when (select string_agg(id, ',' order by id) from storage.buckets where id not in ('event-assets', 'migration-archive', 'og-images')) = 'certificate-templates,form-uploads,founder-assets,public-assets,resources' then 'ok' else 'mismatch' end;
+insert into chk select 'ST.2 buckets: only public-assets is public (+legacy event-assets, +og-images since m45)', 'event-assets,public-assets',
+  (select string_agg(id, ',' order by id) from storage.buckets where public and id <> 'og-images'),
+  case when (select string_agg(id, ',' order by id) from storage.buckets where public and id <> 'og-images') = 'event-assets,public-assets' then 'ok' else 'mismatch' end;
 -- (restrictive policies - the WebP / extension allow-lists - only NARROW what a permissive one grants: they are not counted; the one permissive anon write is the
 --  guarded public form-upload policy form_uploads_insert_public, m31 / m36)
 insert into chk select 'ST.3 permissive storage policies that let anon/public write (at most the guarded form upload) or reference event-covers', '<= 1 / 0',

@@ -330,7 +330,7 @@ update public.projects set completed_at = now() where id = :'proj';
 update public.participants set status = 'withdrawn' where id = '00000000-0000-4000-8000-00000000a003';
 select set_config('request.jwt.claims', '{"sub":"00000000-0000-4000-8000-00000000d427","role":"authenticated"}', true);
 set local role authenticated;
-select v42_test.val('W01 a WITHDRAWN participant: the certificate is no longer downloadable', $q$select (select count(*) from public.certificates)::text || '/' || jsonb_array_length(public.list_my_certificates())::text$q$, '0/0');
+select v42_test.val('W01 a WITHDRAWN participant: the certificate STAYS readable and listed (m44 / 08 s18.2 supersedes m42: only the PM revokes; a NEW one still needs attended, W02)', $q$select (select count(*) from public.certificates)::text || '/' || jsonb_array_length(public.list_my_certificates())::text$q$, '1/1');
 select v42_test.fails('W02 ... and claim is forbidden', format($q$select public.claim_my_certificate('%s')$q$, :'cn'), '42501');
 reset role;
 update public.participants set status = 'attended' where id = '00000000-0000-4000-8000-00000000a003';

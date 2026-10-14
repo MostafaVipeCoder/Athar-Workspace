@@ -35,12 +35,13 @@ insert into chk select 'V01.3b no table privilege on legacy.* for anon/authentic
     where c.relnamespace = 'legacy'::regnamespace and r.rolname in ('anon','authenticated','service_role')) = 0 then 'ok' else 'mismatch' end;
 
 -- V01.4 auth data untouched: row counts equal the baseline and the password-hash fingerprint is unchanged (never printed)
-insert into chk select 'V01.4a auth.users count == baseline', b.row_count::text, (select count(*) from auth.users)::text,
-  case when b.row_count = (select count(*) from auth.users) then 'ok' else 'mismatch' end
+-- (m52) HERMETIC: only the accounts that existed when the baseline was captured are compared; accounts created later (sign-ups, staff invitations, test accounts) are legitimate
+insert into chk select 'V01.4a auth.users (created up to the baseline capture) count == baseline', b.row_count::text, (select count(*) from auth.users u where u.created_at <= b.captured_at)::text,
+  case when b.row_count = (select count(*) from auth.users u where u.created_at <= b.captured_at) then 'ok' else 'mismatch' end
   from migration.baseline b where b.table_name = 'auth.users';
-insert into chk select 'V01.4b auth.users password fingerprint unchanged', 'same', case when s.value = (select md5(coalesce(string_agg(encrypted_password, ',' order by id), '')) from auth.users) then 'same' else 'DIFFERENT' end,
-  case when s.value = (select md5(coalesce(string_agg(encrypted_password, ',' order by id), '')) from auth.users) then 'ok' else 'mismatch' end
-  from migration.state s where s.key = 'auth_pw_md5';
+insert into chk select 'V01.4b baseline accounts: password fingerprint unchanged', 'same', case when s.value = (select md5(coalesce(string_agg(u.encrypted_password, ',' order by u.id), '')) from auth.users u where u.created_at <= b.captured_at) then 'same' else 'DIFFERENT' end,
+  case when s.value = (select md5(coalesce(string_agg(u.encrypted_password, ',' order by u.id), '')) from auth.users u where u.created_at <= b.captured_at) then 'ok' else 'mismatch' end
+  from migration.state s cross join migration.baseline b where s.key = 'auth_pw_md5' and b.table_name = 'auth.users';
 -- (stage 1 deletes no storage object: the count never drops below the baseline; stage 2b and the node builds only ADD objects)
 insert into chk select 'V01.4c storage.objects count >= baseline (stage 1 deletes nothing)', '>= ' || b.row_count::text, (select count(*) from storage.objects)::text,
   case when b.row_count <= (select count(*) from storage.objects) then 'ok' else 'mismatch' end

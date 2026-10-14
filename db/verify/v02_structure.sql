@@ -196,13 +196,13 @@ insert into chk select 'SEC.4 authenticated privileges on app_private/migration 
   case when (select count(*) from pg_class c cross join lateral aclexplode(c.relacl) a
     where a.grantee = (select oid from pg_roles where rolname = 'authenticated') and c.relnamespace in ('app_private'::regnamespace,'migration'::regnamespace) and c.relkind in ('r','p','v','S')) = 0 then 'ok' else 'mismatch' end;
 -- the only EXECUTE grants anon has are the exhaustive RPC list of 04 5.9 (PUBLIC execute revoked everywhere)
-insert into chk select 'SEC.5 functions anon may execute (04 5.9)',
-  'cancel_booking,cert_template_readable,create_booking,form_upload_allowed,get_agenda_view,get_distribution_timer,get_distribution_view,get_public_booking_page,get_public_certificate_verification,get_public_form,get_public_landing,get_public_library,get_public_list,get_public_tab,library_file_readable,resolve_ref,submit_public_form,track_landing_event,track_node_event,validate_invitation,validate_staff_invitation,verify_certificate',
-  coalesce((select string_agg(distinct p.proname, ',' order by p.proname) from pg_proc p
-     where p.pronamespace in ('public'::regnamespace, 'app_private'::regnamespace, 'migration'::regnamespace) and has_function_privilege('anon', p.oid, 'EXECUTE')), 'none'),
-  case when coalesce((select string_agg(distinct p.proname, ',' order by p.proname) from pg_proc p
-     where p.pronamespace in ('public'::regnamespace, 'app_private'::regnamespace, 'migration'::regnamespace) and has_function_privilege('anon', p.oid, 'EXECUTE')), 'none')
-     = 'cancel_booking,cert_template_readable,create_booking,form_upload_allowed,get_agenda_view,get_distribution_timer,get_distribution_view,get_public_booking_page,get_public_certificate_verification,get_public_form,get_public_landing,get_public_library,get_public_list,get_public_tab,library_file_readable,resolve_ref,submit_public_form,track_landing_event,track_node_event,validate_invitation,validate_staff_invitation,verify_certificate' then 'ok' else 'mismatch' end;
+-- (m52) this file is the STAGE-1 gate and also runs on later builds (m31 .. m49 add anonymous RPCs: public forms, landing events, certificates verifier, the alumni vocabulary / directory).
+-- So it checks a RANGE: what anon may execute is a subset of the designed exhaustive list (04 5.9 + later builds) AND contains the ten stage-1 functions. The STRICT equality with the later list is v10's check
+-- (it runs on the fully built database). db/test-from-scratch.sh runs this file on a database that only has m00..m07 (exactly the ten).
+insert into chk select 'SEC.5 functions anon may execute (04 5.9)', 'a subset of the designed list that contains the ten stage-1 functions',
+  a.names, case when a.arr <@ string_to_array('cancel_booking,cert_template_readable,create_booking,form_upload_allowed,get_agenda_view,get_distribution_timer,get_distribution_view,get_public_booking_page,get_public_certificate_verification,get_public_form,get_public_landing,get_public_library,get_public_list,get_public_tab,library_file_readable,list_alumni_lookups,list_public_alumni_directory,resolve_ref,submit_public_form,track_landing_event,track_node_event,validate_invitation,validate_staff_invitation,verify_certificate', ',') and a.arr @> string_to_array('cancel_booking,create_booking,get_agenda_view,get_public_booking_page,get_public_form,get_public_tab,resolve_ref,track_node_event,validate_invitation,verify_certificate', ',') then 'ok' else 'mismatch' end
+  from (select coalesce(array_agg(distinct p.proname::text order by p.proname::text), '{}'::text[]) as arr, coalesce(string_agg(distinct p.proname::text, ',' order by p.proname::text), 'none') as names
+          from pg_proc p where p.pronamespace in ('public'::regnamespace, 'app_private'::regnamespace, 'migration'::regnamespace) and has_function_privilege('anon', p.oid, 'EXECUTE')) a;
 -- every function of ours has a fixed search_path; every SECURITY DEFINER too
 insert into chk select 'SEC.6 functions without fixed search_path (public/app_private/migration)', '0',
   (select count(*) from pg_proc p where p.pronamespace in ('public'::regnamespace,'app_private'::regnamespace,'migration'::regnamespace)
@@ -226,12 +226,12 @@ insert into chk select 'RT.1 supabase_realtime publication tables', 'public.node
   coalesce((select string_agg(schemaname || '.' || tablename, ',' order by tablename) from pg_publication_tables where pubname = 'supabase_realtime'), 'none'),
   case when coalesce((select string_agg(schemaname || '.' || tablename, ',' order by tablename) from pg_publication_tables where pubname = 'supabase_realtime'), 'none') = 'public.node_revisions' then 'ok' else 'mismatch' end;
 -- Storage: new buckets exist, no open policy on event-assets for writing, orphan policies gone
-insert into chk select 'ST.1 new buckets present (the 5 designed ones; stage 2b adds the private migration-archive)', 'certificate-templates,form-uploads,founder-assets,public-assets,resources',
-  (select string_agg(id, ',' order by id) from storage.buckets where id <> 'event-assets' and id <> 'migration-archive'),
-  case when (select string_agg(id, ',' order by id) from storage.buckets where id <> 'event-assets' and id <> 'migration-archive') = 'certificate-templates,form-uploads,founder-assets,public-assets,resources' then 'ok' else 'mismatch' end;
-insert into chk select 'ST.2 buckets: only public-assets is public (+legacy event-assets)', 'event-assets,public-assets',
-  (select string_agg(id, ',' order by id) from storage.buckets where public),
-  case when (select string_agg(id, ',' order by id) from storage.buckets where public) = 'event-assets,public-assets' then 'ok' else 'mismatch' end;
+insert into chk select 'ST.1 new buckets present (the 5 designed ones; stage 2b adds the private migration-archive, m45 the public og-images, both ignored here)', 'certificate-templates,form-uploads,founder-assets,public-assets,resources',
+  (select string_agg(id, ',' order by id) from storage.buckets where id not in ('event-assets', 'migration-archive', 'og-images')),
+  case when (select string_agg(id, ',' order by id) from storage.buckets where id not in ('event-assets', 'migration-archive', 'og-images')) = 'certificate-templates,form-uploads,founder-assets,public-assets,resources' then 'ok' else 'mismatch' end;
+insert into chk select 'ST.2 buckets: only public-assets is public (+legacy event-assets, +og-images since m45)', 'event-assets,public-assets',
+  (select string_agg(id, ',' order by id) from storage.buckets where public and id <> 'og-images'),
+  case when (select string_agg(id, ',' order by id) from storage.buckets where public and id <> 'og-images') = 'event-assets,public-assets' then 'ok' else 'mismatch' end;
 -- (restrictive policies - the WebP / extension allow-lists - only NARROW what a permissive one grants: they are not counted; the one permissive anon write is the
 --  guarded public form-upload policy form_uploads_insert_public, m31 / m36)
 insert into chk select 'ST.3 permissive storage policies that let anon/public write (at most the guarded form upload) or reference event-covers', '<= 1 / 0',

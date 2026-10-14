@@ -155,7 +155,7 @@ select stage1_test.okrun('S01 save_node with typed children (questions)',
 select stage1_test.val('S02 revision bumped exactly once by save_node (children triggers suppressed)',
   $q$select (rev - current_setting('stage1.id_revF0')::bigint)::text from public.node_revisions where node_id = stage1_test.id('F')$q$, '1');
 select stage1_test.val('S03 questions stored relationally', $q$select count(*)::text from public.form_questions where node_id = stage1_test.id('F')$q$, '2');
-select stage1_test.fails('S04 stale revision raises 40001 (conflict)', $q$select public.save_node(stage1_test.id('F'), 1, '{"name_en":"stale"}')$q$, '40001');
+select stage1_test.fails('S04 stale revision raises the revision_conflict refusal (P0001, never 40001: PostgREST retries that for ever)', $q$select public.save_node(stage1_test.id('F'), 1, '{"name_en":"stale"}')$q$, 'P0001');
 select stage1_test.fails('S05 unknown patch key is rejected', $q$select public.save_node(stage1_test.id('F'), (select rev from public.node_revisions where node_id = stage1_test.id('F')), '{"id":"x"}')$q$, '22023');
 select stage1_test.fails('S06 oversize config is rejected (> 256 KB)',
   $q$select public.save_node(stage1_test.id('F'), (select rev from public.node_revisions where node_id = stage1_test.id('F')), jsonb_build_object('config', jsonb_build_object('x', repeat('a', 300000))))$q$);
@@ -319,11 +319,15 @@ set local role authenticated;
 reset role;
 select stage1_test.okrun('CE01 template row (setup, as owner; m43: no direct PM write)', $q$insert into public.certificate_templates (id, project_id, node_id, version, language, file_path, file_kind, width_px, height_px)
     values ('00000000-0000-4000-8000-0000000000f1', stage1_test.id('J1'), stage1_test.id('CN'), 1, 'ar', stage1_test.id('J1')::text || '/' || stage1_test.id('CN')::text || '/v1.webp', 'image', 2000, 1400)$q$);
-select stage1_test.okrun('CE01b the person-name field of the template (setup)', $q$insert into public.certificate_template_fields (template_id, project_id, var, x, y, w, size)
-    values ('00000000-0000-4000-8000-0000000000f1', stage1_test.id('J1'), 'person_name', 0.5, 0.5, 0.5, 0.04)$q$);
+-- (m52) stage-aware: this file also runs on a database that only has m00..m07 (db/test-from-scratch.sh): the variable is still called participant_name there (m42 renamed it) and a PM can still write a template row (m43 closed that)
+select (to_regclass('public.certificate_grants') is not null) as later_build \gset
+select stage1_test.okrun('CE01b the person-name field of the template (setup)', format($q$insert into public.certificate_template_fields (template_id, project_id, var, x, y, w, size)
+    values ('00000000-0000-4000-8000-0000000000f1', stage1_test.id('J1'), %L, 0.5, 0.5, 0.5, 0.04)$q$, case when :'later_build' then 'person_name' else 'participant_name' end));
 select set_config('request.jwt.claims', '{"sub":"00000000-0000-4000-8000-0000000000a1","role":"authenticated"}', true);
 set local role authenticated;
-select stage1_test.fails('CE01c a PM cannot write a template row directly (m43, 42501)', $q$update public.certificate_templates set width_px = 1999 where id = '00000000-0000-4000-8000-0000000000f1'$q$, '42501');
+select case when :'later_build' then $q$select stage1_test.fails('CE01c a PM cannot write a template row directly (m43, 42501)', $i$update public.certificate_templates set width_px = 1999 where id = '00000000-0000-4000-8000-0000000000f1'$i$, '42501')$q$
+            else $q$select stage1_test.t('CE01c (m43 closes the direct PM write; nothing to prove at stage 1)', true, 'skipped')$q$ end as ce01c \gset
+:ce01c;
 select stage1_test.fails('CE02 cannot issue before the project is completed / participant attended', $q$select public.issue_certificate(stage1_test.id('PA'), stage1_test.id('CN'))$q$, '23514');
 select stage1_test.okrun('CE03 mark all attended + complete project', $q$select public.mark_all_attended(stage1_test.id('J1')), public.complete_project(stage1_test.id('J1'))$q$);
 select stage1_test.setid('CERT', (select id::text from public.issue_certificate(stage1_test.id('PA'), stage1_test.id('CN'))));

@@ -229,7 +229,7 @@ select v43_test.fails('B07 reissue_certificate for an unlinked founder is refuse
 reset role;
 select v43_test.val('B08 ... and nothing new exists for him', $q$select count(*)::text from public.certificates where user_id = '00000000-0000-4000-8000-0000000043f2' and revoked_at is null$q$, '0');
 
--- ================================================================= C. the verifier needs an ATTENDED participant (withdrawn / un-marked = not valid until reinstated)
+-- ================================================================= C. the verifier (m43 needed an ATTENDED participant; SUPERSEDED by m44 / owner decision 08 s18.2: valid until the PM revokes it, whatever the status)
 select set_config('request.jwt.claims', '{"role":"anon"}', true);
 set local role anon;
 select v43_test.val('C20 anon verifier: the attended participant (F4) is valid', format($q$select public.get_public_certificate_verification('%s')->>'status'$q$, :'code4'), 'valid');
@@ -240,7 +240,7 @@ select public.withdraw_participant('00000000-0000-4000-8000-0000000043ab', true,
 reset role;
 select set_config('request.jwt.claims', '{"role":"anon"}', true);
 set local role anon;
-select v43_test.val('C21 ... withdrawn: the same code reads revoked / not valid (the row is untouched)', format($q$select (public.get_public_certificate_verification('%s')->>'status') || '/' || (public.get_public_certificate_verification('%s')->>'valid')$q$, :'code4', :'code4'), 'revoked/false');
+select v43_test.val('C21 ... withdrawn: the same code STAYS valid (m44 / 08 s18.2; m43 answered revoked / false; the row is untouched)', format($q$select (public.get_public_certificate_verification('%s')->>'status') || '/' || (public.get_public_certificate_verification('%s')->>'valid')$q$, :'code4', :'code4'), 'valid/true');
 reset role;
 select v43_test.val('C22 ... the certificate row itself is not revoked', format($q$select (revoked_at is null)::text from public.certificates where id = '%s'$q$, :'cert4'), 'true');
 select set_config('request.jwt.claims', '{"sub":"00000000-0000-4000-8000-0000000043a0","role":"authenticated"}', true);
@@ -257,7 +257,7 @@ select public.set_participant_status('00000000-0000-4000-8000-0000000043ab', 'ac
 reset role;
 select set_config('request.jwt.claims', '{"role":"anon"}', true);
 set local role anon;
-select v43_test.val('C24 ... un-marked as attended: not valid; marked again: valid', format($q$select (public.get_public_certificate_verification('%s')->>'status')$q$, :'code4'), 'revoked');
+select v43_test.val('C24 ... un-marked as attended (accepted by mistake): STILL valid (m44 / 08 s18.2; m43 answered revoked)', format($q$select (public.get_public_certificate_verification('%s')->>'status')$q$, :'code4'), 'valid');
 reset role;
 select set_config('request.jwt.claims', '{"sub":"00000000-0000-4000-8000-0000000043a0","role":"authenticated"}', true);
 set local role authenticated;
