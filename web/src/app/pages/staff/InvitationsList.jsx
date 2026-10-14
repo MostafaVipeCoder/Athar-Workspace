@@ -4,7 +4,7 @@ import { ErrorState } from '../../../ui/States.jsx'
 import { useToast } from '../../../ui/Toast.jsx'
 import { useConfirm } from '../../../ui/ConfirmDialog.jsx'
 
-const TONE = { pending: 'bg-accent text-accent-foreground', accepted: 'bg-success/10 text-success', revoked: 'bg-muted text-muted-foreground', expired: 'bg-muted text-muted-foreground' }
+const TONE = { pending: 'bg-accent text-accent-foreground', accepted: 'bg-success/10 text-success-text', revoked: 'bg-muted text-muted-foreground', expired: 'bg-muted text-muted-foreground' }
 
 /** Invitations with status; a pending one can be revoked. The clear token is never shown here (hashed in the DB). */
 export default function InvitationsList({ query, programName, onRevoke }) {

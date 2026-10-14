@@ -10,7 +10,7 @@ const FOCUSABLE = 'a[href],button:not([disabled]),textarea,input,select,[tabinde
  * body scroll is locked. Bottom-sheet on phones, centred card from `sm`. Look: 15px panel radius, 1px border,
  * dropdown shadow, black 70% backdrop (the site's card overlay), Hepta Slab title.
  */
-export function Modal({ open, onClose, title, description, children, footer, closeLabel = 'Close', className, dismissible = true }) {
+export function Modal({ open, onClose, title, description, children, footer, closeLabel = 'Close', className, dismissible = true, side = false }) {
   const titleId = useId()
   const descId = useId()
   const panelRef = useRef(null)
@@ -61,7 +61,7 @@ export function Modal({ open, onClose, title, description, children, footer, clo
 
   if (!open) return null
   return createPortal(
-    <div className="fixed inset-0 z-50 flex items-end justify-center sm:items-center sm:p-4">
+    <div className={cn('fixed inset-0 z-50 flex justify-center', side ? 'items-stretch sm:justify-end' : 'items-end sm:items-center sm:p-4')}>
       <div className="absolute inset-0 bg-black/70 animate-in fade-in" aria-hidden="true" onClick={dismissible ? onClose : undefined} />
       <div
         ref={panelRef}
@@ -71,8 +71,9 @@ export function Modal({ open, onClose, title, description, children, footer, clo
         aria-describedby={description ? descId : undefined}
         tabIndex={-1}
         className={cn(
-          'relative z-10 flex max-h-[90dvh] w-full flex-col rounded-t-card border bg-card text-card-foreground shadow-dropdown',
-          'animate-in fade-in zoom-in-95 safe-bottom sm:max-w-md sm:rounded-card',
+          'relative z-10 flex w-full flex-col border bg-card text-card-foreground shadow-dropdown safe-bottom',
+          // `side`: a drawer from the end edge (full screen on a phone); otherwise the centred dialog / bottom sheet
+          side ? 'h-dvh max-h-dvh animate-in fade-in slide-in-from-bottom-4 sm:max-w-xl sm:rounded-s-card' : 'max-h-[90dvh] animate-in fade-in zoom-in-95 rounded-t-card sm:max-w-md sm:rounded-card',
           className,
         )}
       >

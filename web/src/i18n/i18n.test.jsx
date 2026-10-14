@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { screen, act } from '@testing-library/react'
 import en from './dict.en.js'
 import ar from './dict.ar.js'
-import { defaultLangForPath, formatNumber, pick, registerMessages, resolveLang, translate, translatePlural } from './core.js'
+import { defaultLangForPath, formatNumber, joinList, pick, registerMessages, resolveLang, translate, translatePlural } from './core.js'
 import { useLanguage } from './LanguageProvider.jsx'
 import { renderWithProviders } from '../test/render.jsx'
 import LanguageSwitch from '../shared/LanguageSwitch.jsx'
@@ -31,6 +31,11 @@ describe('translate', () => {
     expect(translatePlural('en', 'programs.projects', 1)).toBe('1 project')
   })
   it('western digits in arabic', () => expect(formatNumber('ar', 1234)).toMatch(/1.?234/))
+  it('joinList: the Arabic comma only in Arabic, the Latin comma in English, empty values skipped', () => {
+    expect(joinList('en', ['Sara', 'Omar', null, 'Hana'])).toBe('Sara, Omar, Hana')
+    expect(joinList('ar', ['سارة', 'عمر'])).toBe('سارة، عمر')
+    expect(joinList('en', [])).toBe('')
+  })
   it('pick falls back to the other language', () => {
     expect(pick({ name_en: 'A', name_ar: 'ب' }, 'name', 'ar')).toBe('ب')
     expect(pick({ name_en: 'A', name_ar: '' }, 'name', 'ar')).toBe('A')

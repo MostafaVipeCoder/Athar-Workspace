@@ -28,6 +28,13 @@ describe('xlsx wrapper', () => {
     expect(toSheetRows([], [])).toEqual([[]])
   })
 
+  it('blanks: true turns a missing value into a BLANK cell (null), never an empty text cell; real values and zeros stay', () => {
+    const rows = [{ a: null, b: undefined, c: '', d: 0, e: 'x' }]
+    const cols = ['a', 'b', 'c', 'd', 'e'].map((k) => ({ key: k, header: k }))
+    expect(toSheetRows(rows, cols)[1]).toEqual(['', '', '', 0, 'x']) // the default is unchanged for every other export
+    expect(toSheetRows(rows, cols, { blanks: true })[1]).toEqual([null, null, null, 0, 'x'])
+  })
+
   it('loads SheetJS lazily and writes a file', async () => {
     const writeFile = vi.fn()
     const fake = {

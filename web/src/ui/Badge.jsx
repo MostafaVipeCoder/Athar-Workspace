@@ -9,7 +9,7 @@ import { cn } from '../lib/cn.js'
 export const BADGE_TONES = {
   neutral: 'bg-surface text-foreground',
   blue: 'bg-primary/10 text-primary',
-  green: 'bg-success/10 text-success',
+  green: 'bg-success/10 text-success-text',
   amber: 'bg-accent text-accent-foreground',
   red: 'bg-destructive/15 text-destructive-text',
   purple: 'bg-athar-ink text-white',

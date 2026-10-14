@@ -42,7 +42,9 @@ function Unavailable() {
  * /alumni/founder/programs/:projectId - the Program page. ONE request (`get_founder_program_page`) returns the header and the
  * ORDERED list of blocks the PM added AND enabled; nothing else is ever rendered (docs/13 section 11). Every block is its own
  * lazy chunk with its own loading / error state, so one failing block never hides the page. A `withdrawn` participant sees the
- * header and a status card only (03-6).
+ * header and a status card only (03-6), PLUS the one block the DB still sends him: his own certificate when he holds a valid one
+ * (owner decision 08 section 18.2: an issued certificate stays valid and available after a withdrawal, which can only be a PM
+ * mistake). The client never decides that: a restricted page renders exactly the blocks the server sent, as any other page.
  */
 export default function FounderProgramPage() {
   const { projectId } = useParams()
@@ -72,11 +74,10 @@ export default function FounderProgramPage() {
     <div className="space-y-6" data-testid="founder-program-page" data-status={page.participant?.status}>
       <ProgramHeader project={page.project} participant={page.participant} restricted={page.restricted} />
 
-      {page.restricted ? (
-        <EmptyState icon={LogOut} title={t('founder.page.withdrawn')} body={t('founder.page.withdrawnBody')} />
-      ) : blocks.length === 0 ? (
-        <EmptyState icon={Layers} title={t('founder.page.empty')} body={t('founder.page.emptyBody')} />
-      ) : (
+      {page.restricted && (
+        <EmptyState icon={LogOut} title={t('founder.page.withdrawn')} body={t(blocks.length > 0 ? 'founder.page.withdrawnBodyCertificate' : 'founder.page.withdrawnBody')} />
+      )}
+      {blocks.length > 0 ? (
         <>
           {blocks.length >= 3 && <SectionNav sections={sections} />}
           <div className="space-y-8">
@@ -90,6 +91,8 @@ export default function FounderProgramPage() {
             })}
           </div>
         </>
+      ) : (
+        !page.restricted && <EmptyState icon={Layers} title={t('founder.page.empty')} body={t('founder.page.emptyBody')} />
       )}
     </div>
   )

@@ -20,11 +20,23 @@ export function readEnv(raw = import.meta.env) {
 
 const LOCAL_HOSTS = new Set(['localhost', '127.0.0.1', '[::1]', '0.0.0.0'])
 
+/**
+ * A PRIVATE network address (10.x, 172.16 - 31.x, 192.168.x, link-local 169.254.x): the developer's own machine seen from another device on the same
+ * network (web/scripts/lan-dev.ps1 points a phone at http://<LAN ip>:54321). Never the live project, which is a public `*.supabase.co` host.
+ */
+function isPrivateIPv4(hostname) {
+  const m = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.exec(hostname)
+  if (!m) return false
+  const [a, b] = [Number(m[1]), Number(m[2])]
+  if (m.slice(1).some((x) => Number(x) > 255)) return false
+  return a === 10 || (a === 172 && b >= 16 && b <= 31) || (a === 192 && b === 168) || (a === 169 && b === 254)
+}
+
 /** Derived from the URL host (not only the variable) so the banner cannot lie. */
 export function classifyTarget(supabaseUrl) {
   try {
     const { hostname } = new URL(supabaseUrl)
-    if (LOCAL_HOSTS.has(hostname) || hostname.endsWith('.localhost') || hostname.endsWith('.local')) return 'local'
+    if (LOCAL_HOSTS.has(hostname) || hostname.endsWith('.localhost') || hostname.endsWith('.local') || isPrivateIPv4(hostname)) return 'local'
     return 'remote'
   } catch {
     return 'unknown'

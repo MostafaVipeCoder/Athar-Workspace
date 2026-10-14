@@ -64,6 +64,9 @@ export function translatePlural(lang, key, count, vars, onMissing) {
   return translate(lang, key, { count: formatNumber(lang, count), ...vars }, onMissing)
 }
 
+/** A list of names / values in running text: the Arabic comma in Arabic, the Latin comma otherwise (never the Arabic comma inside an English sentence). */
+export const joinList = (lang, items) => items.filter(Boolean).join(lang === 'ar' ? '، ' : ', ')
+
 /** OD-12 recommendation: Western digits in the Arabic UI. */
 export const numberLocale = (lang) => (lang === 'ar' ? 'ar-EG-u-nu-latn' : 'en-US')
 

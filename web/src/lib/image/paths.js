@@ -4,7 +4,7 @@
  * thumbnail. Legacy non-WebP rasters (`.png`, `.jpg`) have no thumbnail either: displays fall back to the file itself.
  */
 import { newId } from '../id.js'
-import { THUMB_SUFFIX } from './profiles.js'
+import { OG_BUCKET, THUMB_SUFFIX } from './profiles.js'
 
 export { newId }
 
@@ -31,3 +31,16 @@ export function variantsOf(path) {
   if (!p) return []
   return [...new Set([p, thumbPath(p)])]
 }
+
+/**
+ * The JPEG link-preview derivative of a stored image (08 section 18.6): `<owner>/<kind>/<uuid>.webp` -> `<owner>/<kind>/<uuid>.jpg` in bucket
+ * `og-images`. The same path, a different bucket and extension: nothing is stored in the database, so the (future) share / OG function derives the
+ * URL `<storage>/object/public/og-images/<ogPathOf(path)>` from the source path it already knows. '' when the image has no derivative (a thumbnail,
+ * an SVG, a legacy raster, nothing). SQL mirror: app_private.og_image_path (m45), which answers NULL instead of ''.
+ */
+export function ogPathOf(path) {
+  const p = String(path ?? '')
+  if (!isWebpPath(p) || isThumbPath(p)) return ''
+  return p.replace(/\.webp$/i, '.jpg')
+}
+export { OG_BUCKET }

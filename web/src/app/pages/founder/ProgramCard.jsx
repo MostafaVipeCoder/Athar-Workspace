@@ -1,5 +1,5 @@
 import { Link } from 'react-router-dom'
-import { ArrowRight, CalendarDays, MapPin } from 'lucide-react'
+import { ArrowRight, CalendarDays, MapPin, Medal } from 'lucide-react'
 import { useLanguage } from '../../../i18n/LanguageProvider.jsx'
 import { publicImageUrl, publicThumbUrl } from '../../../data/storage.js'
 import { Img } from '../../../ui/Img.jsx'
@@ -23,16 +23,18 @@ export function StatusBadges({ program, className }) {
 /**
  * One program/project card (the Programs list and the Home shortcut). Mobile-first: cover with the dark overlay and the names on
  * it, then status + dates + location and a full-width target. A `restricted` card (withdrawn) carries the names and the status
- * only: no cover, no dates, no link into the content (03-6).
+ * only: no cover, no dates, no link into the content (03-6), EXCEPT one link to the Program page when the founder still holds a valid
+ * certificate (`certificate_count`, owner decision 08 section 18.2: a certificate stays available after a withdrawal).
  */
 export default function ProgramCard({ program }) {
-  const { t, pick } = useLanguage()
+  const { t, tn, pick } = useLanguage()
   const range = useDateRange()
   const programName = pick(program, 'program_name')
   const projectName = pick(program, 'project_name')
   const place = pick(program, 'location')
   const dates = range(program.start_date, program.end_date)
   const restricted = Boolean(program.restricted)
+  const certificates = restricted ? Number(program.certificate_count) || 0 : 0
   const href = `/alumni/founder/programs/${program.project_id}`
   const names = (
     <div className="relative z-10 space-y-0.5 p-4">
@@ -53,7 +55,7 @@ export default function ProgramCard({ program }) {
       )}
       <div className="space-y-3 p-4">
         <StatusBadges program={program} />
-        {restricted && <p className="text-sm text-muted-foreground" data-testid="withdrawn-note">{t('founder.programs.withdrawnNote')}</p>}
+        {restricted && <p className="text-sm text-muted-foreground" data-testid="withdrawn-note">{t(certificates > 0 ? 'founder.programs.withdrawnNoteCertificate' : 'founder.programs.withdrawnNote')}</p>}
         {!restricted && (dates || place) && (
           <ul className="space-y-1 text-sm text-muted-foreground">
             {dates && (
@@ -63,6 +65,12 @@ export default function ProgramCard({ program }) {
               <li className="flex items-center gap-2"><MapPin className="h-4 w-4 shrink-0" aria-hidden="true" /><span className="min-w-0 break-words" dir="auto">{place}</span></li>
             )}
           </ul>
+        )}
+        {certificates > 0 && (
+          <Link to={href} aria-label={t('founder.programs.openCertificate', { name: projectName })} data-testid="certificate-link" className="tap-target inline-flex w-full items-center justify-between gap-2 rounded-md bg-surface px-4 text-sm font-semibold transition-colors duration-300 after:absolute after:inset-0 after:z-20 after:content-[''] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring group-hover:bg-primary group-hover:text-primary-foreground">
+            <span className="inline-flex items-center gap-2"><Medal className="h-4 w-4" aria-hidden="true" />{tn('founder.programs.myCertificate', certificates)}</span>
+            <ArrowRight className="h-4 w-4 rtl:rotate-180" aria-hidden="true" />
+          </Link>
         )}
         {!restricted && (
           <Link to={href} aria-label={t('founder.programs.open', { name: projectName })} className="tap-target inline-flex w-full items-center justify-between rounded-md bg-surface px-4 text-sm font-semibold transition-colors duration-300 after:absolute after:inset-0 after:z-20 after:content-[''] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring group-hover:bg-primary group-hover:text-primary-foreground">

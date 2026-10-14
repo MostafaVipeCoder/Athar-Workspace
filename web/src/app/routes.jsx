@@ -1,4 +1,4 @@
-import { createBrowserRouter, createMemoryRouter, Navigate } from 'react-router-dom'
+import { createBrowserRouter, Navigate } from 'react-router-dom'
 import RootLayout, { RouteError } from './RootLayout.jsx'
 import RequireAccess from './guards/RequireAccess.jsx'
 import ProjectAccess from './guards/ProjectAccess.jsx'
@@ -28,6 +28,13 @@ const distributionView = (viewKey) => ({
     return { Component: () => <Page viewKey={viewKey} /> }
   },
 })
+/** Analytics and Impact are two modes of ONE lazy page (the mode is closed over, like the distribution views). */
+const analyticsView = (mode) => ({
+  lazy: async () => {
+    const { default: Page } = await import('./pages/alumni-admin/AnalyticsPage.jsx')
+    return { Component: () => <Page mode={mode} /> }
+  },
+})
 const soon = (step, what) => ({ element: <ComingSoon step={step} what={what} /> })
 
 /**
@@ -47,9 +54,9 @@ export const routes = [
         element: <AuthShell />,
         children: [
           { path: 'login', ...page(() => import('./pages/LoginPage.jsx')) },
-          { path: 'signup', ...soon(8, 'open founder sign-up') },
+          { path: 'signup', ...page(() => import('./pages/SignupPage.jsx')) },
           { path: 'invite/staff/:token', ...page(() => import('./pages/StaffInvitePage.jsx')) },
-          { path: 'invite/:token', ...soon(8, 'invitation accept') },
+          { path: 'invite/:token', ...page(() => import('./pages/FounderInvitePage.jsx')) },
           { path: 'forgot-password', ...soon('2b', 'password recovery') },
           { path: 'reset-password', ...soon('2b', 'password reset') },
         ],
@@ -112,6 +119,8 @@ export const routes = [
           { path: 'book/:nodeRef/:hostRef?', ...page(() => import('./pages/PublicBookingPage.jsx')) },
           { path: 'view/:nodeRef/:viewKey', ...page(() => import('./pages/NodeViewPage.jsx')) },
           { path: 'verify/:code?', ...page(() => import('./pages/VerifyCertificatePage.jsx')) },
+          // DEV ONLY (excluded from production builds like /dev/nodes): the iPhone / Safari image diagnostics, open without signing in (08 section 18.5)
+          ...(import.meta.env.DEV ? [{ path: 'dev/image-check', ...page(() => import('./pages/DevImageCheckPage.jsx')) }] : []),
         ],
       },
 
@@ -148,11 +157,13 @@ export const routes = [
               { path: 'alumni/founder/programs/:projectId/agenda/:tab?', ...page(() => import('./pages/founder/FounderAgendaPage.jsx')) },
               // the old placeholder of 06 section 2.5: the Library is a block of the Program page (its button opens the library page)
               { path: 'alumni/founder/programs/:projectId/library', ...page(() => import('./pages/founder/FounderProgramRedirect.jsx')) },
-              { path: 'alumni/founder/opportunities', ...soon(10, 'opportunities') },
-              { path: 'alumni/founder/notifications', ...soon(10, 'notifications') },
-              { path: 'alumni/founder/profile', ...soon(10, 'founder profile') },
-              { path: 'alumni/founder/progress', ...soon(10, 'progress') },
-              { path: 'alumni/founder/company/:id', ...soon(10, 'company profile') },
+              // step 10 (design 09 F4 - F9): the Alumni pages of the founder; `company/new` is a static segment, so it outranks `company/:id`
+              { path: 'alumni/founder/opportunities', ...page(() => import('./pages/founder/FounderOpportunitiesPage.jsx')) },
+              { path: 'alumni/founder/notifications', ...page(() => import('./pages/founder/FounderNotificationsPage.jsx')) },
+              { path: 'alumni/founder/profile', ...page(() => import('./pages/founder/FounderProfilePage.jsx')) },
+              { path: 'alumni/founder/progress', ...page(() => import('./pages/founder/FounderProgressPage.jsx')) },
+              { path: 'alumni/founder/company/new', ...page(() => import('./pages/founder/FounderCompanyNewPage.jsx')) },
+              { path: 'alumni/founder/company/:id', ...page(() => import('./pages/founder/FounderCompanyPage.jsx')) },
             ],
           },
         ],
@@ -166,10 +177,17 @@ export const routes = [
             element: <NetworkShell />,
             children: [
               { path: 'alumni/admin', element: <Navigate to="dashboard" replace /> },
-              ...['dashboard', 'invitations', 'notifications', 'analytics', 'opportunities', 'impact', 'workspace', 'directory', 'company/:id'].map((p) => ({
-                path: `alumni/admin/${p}`,
-                ...soon(10, `alumni admin: ${p}`),
-              })),
+              // step 10 (manager side): the pages live in pages/alumni-admin, one lazy chunk each; a path not built yet keeps its placeholder
+              { path: 'alumni/admin/dashboard', ...page(() => import('./pages/alumni-admin/DashboardPage.jsx')) },
+              { path: 'alumni/admin/directory', ...page(() => import('./pages/alumni-admin/DirectoryPage.jsx')) },
+              { path: 'alumni/admin/directory/import', ...page(() => import('./pages/alumni-admin/ImportPage.jsx')) },
+              { path: 'alumni/admin/invitations', ...page(() => import('./pages/alumni-admin/InvitationsPage.jsx')) },
+              { path: 'alumni/admin/notifications', ...page(() => import('./pages/alumni-admin/NotificationsPage.jsx')) },
+              { path: 'alumni/admin/opportunities', ...page(() => import('./pages/alumni-admin/OpportunitiesPage.jsx')) },
+              { path: 'alumni/admin/analytics', ...analyticsView('analytics') },
+              { path: 'alumni/admin/impact', ...analyticsView('impact') },
+              { path: 'alumni/admin/workspace', ...page(() => import('./pages/alumni-admin/WorkspacePage.jsx')) },
+              { path: 'alumni/admin/company/:id', ...page(() => import('./pages/alumni-admin/CompanyPage.jsx')) },
             ],
           },
         ],
@@ -187,4 +205,3 @@ export const routes = [
 ]
 
 export const createAppRouter = (basename = routerBasename(import.meta.env.BASE_URL)) => createBrowserRouter(routes, { basename })
-export const createTestRouter = (initialEntries) => createMemoryRouter(routes, { initialEntries })

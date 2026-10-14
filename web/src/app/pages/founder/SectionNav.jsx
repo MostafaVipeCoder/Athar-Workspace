@@ -6,9 +6,9 @@ import './i18n.js'
 /**
  * Section chips under the site header (phones first): one tap scrolls to a block, the chip of the block being read is marked.
  * A plain in-page navigation (no routing, no state in the URL). `sections` = [{ id, label }]. Shown by the page only when the
- * program has three or more blocks. The marker follows the scroll through an IntersectionObserver where the browser has one.
+ * program has three or more blocks. `label` names the navigation for a page that is not a program (the Alumni pages). The marker follows the scroll through an IntersectionObserver where the browser has one.
  */
-export default function SectionNav({ sections }) {
+export default function SectionNav({ sections, label }) {
   const { t } = useLanguage()
   const [active, setActive] = useState(null)
   const idsKey = sections.map((s) => s.id).join('|')
@@ -40,7 +40,7 @@ export default function SectionNav({ sections }) {
   }
 
   return (
-    <nav aria-label={t('founder.nav.label')} className="sticky top-header z-20 -mx-4 bg-background/95 px-4 py-2 backdrop-blur print:hidden" data-testid="section-nav">
+    <nav aria-label={label ?? t('founder.nav.label')} className="sticky top-header z-20 -mx-4 bg-background/95 px-4 py-2 backdrop-blur print:hidden" data-testid="section-nav">
       <ul className="flex gap-2 overflow-x-auto pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
         {sections.map((s) => (
           <li key={s.id} className="shrink-0">

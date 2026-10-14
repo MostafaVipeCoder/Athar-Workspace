@@ -15,6 +15,9 @@ registerMessages('founder', {
     'programs.open': 'Open {name}', 'programs.openCard': 'Open',
     'programs.withdrawnToggle': { one: 'Withdrawn program ({count})', other: 'Withdrawn programs ({count})' },
     'programs.withdrawnNote': 'You have withdrawn from this program. Only its status is shown.',
+    // 08 section 18.2: an issued certificate stays valid and available after a withdrawal (a PM mistake): the status-only card links to it
+    'programs.withdrawnNoteCertificate': 'You have withdrawn from this program. Only its status and your certificate are shown.',
+    'programs.myCertificate': { one: 'My certificate', other: 'My certificates' }, 'programs.openCertificate': 'Open the certificate of {name}',
     'programs.in': 'In {place}',
     // status
     'status.accepted': 'Accepted', 'status.attended': 'Attended', 'status.withdrawn': 'Withdrawn', 'status.completed': 'Completed',
@@ -24,6 +27,7 @@ registerMessages('founder', {
     'page.empty': 'Nothing to show yet', 'page.emptyBody': 'The program team has not published anything for this program yet. Come back soon.',
     'page.notAvailable': 'This program is not available', 'page.notAvailableBody': 'You are not a participant of this program, or it no longer exists.',
     'page.withdrawn': 'You have withdrawn from this program', 'page.withdrawnBody': 'Its content is no longer shown to you. If this is a mistake, contact the program team.',
+    'page.withdrawnBodyCertificate': 'Its content is no longer shown to you, but your certificate stays valid and available below. If this is a mistake, contact the program team.',
     'header.timezone': 'Times in {tz}', 'header.program': 'Program',
     'nav.label': 'Sections of this program',
     // blocks
@@ -57,6 +61,8 @@ registerMessages('founder', {
     'programs.open': 'فتح {name}', 'programs.openCard': 'فتح',
     'programs.withdrawnToggle': { zero: 'لا برامج منسحب منها', one: 'برنامج منسحب منه', two: 'برنامجان منسحب منهما', few: '{count} برامج منسحب منها', many: '{count} برنامجاً منسحباً منها', other: '{count} برنامج منسحب منها' },
     'programs.withdrawnNote': 'لقد انسحبت من هذا البرنامج. تظهر حالته فقط.',
+    'programs.withdrawnNoteCertificate': 'لقد انسحبت من هذا البرنامج. تظهر حالته وشهادتك فقط.',
+    'programs.myCertificate': { zero: 'شهاداتي', one: 'شهادتي', two: 'شهادتاي', few: 'شهاداتي', many: 'شهاداتي', other: 'شهاداتي' }, 'programs.openCertificate': 'فتح شهادة {name}',
     'programs.in': 'في {place}',
     'status.accepted': 'مقبول', 'status.attended': 'حضر', 'status.withdrawn': 'منسحب', 'status.completed': 'مكتمل',
     'status.withdrawalRequested': 'طلب انسحاب', 'status.label': 'حالتك',
@@ -64,6 +70,7 @@ registerMessages('founder', {
     'page.empty': 'لا شيء لعرضه بعد', 'page.emptyBody': 'لم ينشر فريق البرنامج أي محتوى لهذا البرنامج حتى الآن. عد قريباً.',
     'page.notAvailable': 'هذا البرنامج غير متاح', 'page.notAvailableBody': 'أنت لست مشاركاً في هذا البرنامج، أو لم يعد موجوداً.',
     'page.withdrawn': 'لقد انسحبت من هذا البرنامج', 'page.withdrawnBody': 'لم يعد محتواه يظهر لك. إذا كان ذلك خطأً فتواصل مع فريق البرنامج.',
+    'page.withdrawnBodyCertificate': 'لم يعد محتواه يظهر لك، لكن شهادتك تبقى صالحة ومتاحة أدناه. إذا كان ذلك خطأً فتواصل مع فريق البرنامج.',
     'header.timezone': 'المواعيد بتوقيت {tz}', 'header.program': 'البرنامج',
     'nav.label': 'أقسام هذا البرنامج',
     'block.description': 'عن البرنامج', 'block.agenda': 'أجندة البرنامج', 'block.mentors': 'المرشدون', 'block.companies': 'الشركات',

@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Navigate, useNavigate, useSearchParams } from 'react-router-dom'
+import { Link, Navigate, useNavigate, useSearchParams } from 'react-router-dom'
 import { useAuth } from '../AuthContext.js'
 import { Button } from '../../ui/Button.jsx'
 import { Field } from '../../ui/Field.jsx'
@@ -9,6 +9,7 @@ import { canOpenPath, safeNext } from '../../lib/access.js'
 import { roleHome } from '../../lib/permissions.js'
 import { readLastArea } from '../lastArea.js'
 import { AppError } from '../../data/errors.js'
+import './alumniAuth.login.i18n.js'
 
 /**
  * One login page for every role (design 06 section 2.1). Role-aware redirect; ?next honoured only if reachable.
@@ -70,6 +71,9 @@ export default function LoginPage() {
           {busy ? t('auth.submitting') : t('auth.submit')}
         </Button>
       </form>
+      <p className="mt-4 text-sm text-muted-foreground" data-testid="login-signup">
+        {t('alumni.auth.login.noAccount')} <Link to="/signup" className="font-semibold text-primary underline-offset-4 hover:underline">{t('alumni.auth.login.createAccount')}</Link>
+      </p>
     </div>
   )
 }

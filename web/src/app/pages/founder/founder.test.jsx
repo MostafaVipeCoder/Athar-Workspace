@@ -101,6 +101,42 @@ describe('Founder Programs list', () => {
     expect(old.querySelector('img')).toBeNull()
   })
 
+  it('a withdrawn card whose founder still HOLDS a valid certificate links to it (08 section 18.2): the one exception to "no link", still no cover and no dates', async () => {
+    const user = userEvent.setup()
+    mocks.list.mockResolvedValue([
+      card(),
+      { participant_id: 'pa9', project_id: 'p9', program_id: 'g1', status: 'withdrawn', restricted: true, certificate_count: 1, project_name_en: 'Old cohort', program_name_en: 'Climate Accelerator' },
+      { participant_id: 'pa8', project_id: 'p8', program_id: 'g1', status: 'withdrawn', restricted: true, certificate_count: 0, project_name_en: 'Other cohort', program_name_en: 'Climate Accelerator' },
+    ])
+    renderWithProviders(withAuth(<FounderProgramsPage />), { route: '/alumni/founder/programs?lang=en' })
+    await screen.findByTestId('founder-programs')
+    await user.click(screen.getByRole('button', { name: /Withdrawn programs \(2\)/ }))
+    const withdrawn = screen.getAllByTestId('program-card').filter((c) => c.getAttribute('data-status') === 'withdrawn')
+    const old = withdrawn.find((c) => within(c).queryByText('Old cohort'))
+    const other = withdrawn.find((c) => within(c).queryByText('Other cohort'))
+    expect(within(old).getByTestId('withdrawn-note')).toHaveTextContent('Only its status and your certificate are shown')
+    expect(within(old).getByRole('link', { name: 'Open the certificate of Old cohort' })).toHaveAttribute('href', '/alumni/founder/programs/p9')
+    expect(within(old).getByTestId('certificate-link')).toHaveTextContent('My certificate')
+    expect(within(old).getAllByRole('link')).toHaveLength(1)
+    expect(old.querySelector('img')).toBeNull()
+    expect(within(old).queryByText(/Mar 2030/)).toBeNull()
+    // no certificate = the plain status-only card, no link
+    expect(within(other).queryByRole('link')).toBeNull()
+    expect(within(other).getByTestId('withdrawn-note')).toHaveTextContent('Only its status is shown')
+  })
+
+  it('the withdrawn card with a certificate in Arabic RTL: the note, the link label and the plural of "certificate"', async () => {
+    const user = userEvent.setup()
+    mocks.list.mockResolvedValue([{ participant_id: 'pa9', project_id: 'p9', program_id: 'g1', status: 'withdrawn', restricted: true, certificate_count: 2, project_name_ar: 'دفعة قديمة', program_name_ar: 'مسرّعة المناخ' }])
+    renderWithProviders(withAuth(<FounderProgramsPage />), { route: '/alumni/founder/programs?lang=ar' })
+    await user.click(await screen.findByRole('button', { name: /برنامج منسحب|برنامجان منسحب|منسحب/ }))
+    const c = await screen.findByTestId('program-card')
+    expect(within(c).getByTestId('withdrawn-note')).toHaveTextContent('تظهر حالته وشهادتك فقط')
+    expect(within(c).getByTestId('certificate-link')).toHaveTextContent('شهادتاي')
+    expect(within(c).getByRole('link', { name: 'فتح شهادة دفعة قديمة' })).toHaveAttribute('href', '/alumni/founder/programs/p9')
+    expect(document.documentElement.dir).toBe('rtl')
+  })
+
   it('shows an error state with retry when the list cannot be loaded', async () => {
     mocks.list.mockRejectedValueOnce(new AppError('network'))
     renderWithProviders(withAuth(<FounderProgramsPage />), { route: '/alumni/founder/programs?lang=en' })
@@ -325,6 +361,25 @@ describe('Founder Program page', () => {
     expect(screen.getByTestId('program-header').querySelector('img')).toBeNull()
     expect(screen.queryByText(/Times in/)).toBeNull()
     expect(blockIds()).toEqual([])
+  })
+
+  it('a WITHDRAWN participant who still holds a valid certificate keeps it: the status card AND the certificate block (nothing else), no cover, no dates (08 section 18.2)', async () => {
+    mocks.page.mockResolvedValue({
+      project: { id: P, name_en: 'Cohort A', name_ar: 'الدفعة أ', program: { id: 'g1', name_en: 'Climate Accelerator' } },
+      participant: { id: 'pa1', status: 'withdrawn', withdrawal_requested: false }, restricted: true,
+      blocks: [{ type: 'certificate', data: { items: [{ certificate_id: 'c1', node_id: 'cn1', code: 'AB12-CD34-EF56', issued_at: '2030-03-20T10:00:00Z', person_name: 'Salma Hassan', company_name: 'Palm Tech', program_name: 'Climate Accelerator' }] } }],
+    })
+    renderPage()
+    expect(await screen.findByText('You have withdrawn from this program')).toBeInTheDocument()
+    expect(screen.getByText(/your certificate stays valid and available below/)).toBeInTheDocument()
+    expect(screen.getByTestId('status-badge')).toHaveTextContent('Withdrawn')
+    expect(await screen.findByTestId('founder-certificate')).toBeInTheDocument()
+    expect(screen.getByTestId('founder-certificate-person')).toHaveTextContent('Salma Hassan')
+    expect(screen.getByTestId('founder-certificate-code')).toHaveTextContent('AB12-CD34-EF56')
+    expect(blockIds()).toEqual(['certificate'])
+    expect(screen.getByTestId('program-header').querySelector('img')).toBeNull()
+    expect(screen.queryByText(/Times in/)).toBeNull()
+    expect(screen.queryByText('Nothing to show yet')).toBeNull()
   })
 
   it('a founder who is NOT a participant (forbidden) gets "not available" and nothing of the project', async () => {

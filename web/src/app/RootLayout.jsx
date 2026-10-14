@@ -10,6 +10,7 @@ import { buttonClass } from '../ui/buttonStyles.js'
 import { setGlobalErrorListener } from '../data/queryClient.js'
 import AuthProvider from './AuthProvider.jsx'
 import EnvBanner from './EnvBanner.jsx'
+import RouteTitle from './RouteTitle.jsx'
 import NotFoundPage from './pages/NotFoundPage.jsx'
 
 export function CrashScreen({ onReload }) {
@@ -50,6 +51,7 @@ export default function RootLayout() {
       <ToastProvider>
         <ConfirmProvider>
           <GlobalErrorToasts />
+          <RouteTitle />
           <AuthProvider>
             <EnvBanner />
             <ErrorBoundary name="root" fallback={() => <CrashScreen />}>

@@ -9,11 +9,12 @@ import { useAuth } from '../../AuthContext.js'
 import ProgramCard from './ProgramCard.jsx'
 import { ProgramsSkeleton } from './FounderProgramsPage.jsx'
 import { splitPrograms } from './programLogic.js'
+import HomeAlumniCards from './HomeAlumniCards.jsx'
 import './i18n.js'
 
 /**
  * /alumni/founder/dashboard - the lean founder Home (step 8): a greeting and the programs the founder takes part in, with a link to
- * the whole list. The richer dashboard of the old app (company progress, opportunities, notifications) is step 10 and moves here later.
+ * the whole list; step 10 added the Alumni part (profile completeness, the next step, yearly figures due, unread notifications, shortcuts: HomeAlumniCards).
  */
 export default function FounderHomePage() {
   const { t } = useLanguage()
@@ -29,6 +30,8 @@ export default function FounderHomePage() {
         <h1 className="text-section-title">{name ? t('founder.home.hello', { name }) : t('founder.home.welcome')}</h1>
         <p className="mt-1 text-base text-muted-foreground">{t('founder.home.subtitle')}</p>
       </div>
+
+      <HomeAlumniCards />
 
       <section className="space-y-3" aria-labelledby="home-programs">
         <h2 id="home-programs" className="text-card-title">{t('founder.home.programs')}</h2>

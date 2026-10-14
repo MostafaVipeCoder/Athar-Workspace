@@ -14,10 +14,13 @@
  *  - an animated GIF / APNG keeps its FIRST FRAME and the result says so (`report.notices`): WebP from a canvas is a still image, and
  *    an animation is not what covers, photos and logos are for (decision recorded in web/README.md);
  *  - a 320 px thumbnail (`thumb`) is made when the profile asks for one;
+ *  - a SHARED image (profile.og: covers, landing images, the share image; owner decision 08 section 18.6) also gets the 1200 x 630 JPEG link-preview
+ *    derivative (`og`: cover crop, progressive where the encoder can, <= 300 KB). It never blocks the WebP: when it cannot be made the result has
+ *    `og: null` and the notice `ogFailed` (the backfill script can make it later; a backend without the JPEG capability makes none, silently);
  *  - memory: nothing is drawn on a DOM canvas when OffscreenCanvas exists, the decoded bitmap is released before the encode loop.
  */
 import { ImageError } from './errors.js'
-import { MAX_SOURCE_BYTES, MAX_SOURCE_PIXELS, SVG_MIME, WEBP_MIME, qualityLadder, resolveProfile } from './profiles.js'
+import { MAX_SOURCE_BYTES, MAX_SOURCE_PIXELS, OG_HEIGHT, OG_MIME, OG_TARGET_BYTES, OG_WIDTH, SVG_MIME, WEBP_MIME, ogQualityLadder, qualityLadder, resolveProfile } from './profiles.js'
 import { bytesOf, readHead, sniffImage } from './sniff.js'
 import { browserBackend } from './canvas.js'
 
@@ -54,7 +57,7 @@ export function svgProblem(text) {
   return null
 }
 
-const progressOf = { checking: 5, decoding: 20, resizing: 35, encoding: 40, thumbnail: 90, done: 100 }
+const progressOf = { checking: 5, decoding: 20, resizing: 35, encoding: 40, thumbnail: 90, og: 95, done: 100 }
 
 function checkAborted(signal) {
   if (signal?.aborted) throw new ImageError('aborted')
@@ -90,8 +93,34 @@ async function convertVector(file, p, emit) {
     profile: p.name,
     full: { blob, width: 0, height: 0, bytes: file.size, mime: SVG_MIME, ext: 'svg' },
     thumb: null,
+    og: null,
     source: { name: file.name ?? '', type: 'svg', mime: file.type ?? '', bytes: file.size, width: 0, height: 0 },
-    report: { kind: 'vector', sourceBytes: file.size, bytes: file.size, savedBytes: 0, quality: null, lossless: false, attempts: 0, width: 0, height: 0, sourceWidth: 0, sourceHeight: 0, notices: [] },
+    report: { kind: 'vector', sourceBytes: file.size, bytes: file.size, savedBytes: 0, quality: null, lossless: false, attempts: 0, width: 0, height: 0, sourceWidth: 0, sourceHeight: 0, notices: [], og: null },
+  }
+}
+
+/**
+ * The JPEG link-preview derivative: cover crop of the decoded image to 1200 x 630, then the quality ladder until it fits 300 KB (else the smallest).
+ * Returns null when the backend cannot or the encode fails (never throws except for an abort).
+ */
+async function makeOg(decoded, backend, signal) {
+  let surface = null
+  try {
+    surface = await backend.coverCrop(decoded, OG_WIDTH, OG_HEIGHT)
+    let best = null
+    for (const quality of ogQualityLadder()) {
+      checkAborted(signal)
+      const r = await backend.encodeJpeg(surface, { quality })
+      if (!r?.blob) return null
+      if (!best || r.blob.size < best.blob.size) best = { blob: r.blob, progressive: Boolean(r.progressive), quality }
+      if (r.blob.size <= OG_TARGET_BYTES) break
+    }
+    return best && { blob: best.blob, width: OG_WIDTH, height: OG_HEIGHT, bytes: best.blob.size, mime: OG_MIME, ext: 'jpg', quality: best.quality, progressive: best.progressive }
+  } catch (err) {
+    if (err instanceof ImageError && err.code === 'aborted') throw err
+    return null
+  } finally {
+    surface?.dispose?.()
   }
 }
 
@@ -186,6 +215,14 @@ async function run(file, p, { onProgress, signal, backend }) {
       }
     }
 
+    // ---- link-preview JPEG of a shared image (the decoded bitmap is still alive; the WebP above is already final)
+    let og = null
+    if (p.og && typeof backend.coverCrop === 'function' && typeof backend.encodeJpeg === 'function') {
+      emit('og')
+      og = await makeOg(decoded, backend, signal)
+      if (!og) notices.push('ogFailed')
+    }
+
     const kept = full.blob.size === file.size && info.type === 'webp' && (keepAsIs || quality === null)
     emit('done')
     const wrap = (x) => (x ? { blob: x.blob, width: x.width, height: x.height, bytes: x.blob.size, mime: WEBP_MIME, ext: 'webp' } : null)
@@ -194,6 +231,7 @@ async function run(file, p, { onProgress, signal, backend }) {
       profile: p.name,
       full: fullOut,
       thumb: wrap(thumb),
+      og,
       source: { name: file.name ?? '', type: info.type, mime: file.type ?? '', bytes: file.size, width: sourceWidth, height: sourceHeight },
       report: {
         kind: kept ? 'kept' : 'converted',
@@ -208,6 +246,7 @@ async function run(file, p, { onProgress, signal, backend }) {
         sourceWidth,
         sourceHeight,
         notices,
+        og: og ? { bytes: og.bytes, width: og.width, height: og.height, quality: og.quality, progressive: og.progressive } : null,
       },
     }
   } finally {

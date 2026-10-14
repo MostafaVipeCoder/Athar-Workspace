@@ -10,6 +10,8 @@
  *   targetBytes  soft ceiling: the ladder keeps stepping down until the result fits (or minQuality is reached)
  *   lossless     try lossless first (frames: sharp edges + exact alpha); the ladder falls back to lossy only above `targetBytes`
  *   vector       an SVG is accepted and stored untouched (logos); every other profile refuses SVG
+ *   og           the image is SHARED (a link preview may show it): the pipeline also makes the 1200 x 630 JPEG derivative of
+ *                section 18.6 (see the OG_* constants below)
  *
  * Transparency is ALWAYS preserved (WebP carries alpha), so a transparent logo or frame never gets a white box.
  */
@@ -21,12 +23,26 @@ export const MAX_SOURCE_BYTES = 25 * 1024 * 1024
 export const MAX_SOURCE_PIXELS = 100_000_000
 export const THUMB_SUFFIX = '_t'
 
+/**
+ * The JPEG LINK-PREVIEW derivative (owner decision 08 section 18.6): LinkedIn and some WhatsApp versions do not render a WebP `og:image`, so an image
+ * uploaded with a SHARING purpose (profile.og) also gets a 1200 x 630 JPEG (cover crop, progressive where the encoder can, quality ~82, <= 300 KB:
+ * WhatsApp ignores a larger preview) in the public bucket `og-images` at the path derived from the source path (paths.js `ogPathOf`; no DB column).
+ * WebP stays the stored / displayed format. Server mirror: db/scripts/lib/plan.mjs, m45.
+ */
+export const OG_MIME = 'image/jpeg'
+export const OG_BUCKET = 'og-images'
+export const OG_WIDTH = 1200
+export const OG_HEIGHT = 630
+export const OG_QUALITY = 0.82
+export const OG_MIN_QUALITY = 0.52
+export const OG_TARGET_BYTES = 300 * 1024
+
 const KB = 1024
 export const PROFILES = Object.freeze({
-  /** Program / project / agenda / form covers and the share image (wide, shown large). */
-  cover: Object.freeze({ maxPx: 1920, thumbPx: 320, quality: 0.8, minQuality: 0.5, targetBytes: 500 * KB }),
-  /** Landing hero + card covers: same size as a cover, a little more quality because they are the page. */
-  landing: Object.freeze({ maxPx: 1920, thumbPx: 320, quality: 0.82, minQuality: 0.55, targetBytes: 600 * KB }),
+  /** Program / project / agenda / form covers and the share image (wide, shown large; shared, so it also gets the JPEG link-preview derivative). */
+  cover: Object.freeze({ maxPx: 1920, thumbPx: 320, quality: 0.8, minQuality: 0.5, targetBytes: 500 * KB, og: true }),
+  /** Landing hero + card covers + the SEO image: same size as a cover, a little more quality because they are the page (shared: JPEG derivative too). */
+  landing: Object.freeze({ maxPx: 1920, thumbPx: 320, quality: 0.82, minQuality: 0.55, targetBytes: 600 * KB, og: true }),
   /** Library images and anything else shown inside content. */
   content: Object.freeze({ maxPx: 1600, thumbPx: 320, quality: 0.82, minQuality: 0.5, targetBytes: 400 * KB }),
   /** Photos of people (experts, founders, profile): small and square-ish. */
@@ -46,6 +62,7 @@ export const PROFILE_NAMES = Object.freeze(Object.keys(PROFILES))
 export const KIND_PROFILE = Object.freeze({
   cover: 'cover',
   'form-cover': 'cover',
+  'project-cover': 'cover', // the folder name the stage-2b migration gave the project covers (a future project-cover upload keeps its link preview)
   og: 'cover',
   landing: 'landing',
   library: 'content',
@@ -80,4 +97,12 @@ export function qualityLadder(profile) {
   for (let q = top; q >= p.minQuality - 1e-9; q -= 0.07) steps.push(Math.round(q * 100) / 100)
   if (steps[steps.length - 1] > p.minQuality) steps.push(p.minQuality)
   return [...new Set(steps)]
+}
+
+/** Quality ladder of the JPEG derivative: 0.82 stepping down by 0.08 to OG_MIN_QUALITY (the same steps as db/scripts/backfill-og-images.mjs). */
+export function ogQualityLadder() {
+  const steps = []
+  for (let q = OG_QUALITY; q > OG_MIN_QUALITY - 1e-9; q -= 0.08) steps.push(Math.round(q * 100) / 100)
+  if (steps[steps.length - 1] > OG_MIN_QUALITY) steps.push(OG_MIN_QUALITY)
+  return steps
 }

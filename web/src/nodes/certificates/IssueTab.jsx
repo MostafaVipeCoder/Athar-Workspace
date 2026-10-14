@@ -228,7 +228,7 @@ export default function IssueTab({ node, projectId }) {
                         {r.grant && ` · ${r.grant.revoked_at ? t('certificates.issue.grant.revokedOn', { date: dateOf(r.grant.revoked_at) }) : t('certificates.issue.grant.on', { date: dateOf(r.grant.granted_at) })}`}
                         {r.grant?.revoked_at && r.grant.revoked_reason ? ` · ${t('certificates.issue.reason', { reason: r.grant.revoked_reason })}` : ''}
                       </p>
-                      {flagged && <p className="flex items-start gap-1 text-xs text-destructive-text" data-testid="row-flag"><AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden="true" />{t(r.status === 'withdrawn' ? 'certificates.issue.flag.withdrawnIssued' : 'certificates.issue.flag.statusChanged')}</p>}
+                      {flagged && <p className="flex items-start gap-1 text-xs text-muted-foreground" data-testid="row-flag"><Info className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden="true" />{t(r.status === 'withdrawn' ? 'certificates.issue.flag.withdrawnIssued' : 'certificates.issue.flag.statusChanged')}</p>}
                     </div>
                     {canRevokeAll(r) && (
                       <Button size="sm" variant="destructive" onClick={() => { setRevokingAll(r); setReason('') }} aria-label={t('certificates.issue.revokeAllFor', { name: title })} data-testid="row-revoke-all">{t('certificates.issue.revokeAll')}</Button>

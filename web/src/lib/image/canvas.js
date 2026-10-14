@@ -9,8 +9,17 @@
  *   decode(file)                      -> Promise<Decoded>   { width, height, source, dispose() }; EXIF orientation applied
  *   scale(decoded, width, height)     -> Promise<Surface>   { width, height, source, dispose() }; step-wise for big reductions
  *   encode(surface, { quality })      -> Promise<Blob|null> image/webp (native canvas, else the WASM fallback), or null when neither could
+ *   OPTIONAL (shared images only: the JPEG link-preview derivative of owner decision 08 section 18.6; a backend without them makes none):
+ *   coverCrop(decoded, width, height) -> Promise<Surface>   the image scaled to COVER width x height, centre-cropped, white behind transparency
+ *   encodeJpeg(surface, { quality })  -> Promise<{ blob, progressive }|null>   image/jpeg: progressive mozjpeg (WASM) first, else the canvas encoder
  */
-import { WEBP_MIME } from './profiles.js'
+import { OG_MIME, WEBP_MIME } from './profiles.js'
+
+/** How many encodes each path did since the last reset (the iPhone / Safari diagnostics page reads it: "native" or "wasm"). */
+export const encoderStats = { webpNative: 0, webpWasm: 0, jpegNative: 0, jpegWasm: 0 }
+export function resetEncoderStats() {
+  for (const k of Object.keys(encoderStats)) encoderStats[k] = 0
+}
 
 function makeCanvas(width, height) {
   if (typeof OffscreenCanvas === 'function') return new OffscreenCanvas(width, height)
@@ -31,6 +40,10 @@ function releaseCanvas(c) {
 }
 
 let webpProbe = null
+/** Forget the cached "can this canvas encode WebP" answer (the dev diagnostics page flips `__forceNoNativeWebp` and asks again). */
+export function resetWebpProbe() {
+  webpProbe = null
+}
 /** Can THIS browser's canvas encode WebP? (Chrome / Edge / Firefox yes; Safari and every iOS browser answer PNG.) */
 async function nativeWebp() {
   if (!webpProbe) {
@@ -53,10 +66,11 @@ async function nativeWebp() {
   return webpProbe
 }
 
-function encodeCanvas(canvas, quality) {
-  if (typeof canvas.convertToBlob === 'function') return canvas.convertToBlob({ type: WEBP_MIME, quality })
-  return new Promise((resolve) => canvas.toBlob(resolve, WEBP_MIME, quality))
+function encodeCanvasAs(canvas, type, quality) {
+  if (typeof canvas.convertToBlob === 'function') return canvas.convertToBlob({ type, quality })
+  return new Promise((resolve) => canvas.toBlob(resolve, type, quality))
 }
+const encodeCanvas = (canvas, quality) => encodeCanvasAs(canvas, WEBP_MIME, quality)
 
 /** The fallback is assumed wherever WebAssembly exists (every browser that can decode our images); it is downloaded only when an encode needs it. */
 async function supportsWebp() {
@@ -73,15 +87,47 @@ function readPixels(surface) {
 async function encode(surface, { quality = 0.8 } = {}) {
   if (await nativeWebp()) {
     const blob = await encodeCanvas(surface.source, quality)
-    return blob && blob.type === WEBP_MIME ? blob : null
+    if (blob && blob.type === WEBP_MIME) {
+      encoderStats.webpNative += 1
+      return blob
+    }
+    return null
   }
   if (typeof WebAssembly !== 'object') return null
   try {
     const { encodeWithWasm } = await import('./wasmWebp.js')
-    return await encodeWithWasm(readPixels(surface), { quality })
+    const blob = await encodeWithWasm(readPixels(surface), { quality })
+    if (blob) encoderStats.webpWasm += 1
+    return blob
   } catch {
     return null
   }
+}
+
+/** JPEG for the link-preview derivative: progressive mozjpeg (WASM) first, else the canvas's own encoder (baseline, every browser has it). */
+async function encodeJpeg(surface, { quality = 0.82 } = {}) {
+  if (typeof WebAssembly === 'object' && !(import.meta.env?.DEV && globalThis.__forceNativeJpeg)) {
+    try {
+      const { encodeJpegWithWasm } = await import('./wasmJpeg.js')
+      const blob = await encodeJpegWithWasm(readPixels(surface), { quality })
+      if (blob) {
+        encoderStats.jpegWasm += 1
+        return { blob, progressive: true }
+      }
+    } catch {
+      /* fall through to the canvas encoder */
+    }
+  }
+  try {
+    const blob = await encodeCanvasAs(surface.source, OG_MIME, quality)
+    if (blob && blob.type === OG_MIME) {
+      encoderStats.jpegNative += 1
+      return { blob, progressive: false }
+    }
+  } catch {
+    /* no JPEG at all: the caller skips the derivative */
+  }
+  return null
 }
 
 function loadWithImageElement(file) {
@@ -142,4 +188,56 @@ async function scale(decoded, width, height) {
   return { width, height, source: out, dispose: () => releaseCanvas(out) }
 }
 
-export const browserBackend = { supportsWebp, decode, scale, encode }
+/** The size a source is scaled to so that it COVERS width x height (both sides >= the target), and where the centre crop starts. Pure. */
+export function coverGeometry(sourceWidth, sourceHeight, width, height) {
+  const k = Math.max(width / sourceWidth, height / sourceHeight)
+  const cw = Math.max(width, Math.round(sourceWidth * k))
+  const ch = Math.max(height, Math.round(sourceHeight * k))
+  return { cw, ch, sx: Math.round((cw - width) / 2), sy: Math.round((ch - height) / 2) }
+}
+
+/**
+ * Scale to cover width x height and crop the centre (what `object-fit: cover` shows). The reduction goes through `scale` (halving steps, no aliasing);
+ * white is painted first because a JPEG has no alpha (a transparent PNG cover must not turn black).
+ */
+async function coverCrop(decoded, width, height) {
+  const { cw, ch, sx, sy } = coverGeometry(decoded.width, decoded.height, width, height)
+  const scaled = await scale(decoded, cw, ch)
+  const out = makeCanvas(width, height)
+  const ctx = out.getContext('2d')
+  ctx.fillStyle = '#ffffff'
+  ctx.fillRect(0, 0, width, height)
+  ctx.imageSmoothingQuality = 'high'
+  ctx.drawImage(scaled.source, sx, sy, width, height, 0, 0, width, height)
+  scaled.dispose()
+  return { width, height, source: out, dispose: () => releaseCanvas(out) }
+}
+
+/**
+ * What THIS browser's canvas does with an encode request, for the diagnostics page (fresh probes, nothing cached): { ok, type, bytes, ms, error }.
+ * `via` = 'offscreen' | 'dom'; `type` = the MIME type asked for. A browser that cannot encode the type answers PNG (Safari / iOS for WebP), which shows as ok: false.
+ */
+export async function probeCanvasEncode(type, via = 'offscreen') {
+  const t0 = performance.now()
+  try {
+    let canvas
+    if (via === 'offscreen') {
+      if (typeof OffscreenCanvas !== 'function') return { ok: false, type: null, bytes: 0, ms: 0, error: 'OffscreenCanvas is not available' }
+      canvas = new OffscreenCanvas(16, 16)
+    } else {
+      canvas = document.createElement('canvas')
+      canvas.width = 16
+      canvas.height = 16
+    }
+    const ctx = canvas.getContext('2d')
+    ctx.fillStyle = '#1a27c9'
+    ctx.fillRect(0, 0, 16, 16)
+    const blob = await encodeCanvasAs(canvas, type, 0.8)
+    releaseCanvas(canvas)
+    return { ok: Boolean(blob && blob.type === type), type: blob?.type ?? null, bytes: blob?.size ?? 0, ms: Math.round((performance.now() - t0) * 10) / 10, error: blob ? null : 'the canvas returned nothing' }
+  } catch (err) {
+    return { ok: false, type: null, bytes: 0, ms: Math.round((performance.now() - t0) * 10) / 10, error: String(err?.name ? `${err.name}: ${err.message}` : err) }
+  }
+}
+
+export const browserBackend = { supportsWebp, decode, scale, encode, coverCrop, encodeJpeg }

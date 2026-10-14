@@ -62,7 +62,7 @@ export function validateDraft(draft) {
  *
  * Row state: 'issued' (authorised, at least one founder holds a certificate) | 'authorised' (authorised, nobody holds one yet) | 'revoked' (the
  * authorisation was revoked) | 'pending' (not authorised yet). Person state (decided by the server): issued | revoked | claimable | pending |
- * not_linked | no_name.
+ * not_linked | no_name | not_eligible (authorised and linked, no certificate yet, but the participant is not attended now: nothing can be created, m44).
  */
 export function rowState(row) {
   const g = row?.grant
@@ -81,8 +81,8 @@ const claimable = (row) => row?.counts?.claimable ?? 0
 export const issuable = (row) => row.status === 'attended' && (rowState(row) === 'pending' || rowState(row) === 'revoked' || claimable(row) > 0)
 /** Rows "Issue to all attended" works on: never authorised, or authorised with a founder waiting (a revoked authorisation is skipped on purpose, 07-9). */
 export const issuableInBulk = (row) => row.status === 'attended' && (rowState(row) === 'pending' || (Boolean(row.grant) && !row.grant.revoked_at && claimable(row) > 0))
-/** One founder whose certificate was revoked may be issued AGAIN while the participant is still authorised. */
-export const canReissue = (row, person) => person?.state === 'revoked' && Boolean(person.certificate) && !person.detached && Boolean(row.grant) && !row.grant.revoked_at
+/** One founder whose certificate was revoked may be issued AGAIN while the participant is still authorised AND attended (issuing a new certificate always needs attended; an EXISTING one never depends on it, m44). */
+export const canReissue = (row, person) => row?.status === 'attended' && person?.state === 'revoked' && Boolean(person.certificate) && !person.detached && Boolean(row.grant) && !row.grant.revoked_at
 /** "Revoke all" is offered while the participant is authorised or anyone still holds an active certificate. */
 export const canRevokeAll = (row) => (Boolean(row.grant) && !row.grant.revoked_at) || (row.counts?.issued ?? 0) > 0
 
@@ -107,7 +107,7 @@ export function summarize(rows) {
 export const hasCertificates = (rows) => (rows ?? []).some((r) => Boolean(r.grant) || (r.counts?.issued ?? 0) + (r.counts?.revoked ?? 0) > 0)
 
 /** Badge tone of a person state / row state. */
-export const PERSON_TONES = { issued: 'green', revoked: 'red', claimable: 'blue', pending: 'neutral', not_linked: 'amber', no_name: 'amber' }
+export const PERSON_TONES = { issued: 'green', revoked: 'red', claimable: 'blue', pending: 'neutral', not_linked: 'amber', no_name: 'amber', not_eligible: 'amber' }
 export const ROW_TONES = { pending: 'neutral', authorised: 'blue', issued: 'green', revoked: 'red' }
 
 /**

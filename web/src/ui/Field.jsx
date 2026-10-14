@@ -14,8 +14,11 @@ export const INPUT_CLASS =
 export const SELECT_CLASS = INPUT_CLASS + ' select-chevron appearance-none pe-9'
 export const LABEL_CLASS = 'block text-sm font-medium text-athar-ink'
 
-/** Labelled input with error text wired through aria-invalid/aria-describedby. */
-export const Field = forwardRef(function Field({ label, error, hint, className, inputClassName, as: Tag = 'input', children, ...rest }, ref) {
+/**
+ * Labelled input with error text wired through aria-invalid/aria-describedby. The error is an ALERT (announced when it appears). `invalid` + `describedBy` let a parent that shows ONE message
+ * for several inputs (BilingualField) mark and describe each of them.
+ */
+export const Field = forwardRef(function Field({ label, error, hint, invalid, describedBy, className, inputClassName, as: Tag = 'input', children, ...rest }, ref) {
   const id = useId()
   const errId = `${id}-err`
   const hintId = `${id}-hint`
@@ -27,9 +30,9 @@ export const Field = forwardRef(function Field({ label, error, hint, className, 
       <Tag
         ref={ref}
         id={id}
-        aria-invalid={error ? true : undefined}
-        aria-describedby={[error ? errId : null, hint ? hintId : null].filter(Boolean).join(' ') || undefined}
-        className={cn(Tag === 'select' ? SELECT_CLASS : INPUT_CLASS, Tag === 'textarea' && 'min-h-[90px] leading-relaxed', error && 'border-destructive', inputClassName)}
+        aria-invalid={error || invalid ? true : undefined}
+        aria-describedby={[error ? errId : null, hint ? hintId : null, describedBy].filter(Boolean).join(' ') || undefined}
+        className={cn(Tag === 'select' ? SELECT_CLASS : INPUT_CLASS, Tag === 'textarea' && 'min-h-[90px] leading-relaxed', (error || invalid) && 'border-destructive', inputClassName)}
         {...rest}
       >
         {children}
@@ -40,7 +43,7 @@ export const Field = forwardRef(function Field({ label, error, hint, className, 
         </p>
       )}
       {error && (
-        <p id={errId} className="text-xs text-destructive-text">
+        <p id={errId} role="alert" className="text-xs text-destructive-text">
           {error}
         </p>
       )}

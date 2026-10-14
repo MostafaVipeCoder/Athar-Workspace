@@ -1,3 +1,4 @@
+import { useId } from 'react'
 import { Field, LABEL_CLASS } from './Field.jsx'
 import { cn } from '../lib/cn.js'
 
@@ -7,6 +8,8 @@ import { cn } from '../lib/cn.js'
  */
 export function BilingualField({ label, labels, value, onChange, error, as, required, className, inputClassName, rows }) {
   const v = value ?? { en: '', ar: '' }
+  const errId = `${useId()}-err`
+  const wire = error ? { invalid: true, describedBy: errId } : {}
   const extra = as === 'textarea' ? { rows: rows ?? 3 } : {}
   return (
     <fieldset className={cn('space-y-2', className)}>
@@ -15,10 +18,10 @@ export function BilingualField({ label, labels, value, onChange, error, as, requ
         {required && <span aria-hidden="true" className="text-destructive-text"> *</span>}
       </legend>
       <div className="grid gap-2 sm:grid-cols-2">
-        <Field label={labels?.en ?? 'English'} as={as} dir="ltr" lang="en" value={v.en ?? ''} onChange={(e) => onChange({ ...v, en: e.target.value })} inputClassName={inputClassName} {...extra} />
-        <Field label={labels?.ar ?? 'العربية'} as={as} dir="rtl" lang="ar" value={v.ar ?? ''} onChange={(e) => onChange({ ...v, ar: e.target.value })} inputClassName={inputClassName} {...extra} />
+        <Field label={labels?.en ?? 'English'} as={as} dir="ltr" lang="en" value={v.en ?? ''} onChange={(e) => onChange({ ...v, en: e.target.value })} inputClassName={inputClassName} {...wire} {...extra} />
+        <Field label={labels?.ar ?? 'العربية'} as={as} dir="rtl" lang="ar" value={v.ar ?? ''} onChange={(e) => onChange({ ...v, ar: e.target.value })} inputClassName={inputClassName} {...wire} {...extra} />
       </div>
-      {error && <p className="text-xs text-destructive-text">{error}</p>}
+      {error && <p id={errId} role="alert" className="text-xs text-destructive-text">{error}</p>}
     </fieldset>
   )
 }

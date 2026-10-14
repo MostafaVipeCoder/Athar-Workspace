@@ -19,11 +19,12 @@ export class AppError extends Error {
 const PG_MAP = {
   '42501': 'forbidden', // insufficient_privilege (also raised by our RPCs as 'forbidden')
   '23505': 'conflict', // unique_violation
-  '40001': 'conflict', // serialization / our save_node revision conflict
+  '40001': 'conflict', // a serialization failure (we never raise it ourselves any more: PostgREST 14 retries it for ever; see TOKEN_CODES)
   '23503': 'validation', // fk violation
   '23514': 'validation', // check violation
   '22023': 'validation', // invalid_parameter_value
   '22P02': 'validation', // invalid text representation
+  P0002: 'not_found', // no_data_found (our alumni_not_found)
   PGRST116: 'not_found', // single() found no row
   PGRST301: 'unauthenticated', // JWT expired / invalid
   '28000': 'unauthenticated',
@@ -35,6 +36,8 @@ const PG_MAP = {
  */
 const TOKEN_KEYS = {
   staff_founder_exclusive: 'errors.staffFounderExclusive', // m25 (08 section 15)
+  // m06b / m52 `save_node`: someone else saved a newer revision (P0001, detail = the current rev). NOT 40001: PostgREST retries that for ever.
+  revision_conflict: 'node.conflict',
   // m31 public form submission (hint = token; `form_invalid` carries "<key>:<reason>" in detail -> field errors)
   form_closed: 'form.err.closed',
   form_full: 'form.err.full',
@@ -86,6 +89,23 @@ const TOKEN_KEYS = {
   // m42 certificates per founder
   certificate_grant_revoked: 'certificates.err.grantRevoked',
   certificate_not_linked: 'certificates.err.notLinked',
+  // m49 alumni profile model (hint = token; `alumni_invalid` carries '<field>:<reason>' and `national_id_invalid` 'national_id:<reason>' in detail; texts: shared/alumni/i18n.js)
+  alumni_invalid: 'alumni.err.invalid',
+  national_id_invalid: 'alumni.err.nidInvalid',
+  national_id_conflict: 'alumni.err.nidConflict',
+  alumni_company_exists: 'alumni.err.companyExists',
+  alumni_stale: 'alumni.err.stale',
+  alumni_not_found: 'alumni.err.notFound',
+  alumni_rate_limited: 'alumni.err.rateLimited',
+  alumni_in_use: 'alumni.err.inUse',
+  // m50 (an application for a closed / inactive opportunity)
+  opportunity_closed: 'alumni.err.opportunityClosed',
+}
+
+/** Tokens whose AppError code is not the one their SQLSTATE would give (an application error is P0001 / 22023, but the caller reasons on the MEANING). */
+const TOKEN_CODES = {
+  revision_conflict: 'conflict',
+  alumni_stale: 'conflict',
 }
 
 function tokenOf(error) {
@@ -105,7 +125,7 @@ export function fromSupabase(error) {
   const msg = String(error.message ?? '')
   const token = tokenOf(error)
   if (token) {
-    const e = new AppError(PG_MAP[rawCode] ?? 'validation', { messageKey: TOKEN_KEYS[token], cause: error, retryable: false, detail: error.details ?? error.detail })
+    const e = new AppError(TOKEN_CODES[token] ?? PG_MAP[rawCode] ?? 'validation', { messageKey: TOKEN_KEYS[token], cause: error, retryable: false, detail: error.details ?? error.detail })
     e.token = token
     return e
   }

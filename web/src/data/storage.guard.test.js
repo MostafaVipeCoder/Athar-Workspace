@@ -65,6 +65,15 @@ describe('universal WebP: where files are written', () => {
     expect(code).toMatch(/convertToWebp/)
   })
 
+  it('the JPEG link-preview bucket (og-images, owner decision 08 section 18.6) is named in ONE place (lib/image/profiles.js OG_BUCKET) and written by data/storage.js alone; its JPEG type is the pipeline constant OG_MIME, never a literal', () => {
+    const literal = files.filter((f) => /['"`]og-images['"`]/.test(strip(readFileSync(f, 'utf8')))).map(rel)
+    expect(literal).toEqual(['lib/image/profiles.js'])
+    const writers = files.filter((f) => /\bOG_BUCKET\b/.test(strip(readFileSync(f, 'utf8'))) && /\.\s*upload\s*\(/.test(strip(readFileSync(f, 'utf8')))).map(rel)
+    expect(writers).toEqual(['data/storage.js'])
+    const profiles = strip(readFileSync(join(SRC, 'lib/image/profiles.js'), 'utf8'))
+    expect(profiles).toMatch(/OG_MIME\s*=\s*'image\/jpeg'/)
+  })
+
   it('the old per-feature encoders are gone: lib/image is the one pipeline (no canvas toBlob outside it, the landing PNG export aside)', () => {
     const offenders = files
       .filter((f) => /\.toBlob\s*\(/.test(strip(readFileSync(f, 'utf8'))))

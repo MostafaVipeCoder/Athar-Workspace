@@ -36,3 +36,10 @@ export function describeReport(report) {
   if (percent > 0) return { key: 'image.optimised', vars: { from, to, percent: ltr(`-${percent}%`) } }
   return { key: 'image.converted', vars: { from, to } }
 }
+
+/** The line that describes the JPEG link-preview derivative of a SHARED image ("Link preview JPEG 1200 x 630: 84 KB"), or null when none was made. */
+export function describeOg(report) {
+  const og = report?.og
+  if (!og) return null
+  return { key: 'image.og', vars: { size: ltr(formatBytes(og.bytes)), w: og.width, h: og.height } }
+}

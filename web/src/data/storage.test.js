@@ -9,7 +9,7 @@ vi.mock('../lib/image/convert.js', async (importOriginal) => ({ ...(await import
 
 const { ImageError } = await import('../lib/image/errors.js')
 const { AppError } = await import('./errors.js')
-const { publicImageUrl, publicThumbUrl, removeImage, storeImage, uploadImage, uploadObject } = await import('./storage.js')
+const { publicImageUrl, publicOgUrl, publicThumbUrl, removeImage, storeImage, uploadImage, uploadObject } = await import('./storage.js')
 
 const blob = (n, type = 'image/webp') => new Blob([new Uint8Array(n)], { type })
 const converted = (over = {}) => ({
@@ -137,12 +137,69 @@ describe('urls and removal', () => {
     expect(publicThumbUrl('a/b.png')).toBe('http://files/public-assets/a/b.png')
     expect(publicThumbUrl('')).toBe('')
   })
-  it('removeImage removes the file and its thumbnail once', async () => {
+  it('removeImage removes the file and its thumbnail once (and the JPEG link-preview derivative of a WebP image)', async () => {
     await removeImage('a/b.webp')
-    expect(mocks.remove).toHaveBeenCalledWith(['a/b.webp', 'a/b_t.webp'])
+    expect(mocks.remove).toHaveBeenNthCalledWith(1, ['a/b.webp', 'a/b_t.webp'])
+    expect(mocks.remove).toHaveBeenNthCalledWith(2, ['a/b.jpg'])
+    expect(mocks.from.mock.calls.map((c) => c[0])).toEqual(['public-assets', 'og-images'])
     await removeImage('a/c.svg')
-    expect(mocks.remove).toHaveBeenLastCalledWith(['a/c.svg'])
+    expect(mocks.remove).toHaveBeenLastCalledWith(['a/c.svg']) // an SVG has no derivative
     await removeImage('')
-    expect(mocks.remove).toHaveBeenCalledTimes(2)
+    expect(mocks.remove).toHaveBeenCalledTimes(3)
+  })
+  it('the derivative is looked for in public-assets paths only; a failing derivative removal never fails the removal', async () => {
+    await removeImage('a/b.webp', { bucket: 'resources' })
+    expect(mocks.remove).toHaveBeenCalledTimes(1)
+    mocks.remove.mockResolvedValueOnce({ error: null }).mockRejectedValueOnce(new Error('og bucket unreachable'))
+    await expect(removeImage('a/d.webp')).resolves.toBeUndefined()
+  })
+  it('publicOgUrl: the same path in og-images with .jpg; none for a thumbnail, an SVG or a legacy raster', () => {
+    expect(publicOgUrl('o/cover/abc.webp')).toBe('http://files/og-images/o/cover/abc.jpg')
+    for (const p of ['o/cover/abc_t.webp', 'o/logo/abc.svg', 'o/cover/abc.png', '']) expect(publicOgUrl(p), p).toBe('')
+  })
+})
+
+describe('the JPEG link-preview derivative of a shared image (owner decision 08 section 18.6)', () => {
+  const og = (bytes = 70_000) => ({ blob: blob(bytes, 'image/jpeg'), width: 1200, height: 630, bytes, mime: 'image/jpeg', ext: 'jpg', quality: 0.82, progressive: true })
+
+  it('is stored in og-images at the path derived from the full path, after the WebP and its thumbnail, with immutable caching', async () => {
+    const result = converted({ og: og() })
+    mocks.convert.mockResolvedValue(result)
+    const stored = await storeImage(new File(['x'], 'cover.png'), { path: (ext) => `P1/cover/abc.${ext}`, profile: 'cover' })
+    expect(stored).toMatchObject({ path: 'P1/cover/abc.webp', thumbPath: 'P1/cover/abc_t.webp', ogPath: 'P1/cover/abc.jpg', ogError: null })
+    expect(mocks.upload.mock.calls.map((c) => c[0])).toEqual(['P1/cover/abc.webp', 'P1/cover/abc_t.webp', 'P1/cover/abc.jpg'])
+    expect(mocks.from.mock.calls.map((c) => c[0])).toEqual(['public-assets', 'og-images'])
+    expect(mocks.upload.mock.calls[2][2]).toEqual({ contentType: 'image/jpeg', cacheControl: '31536000', upsert: false })
+    expect(mocks.upload.mock.calls[2][1]).toBe(result.og.blob) // the JPEG itself, not the WebP
+  })
+
+  it('uploadImage (cover, og, form-cover, landing) carries it; the stored path returned to the page is still the WebP', async () => {
+    mocks.convert.mockResolvedValue(converted({ og: og() }))
+    const path = await uploadImage(new File(['x'], 'a.png'), { ownerId: 'P1', kind: 'og' })
+    expect(path).toMatch(/^P1\/og\/[0-9a-f-]{36}\.webp$/)
+    expect(mocks.upload.mock.calls.at(-1)[0]).toBe(path.replace(/\.webp$/, '.jpg'))
+  })
+
+  it('NEVER fails the upload: a refused or failed derivative leaves the cover saved and says so (ogPath null + ogError)', async () => {
+    mocks.convert.mockResolvedValue(converted({ og: og() }))
+    mocks.upload.mockResolvedValueOnce({ error: null }).mockResolvedValueOnce({ error: null }).mockResolvedValueOnce({ error: { message: 'new row violates row-level security policy', status: 403 } })
+    const stored = await storeImage(new File(['x'], 'cover.png'), { path: (ext) => `P1/cover/abc.${ext}`, profile: 'cover' })
+    expect(stored.path).toBe('P1/cover/abc.webp')
+    expect(stored.ogPath).toBeNull()
+    expect(stored.ogError).toBeInstanceOf(AppError)
+    expect(mocks.remove).not.toHaveBeenCalled() // the WebP stays
+  })
+
+  it('nothing is uploaded when the conversion made no derivative, or for a bucket other than public-assets', async () => {
+    mocks.convert.mockResolvedValue(converted())
+    const a = await storeImage(new File(['x'], 'a.png'), { path: (ext) => `P1/library/abc.${ext}`, profile: 'content' })
+    expect(a.ogPath).toBeNull()
+    expect(mocks.upload).toHaveBeenCalledTimes(2)
+    vi.clearAllMocks()
+    mocks.upload.mockResolvedValue({ error: null })
+    mocks.convert.mockResolvedValue(converted({ og: og() }))
+    const b = await storeImage(new File(['x'], 'a.png'), { bucket: 'resources', path: (ext) => `P1/n/abc.${ext}`, profile: 'cover' })
+    expect(b.ogPath).toBeNull()
+    expect(mocks.from.mock.calls.map((c) => c[0])).toEqual(['resources'])
   })
 })

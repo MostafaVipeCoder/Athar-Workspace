@@ -56,6 +56,27 @@ describe('ImageField: pick -> convert -> upload feedback', () => {
     expect(screen.getByTestId('image-report')).toBeInTheDocument()
   })
 
+  it('a SHARED image (cover, share image) also shows the JPEG link-preview line; an ordinary image does not', async () => {
+    mocks.convert.mockResolvedValue(result({ report: { kind: 'converted', sourceBytes: 2.1 * MB, bytes: 180 * 1024, notices: [], width: 1920, height: 1080, og: { bytes: 84 * 1024, width: 1200, height: 630, quality: 0.82, progressive: true } } }))
+    const { unmount } = renderWithProviders(<ImageField label="Cover" profile="cover" onFile={vi.fn().mockResolvedValue('p')} />, { route: '/x?lang=en' })
+    fireEvent.change(input(), { target: { files: [png()] } })
+    expect(await screen.findByTestId('image-og')).toHaveTextContent(/Link preview \(JPEG 1200 x 630\):.*84 KB/)
+    unmount()
+
+    mocks.convert.mockResolvedValue(result())
+    renderWithProviders(<ImageField label="Photo" profile="avatar" onFile={vi.fn().mockResolvedValue('p')} />, { route: '/x?lang=en' })
+    fireEvent.change(input(), { target: { files: [png()] } })
+    await screen.findByTestId('image-report')
+    expect(screen.queryByTestId('image-og')).toBeNull()
+  })
+
+  it('says so when the derivative could not be prepared (the cover itself is fine) and speaks Arabic', async () => {
+    mocks.convert.mockResolvedValue(result({ report: { kind: 'converted', sourceBytes: 2.1 * MB, bytes: 180 * 1024, notices: ['ogFailed'], width: 1920, height: 1080, og: null } }))
+    renderWithProviders(<ImageField label="الغلاف" profile="cover" onFile={vi.fn().mockResolvedValue('p')} />, { route: '/x?lang=ar' })
+    fireEvent.change(input(), { target: { files: [png()] } })
+    expect(await screen.findByText(/تعذّر تجهيز صورة معاينة الرابط/)).toBeInTheDocument()
+  })
+
   it('speaks Arabic', async () => {
     mocks.convert.mockResolvedValue(result())
     renderWithProviders(<ImageField label="الغلاف" profile="cover" onFile={vi.fn().mockResolvedValue('p')} />, { route: '/x?lang=ar' })

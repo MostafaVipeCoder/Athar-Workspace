@@ -11,9 +11,12 @@ import '../../../nodes/certificates/i18n.js'
  * block of the founder Program page. A certificate belongs to the SIGNED-IN founder ACCOUNT: it carries HIS name and the company name, and the
  * company's other founders each download their own from their own account (a founder never sees a co-founder's certificate).
  *
- * `list_my_certificates` decides everything in the DB (issued to MY account, not revoked, the participant attended, the project is completed,
- * the node is shown to participants) and renders nothing otherwise: no "locked" teaser. Opening the block also CLAIMS the founder's own
- * certificate on demand: a founder who linked to the company after the PM issued gets hers right here (the same call, server side, idempotent).
+ * `list_my_certificates` decides everything in the DB (issued to MY account, not revoked, the project is completed, the node is shown to
+ * participants) and renders nothing otherwise: no "locked" teaser. The participant's STATUS does not matter for a certificate that already
+ * exists (owner decision 08 section 18.2, m44): it stays valid and available after a withdrawal, which can only be a PM mistake; only the PM's
+ * revoke ends it. Opening the block also CLAIMS the founder's own certificate on demand: a founder who linked to the company after the PM
+ * issued gets hers right here (the same call, server side, idempotent) - while the participant is ATTENDED; a withdrawn / un-marked
+ * participant can claim nothing NEW.
  * Preview / PNG / PDF render in the browser on demand (the template is fetched with a short-lived signed URL the owner's storage rule allows).
  */
 export default function FounderCertificateButton({ projectId, items, className, showHeading = true }) {

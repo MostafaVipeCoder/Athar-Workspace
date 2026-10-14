@@ -54,6 +54,14 @@ describe('per founder actions', () => {
     expect(canReissue(row({ grant: grant() }), null)).toBe(false)
   })
 
+  it('Issue AGAIN creates a NEW certificate, so it needs an ATTENDED participant (m44, 08 section 18.2: an existing certificate never depends on the status, a new one always does)', () => {
+    expect(canReissue(row({ status: 'withdrawn', grant: grant() }), revoked)).toBe(false)
+    expect(canReissue(row({ status: 'accepted', grant: grant() }), revoked)).toBe(false)
+    expect(canReissue(row({ status: 'attended', grant: grant() }), revoked)).toBe(true)
+    // ...while an issued certificate of a withdrawn participant stays revocable (the PM's explicit manual revoke)
+    expect(canRevokeAll(row({ status: 'withdrawn', grant: grant(), counts: { issued: 1 } }))).toBe(true)
+  })
+
   it('"Revoke all" exists while the participant is authorised or anyone still holds an active certificate', () => {
     expect(canRevokeAll(row({ grant: grant() }))).toBe(true)
     expect(canRevokeAll(row({ counts: { issued: 1 } }))).toBe(true)

@@ -33,7 +33,8 @@ const selectCls = 'min-h-9 rounded-md border border-input bg-background px-2 tex
  * status accepted / attended, "Enroll all accepted", "Mark all accepted as attended" then unmark the absentees, the explicit
  * "Mark as withdrawn" / "Reinstate" actions (confirmation, optional reason, Undo; the withdrawn participant disappears from every
  * accepted / active list of the next steps, the founder page and certificate eligibility, and stays here with a red chip), and a
- * link to the company record. Certificates read `attended` only.
+ * link to the company record. ISSUING and claiming a certificate need `attended`; one that was already issued stays valid and available
+ * whatever the status becomes later (owner decision 08 section 18.2, m44).
  */
 export default function ParticipantsPage() {
   const { project, projectId } = useProjectContext()

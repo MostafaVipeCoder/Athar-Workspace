@@ -367,6 +367,7 @@ describe('Certificates: Edit / Issue', () => {
     expect(within(rows[2]).getByText('Needs review: the acceptance changed in Selection.')).toBeInTheDocument()
     expect(within(rows[2]).getAllByText(/Reason: duplicate/).length).toBeGreaterThanOrEqual(1) // the participant's revocation and the founder's own line
     expect(within(rows[3]).getByTestId('row-flag')).toHaveTextContent('Withdrawn from the program after the certificate was issued') // m40: withdrawn is its own explicit status
+    expect(within(rows[3]).getByTestId('row-flag')).toHaveTextContent('stays valid and available to the founder') // m44 (08 section 18.2): the certificate is NOT hidden or revoked by the withdrawal
     expect(within(rows[3]).getByTestId('row-withdrawn')).toHaveTextContent('Withdrawn')
     expect(screen.getByTestId('count-attended')).toHaveTextContent('3')
     expect(screen.getByTestId('count-issued')).toHaveTextContent('3')
@@ -375,6 +376,27 @@ describe('Certificates: Edit / Issue', () => {
     expect(screen.getByTestId('count-revoked')).toHaveTextContent('2')
     expect(screen.getByTestId('issue-others')).toHaveTextContent('2 participants are not marked attended and receive no certificate.')
     expect(screen.getByTestId('issue-ready')).toBeInTheDocument()
+  })
+
+  it('a WITHDRAWN participant keeps its issued certificates (still revocable, never issued again) and a founder with none is "not eligible", not "Waiting" (m44, 08 section 18.2)', async () => {
+    mocks.admin.mockImplementation(async () => adminPayload({
+      others: 0,
+      rows: [{ participant_id: 'w1', status: 'withdrawn', needs_review: false, name: 'Haddad', company_name: 'Haddad', grant: { id: 'g9', granted_at: '2026-10-13T08:00:00Z', revoked_at: null, revoked_reason: null },
+        founders: [person('Lina Haddad', 'issued', cert('c4', 'LL44-HH55-DD66', 'Lina Haddad')), person('Hadi Late', 'not_eligible'),
+          person('Mona Said', 'revoked', cert('c8', 'MM88-NN99-PP00', 'Mona Said', { revoked_at: '2026-10-13T09:00:00Z', revoked_reason: 'typo' }))],
+        counts: { people: 3, linked: 3, unlinked: 0, issued: 1, claimable: 0, revoked: 1 } }],
+    }))
+    openIssue()
+    const row = await screen.findByTestId('issue-row')
+    const people = within(row).getAllByTestId('person-row')
+    expect(people.map((x) => x.dataset.state)).toEqual(['issued', 'not_eligible', 'revoked'])
+    expect(within(people[0]).getByTestId('person-revoke')).toBeInTheDocument() // the PM's explicit manual revoke stays
+    expect(within(people[1]).getByTestId('person-state')).toHaveTextContent('No certificate can be created now: the participant is not marked attended')
+    expect(within(people[1]).getByTestId('person-state')).not.toHaveTextContent('Waiting')
+    expect(within(people[2]).queryByTestId('person-reissue')).toBeNull() // issuing a NEW certificate needs an attended participant
+    expect(within(row).getByTestId('row-revoke-all')).toBeInTheDocument()
+    expect(within(row).getByTestId('row-flag')).toHaveTextContent('If the withdrawal was a mistake, reinstate the participant.')
+    expect(screen.getByTestId('count-claimable')).toHaveTextContent('0')
   })
 
   it('"Issue to all attended" asks to confirm, calls the RPC with null (all) and shows the totals', async () => {

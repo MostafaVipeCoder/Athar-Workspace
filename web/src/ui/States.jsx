@@ -29,6 +29,17 @@ export function Skeleton({ className }) {
   return <div aria-hidden="true" className={cn('animate-pulse rounded-input bg-surface', className)} />
 }
 
+/** A list of skeleton rows that is ALSO a status: the loading text is read out (an aria-busy box alone says nothing). */
+export function SkeletonList({ count = 3, className = 'space-y-2', itemClassName = 'h-14 w-full' }) {
+  const { t } = useLanguage()
+  return (
+    <div className={className} role="status" aria-busy="true">
+      <span className="sr-only">{t('common.loading')}</span>
+      {Array.from({ length: count }, (_, i) => <Skeleton key={i} className={itemClassName} />)}
+    </div>
+  )
+}
+
 export function EmptyState({ title, body, icon: Icon = Inbox, action, className }) {
   const { t } = useLanguage()
   return (

@@ -5,7 +5,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
  * correct in a real browser - EXIF orientation, halving steps, WebP-encode probing, releasing pixel buffers.
  */
 const wasm = vi.hoisted(() => ({ encode: vi.fn() }))
+const wasmJpeg = vi.hoisted(() => ({ encode: vi.fn() }))
 vi.mock('./wasmWebp.js', () => ({ encodeWithWasm: wasm.encode }))
+vi.mock('./wasmJpeg.js', () => ({ encodeJpegWithWasm: wasmJpeg.encode }))
 
 let canvases
 let blobType
@@ -15,6 +17,7 @@ class FakeOffscreenCanvas {
     this.width = width
     this.height = height
     this.draws = []
+    this.fills = []
     canvases.push(this)
   }
 
@@ -22,8 +25,8 @@ class FakeOffscreenCanvas {
     this.hasContext = true
     return {
       imageSmoothingQuality: '',
-      drawImage: (src, x, y, w, h) => this.draws.push({ src, w, h }),
-      fillRect: () => {},
+      drawImage: (src, ...rest) => this.draws.push(rest.length === 8 ? { src, sx: rest[0], sy: rest[1], sw: rest[2], sh: rest[3], dx: rest[4], dy: rest[5], w: rest[6], h: rest[7] } : { src, w: rest[2], h: rest[3] }),
+      fillRect: (x, y, w, h) => this.fills.push({ x, y, w, h }),
       getImageData: (_x, _y, w, h) => ({ data: new Uint8ClampedArray(w * h * 4), width: w, height: h }),
     }
   }
@@ -45,11 +48,13 @@ beforeEach(() => {
   canvases = []
   blobType = null
   wasm.encode.mockReset().mockResolvedValue(new Blob([new Uint8Array(7)], { type: 'image/webp' }))
+  wasmJpeg.encode.mockReset().mockResolvedValue(new Blob([new Uint8Array(9)], { type: 'image/jpeg' }))
   vi.stubGlobal('OffscreenCanvas', FakeOffscreenCanvas)
 })
 afterEach(() => {
   vi.unstubAllGlobals()
   delete globalThis.__forceNoNativeWebp
+  delete globalThis.__forceNativeJpeg
 })
 
 describe('decode', () => {
@@ -174,5 +179,115 @@ describe('WebP encoding', () => {
     const before = canvases.length
     expect(await backend.supportsWebp()).toBe(true)
     expect(canvases).toHaveLength(before)
+  })
+})
+
+describe('coverGeometry: scale to COVER the target, then crop the centre (object-fit: cover)', () => {
+  it('a wide source is scaled by height and cropped left / right; a tall one is scaled by width and cropped top / bottom; the exact ratio crops nothing', async () => {
+    vi.resetModules()
+    const { coverGeometry } = await import('./canvas.js')
+    expect(coverGeometry(4000, 3000, 1200, 630)).toEqual({ cw: 1200, ch: 900, sx: 0, sy: 135 }) // 4:3 -> crop the top / bottom
+    expect(coverGeometry(3000, 1000, 1200, 630)).toEqual({ cw: 1890, ch: 630, sx: 345, sy: 0 }) // panorama -> crop left / right
+    expect(coverGeometry(2400, 1260, 1200, 630)).toEqual({ cw: 1200, ch: 630, sx: 0, sy: 0 })
+    expect(coverGeometry(600, 400, 1200, 630)).toMatchObject({ cw: 1200, ch: 800 }) // a small source is scaled UP to cover (the preview is always 1200 x 630)
+  })
+})
+
+describe('coverCrop', () => {
+  it('draws the centre of the scaled image into a white-filled 1200 x 630 canvas and releases the intermediate', async () => {
+    const backend = await load()
+    const out = await backend.coverCrop({ width: 4000, height: 3000, source: { bitmap: true } }, 1200, 630)
+    const last = canvases.at(-1)
+    expect(out).toMatchObject({ width: 1200, height: 630 })
+    expect(last.width).toBe(1200)
+    expect(last.fills[0]).toMatchObject({ x: 0, y: 0, w: 1200, h: 630 }) // white first: a JPEG has no alpha
+    expect(last.draws.at(-1)).toMatchObject({ sx: 0, sy: 135, sw: 1200, sh: 630, dx: 0, dy: 0, w: 1200, h: 630 })
+    // the 1200 x 900 intermediate (after halving steps) was dropped
+    expect(canvases.filter((c) => c !== last).every((c) => c.width === 0 && c.height === 0)).toBe(true)
+    out.dispose()
+    expect(out.source.width).toBe(0)
+  })
+})
+
+describe('JPEG encoding for the link-preview derivative', () => {
+  it('progressive mozjpeg (WASM) first; the pixels are read back and the result says progressive', async () => {
+    const backend = await load()
+    const surface = await backend.scale({ width: 10, height: 6, source: {} }, 10, 6)
+    const r = await backend.encodeJpeg(surface, { quality: 0.82 })
+    expect(r.blob.type).toBe('image/jpeg')
+    expect(r.progressive).toBe(true)
+    expect(wasmJpeg.encode).toHaveBeenCalledTimes(1)
+    expect(wasmJpeg.encode.mock.calls[0][0]).toMatchObject({ width: 10, height: 6 })
+    expect(wasmJpeg.encode.mock.calls[0][1]).toEqual({ quality: 0.82 })
+    expect(surface.source.encoded).toBeUndefined()
+  })
+
+  it('when the WASM encoder cannot load or run, the canvas encoder answers (baseline JPEG, every browser has it)', async () => {
+    wasmJpeg.encode.mockResolvedValue(null)
+    const backend = await load()
+    const surface = await backend.scale({ width: 10, height: 6, source: {} }, 10, 6)
+    const r = await backend.encodeJpeg(surface, { quality: 0.7 })
+    expect(r.progressive).toBe(false)
+    expect(r.blob.type).toBe('image/jpeg')
+    expect(surface.source.encoded).toEqual({ type: 'image/jpeg', quality: 0.7 })
+    wasmJpeg.encode.mockRejectedValue(new Error('boom'))
+    expect((await backend.encodeJpeg(surface, { quality: 0.7 })).progressive).toBe(false)
+  })
+
+  it('without WebAssembly the canvas encoder is used directly; the development switch __forceNativeJpeg does the same in Chrome', async () => {
+    vi.stubGlobal('WebAssembly', undefined)
+    const noWasm = await load()
+    const a = await noWasm.encodeJpeg(await noWasm.scale({ width: 8, height: 8, source: {} }, 8, 8), {})
+    expect(a.progressive).toBe(false)
+    expect(wasmJpeg.encode).not.toHaveBeenCalled()
+    vi.unstubAllGlobals()
+    vi.stubGlobal('OffscreenCanvas', FakeOffscreenCanvas)
+    globalThis.__forceNativeJpeg = true
+    const backend = await load()
+    const b = await backend.encodeJpeg(await backend.scale({ width: 8, height: 8, source: {} }, 8, 8), {})
+    expect(b.progressive).toBe(false)
+    expect(wasmJpeg.encode).not.toHaveBeenCalled()
+  })
+
+  it('a canvas that cannot make JPEG at all answers null (the caller skips the derivative)', async () => {
+    wasmJpeg.encode.mockResolvedValue(null)
+    blobType = 'image/png'
+    const backend = await load()
+    const surface = await backend.scale({ width: 8, height: 8, source: {} }, 8, 8)
+    expect(await backend.encodeJpeg(surface, { quality: 0.8 })).toBeNull()
+  })
+
+  it('the encoder counters say which path did the work (the iPhone diagnostics page shows them)', async () => {
+    vi.resetModules()
+    const mod = await import('./canvas.js')
+    mod.resetEncoderStats()
+    const surface = await mod.browserBackend.scale({ width: 8, height: 8, source: {} }, 8, 8)
+    await mod.browserBackend.encode(surface, { quality: 0.8 })
+    await mod.browserBackend.encodeJpeg(surface, { quality: 0.8 })
+    expect(mod.encoderStats).toEqual({ webpNative: 1, webpWasm: 0, jpegNative: 0, jpegWasm: 1 })
+    mod.resetEncoderStats()
+    expect(mod.encoderStats).toEqual({ webpNative: 0, webpWasm: 0, jpegNative: 0, jpegWasm: 0 })
+  })
+})
+
+describe('probeCanvasEncode (diagnostics)', () => {
+  it('reports what the canvas answers for a type: ok when it is the type asked for, not ok when the browser silently answers PNG (Safari for WebP)', async () => {
+    vi.resetModules()
+    const { probeCanvasEncode } = await import('./canvas.js')
+    expect(await probeCanvasEncode('image/webp', 'offscreen')).toMatchObject({ ok: true, type: 'image/webp', bytes: 10 })
+    blobType = 'image/png'
+    expect(await probeCanvasEncode('image/webp', 'offscreen')).toMatchObject({ ok: false, type: 'image/png' })
+  })
+  it('says why when there is no OffscreenCanvas, and can probe the DOM canvas path', async () => {
+    vi.resetModules()
+    const { probeCanvasEncode } = await import('./canvas.js')
+    vi.stubGlobal('OffscreenCanvas', undefined)
+    expect(await probeCanvasEncode('image/jpeg', 'offscreen')).toMatchObject({ ok: false, error: expect.stringContaining('OffscreenCanvas') })
+    const dom = document.createElement('canvas')
+    dom.getContext = () => ({ fillRect: () => {}, set fillStyle(_v) {} })
+    dom.toBlob = (cb, type) => cb(new Blob([new Uint8Array(4)], { type }))
+    const original = document.createElement.bind(document)
+    vi.spyOn(document, 'createElement').mockImplementation((tag) => (tag === 'canvas' ? dom : original(tag)))
+    expect(await probeCanvasEncode('image/jpeg', 'dom')).toMatchObject({ ok: true, type: 'image/jpeg', bytes: 4 })
   })
 })

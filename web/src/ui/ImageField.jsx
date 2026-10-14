@@ -1,10 +1,10 @@
 import { useCallback, useEffect, useId, useRef, useState } from 'react'
-import { CheckCircle2, ImagePlus, Info, Trash2 } from 'lucide-react'
+import { CheckCircle2, ImagePlus, Info, Share2, Trash2 } from 'lucide-react'
 import { Img } from './Img.jsx'
 import { Button } from './Button.jsx'
 import { cn } from '../lib/cn.js'
 import { useLanguage } from '../i18n/LanguageProvider.jsx'
-import { acceptFor, convertToWebp, describeReport, validateImageFile } from '../lib/image/index.js'
+import { acceptFor, convertToWebp, describeOg, describeReport, validateImageFile } from '../lib/image/index.js'
 
 /**
  * Image picker with preview (design 06 section 6.1 ImageField, P18, owner decision 08 section 17.3 UNIVERSAL WEBP).
@@ -81,6 +81,7 @@ export function ImageField({ label, src, thumb, onFile, onClear, disabled, aspec
 
   const shown = preview ?? src
   const summary = report ? describeReport(report) : null
+  const ogLine = report ? describeOg(report) : null // a SHARED image (cover, landing, share image) also made the JPEG link-preview derivative
   return (
     <div className={cn('space-y-2', className)}>
       <span className="block text-sm font-medium text-athar-ink" id={`${id}-label`}>{label}</span>
@@ -112,6 +113,7 @@ export function ImageField({ label, src, thumb, onFile, onClear, disabled, aspec
       {!busy && summary && (
         <div role="status" aria-live="polite" className="space-y-0.5" data-testid="image-report">
           <p className="flex items-start gap-1.5 text-xs text-emerald-800"><CheckCircle2 className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden="true" />{t(summary.key, summary.vars)}</p>
+          {ogLine && <p className="flex items-start gap-1.5 text-xs text-muted-foreground" data-testid="image-og"><Share2 className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden="true" />{t(ogLine.key, ogLine.vars)}</p>}
           {report.notices.map((n) => (
             <p key={n} className="flex items-start gap-1.5 text-xs text-muted-foreground"><Info className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden="true" />{t(`image.notice.${n}`, { w: report.width, h: report.height })}</p>
           ))}

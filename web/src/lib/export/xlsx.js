@@ -28,24 +28,26 @@ export function safeCell(value) {
 
 /**
  * Normalise rows to a 2-D array given columns [{ key, header, format? }]. `key` may be a function (row) => value.
- * Exported separately so it is unit-testable without SheetJS.
+ * Exported separately so it is unit-testable without SheetJS. `blanks: true` writes a missing value (null / undefined / an empty string) as `null`, which SheetJS leaves as a genuinely
+ * BLANK cell (an empty-string cell is a text cell: ISBLANK, the "Blanks" filter and numeric columns treat it differently).
  */
-export function toSheetRows(rows, columns) {
+export function toSheetRows(rows, columns, { blanks = false } = {}) {
   const cols = columns?.length ? columns : Object.keys(rows[0] ?? {}).map((k) => ({ key: k, header: k }))
   const header = cols.map((c) => c.header ?? String(c.key))
   const body = (rows ?? []).map((r) =>
     cols.map((c) => {
       const raw = typeof c.key === 'function' ? c.key(r) : r?.[c.key]
-      return safeCell(c.format ? c.format(raw, r) : raw)
+      const cell = safeCell(c.format ? c.format(raw, r) : raw)
+      return blanks && cell === '' ? null : cell
     }),
   )
   return [header, ...body]
 }
 
 /** Build and download `<filename>.xlsx` with one sheet. Returns the number of data rows written. */
-export async function exportRows(rows, columns, filename = 'export', { sheetName = 'Sheet1' } = {}) {
+export async function exportRows(rows, columns, filename = 'export', { sheetName = 'Sheet1', blanks = false } = {}) {
   const XLSX = await loadXlsx()
-  const aoa = toSheetRows(rows, columns)
+  const aoa = toSheetRows(rows, columns, { blanks })
   const ws = XLSX.utils.aoa_to_sheet(aoa)
   const wb = XLSX.utils.book_new()
   XLSX.utils.book_append_sheet(wb, ws, sheetName.slice(0, 31))

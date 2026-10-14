@@ -56,6 +56,7 @@
     /* derived status tones (not on the site; chosen to sit with blue/yellow) */
     --success: 152 65% 33%; /* #1d8a4a */
     --success-foreground: 0 0% 100%;
+    --success-text: 152 65% 26%; /* darker green for TEXT: --success is 4.3:1 on white and 3.8:1 on its own 10% tint (fails AA at 12-14 px); this one is 6.3:1 / 5.5:1 */
     --warning: 54 100% 56%; /* yellow doubles as warning (fill with black text) */
     --warning-foreground: 0 0% 0%;
     --info: 207 90% 44%; /* #0b75d9 */
@@ -220,7 +221,7 @@
     @apply border-accent font-semibold;
   }
   .nav-link-inverse {
-    @apply text-athar-grey-100/85 hover:text-accent;
+    @apply text-athar-grey-100/85 hover:text-accent xl:px-2.5 xl:text-base;
   }
   .nav-link-inverse[aria-current='page'],
   .nav-link-inverse.active {

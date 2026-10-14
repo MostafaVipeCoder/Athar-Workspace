@@ -20,6 +20,7 @@ describe('profiles', () => {
   it('maps the storage folder kinds to profiles; unknown kinds are content', () => {
     expect(profileForKind('cover')).toBe('cover')
     expect(profileForKind('form-cover')).toBe('cover')
+    expect(profileForKind('project-cover')).toBe('cover')
     expect(profileForKind('og')).toBe('cover')
     expect(profileForKind('landing')).toBe('landing')
     expect(profileForKind('logo')).toBe('logo')

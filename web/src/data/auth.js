@@ -1,5 +1,6 @@
 import { db } from './client.js'
-import { fromSupabase, unwrap } from './errors.js'
+import { AppError, fromSupabase, unwrap } from './errors.js'
+import { appBaseUrl } from '../lib/links.js'
 
 /** Session helpers. Components never touch supabase.auth directly. */
 export async function getSession() {
@@ -54,6 +55,46 @@ export async function signUpWithStaffInvitation({ email, password, fullName, pro
   })
   if (error) throw fromSupabase(error)
   return data.session
+}
+
+/** Supabase Auth sign-up failures -> a specific, translated AppError (the generic mapper would call all of them "unauthenticated"). */
+function signUpError(error) {
+  const code = String(error?.code ?? '')
+  const msg = String(error?.message ?? '')
+  if (code === 'user_already_exists' || code === 'email_exists' || /already (been )?registered|already exists/i.test(msg)) {
+    return new AppError('conflict', { messageKey: 'alumni.auth.emailTaken', cause: error, retryable: false })
+  }
+  if (code === 'weak_password' || /password should|weak password/i.test(msg)) {
+    return new AppError('validation', { messageKey: 'alumni.auth.weakPassword', cause: error, retryable: false })
+  }
+  if (code === 'email_address_invalid' || code === 'validation_failed' || /invalid.*e-?mail|e-?mail.*invalid/i.test(msg)) {
+    return new AppError('validation', { messageKey: 'alumni.auth.emailInvalid', cause: error, retryable: false })
+  }
+  if (code === 'signup_disabled') return new AppError('forbidden', { messageKey: 'alumni.auth.signupDisabled', cause: error, retryable: false })
+  if (code === 'captcha_failed') return new AppError('validation', { messageKey: 'alumni.auth.captchaFailed', cause: error, retryable: true })
+  return fromSupabase(error)
+}
+
+/**
+ * Open founder sign-up (design 09 F1) and the founder invitation sign-up (F2). The role is NEVER sent: the database trigger grants the literal
+ * `founder` role and creates the `founders` row, and (when `invitationToken` is given and the e-mail is the invited one) links the account to the invited
+ * company and consumes the invitation in the same transaction. `captchaToken` is the hook for the CAPTCHA widget (03 OD-5: not built yet; GoTrue only
+ * checks it when CAPTCHA is enabled in the project's Auth settings).
+ * Returns `{ session, user }`: `session` is null when e-mail confirmation is ON in the project (the person must confirm, then sign in); the local stack
+ * auto-confirms, so a session comes back.
+ */
+export async function signUpFounder({ email, password, fullName, invitationToken = null, captchaToken = null }) {
+  const meta = { full_name: String(fullName ?? '').trim() }
+  if (invitationToken) meta.invitation_token = invitationToken
+  const options = { data: meta, emailRedirectTo: `${appBaseUrl()}/login` }
+  if (captchaToken) options.captchaToken = captchaToken
+  const { data, error } = await db().auth.signUp({ email: String(email).trim(), password, options })
+  if (error) throw signUpError(error)
+  // an existing, confirmed address is answered with an obfuscated user without identities when confirmation is ON (no error): treat it as taken
+  if (data?.user && Array.isArray(data.user.identities) && data.user.identities.length === 0) {
+    throw new AppError('conflict', { messageKey: 'alumni.auth.emailTaken', retryable: false })
+  }
+  return { session: data?.session ?? null, user: data?.user ?? null }
 }
 
 /** Own profile fields (RLS: own row). */
