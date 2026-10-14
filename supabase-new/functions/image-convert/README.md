@@ -34,5 +34,8 @@ text / varchar / json / jsonb column of `public`; a substring replace, so a path
   event INSERT, HTTP request, header `x-webhook-secret`). Nothing was deployed and no Supabase MCP tool was used.
 - Order on the live project: m41 first (doors), then the batch (`--apply`), then this function.
 
-Open question for the owner: link-preview crawlers (LinkedIn, some WhatsApp versions) do not always render a WebP `og:image`. The future OG
-function (docs/04 A-37) may need a JPEG derivative of the share image; this function is the natural place to produce a `_og.jpg` for it.
+**Link previews (answered by m45, owner decision 18.6)**: the JPEG derivative of a shared image is NOT made here. The browser pipeline writes it next to the
+WebP (`og-images/<owner>/<kind>/<uuid>.jpg`, the path derived from the source path: `web/README.md`, "Link-preview JPEG") and
+`db/scripts/backfill-og-images.mjs` filled the images that existed before. This function deliberately IGNORES the `og-images` bucket (it holds JPEG by
+design; its bucket list and `webhook.sql` name the four image buckets only): a JPEG there is the intended content, never a raster to convert.
+A future version may also build the derivative for an image that arrived without the browser pipeline (call `public.og_image_path(source)` for the target path).
