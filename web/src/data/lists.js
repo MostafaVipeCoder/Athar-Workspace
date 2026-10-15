@@ -152,14 +152,17 @@ export const usePublicTab = (ref, edgeId, options = {}) =>
  */
 export function useListMutations(nodeId, { onChanged } = {}) {
   const qc = useQueryClient()
+  // a list item is a PARTICIPATION of an expert: the registry's figures (programs, sessions, history) follow every add / remove / withdraw of an item
+  const refreshRegistry = () => qc.invalidateQueries({ queryKey: ['experts'] })
   const after = async () => {
     await qc.invalidateQueries({ queryKey: keys.node(nodeId) })
+    refreshRegistry()
     await onChanged?.()
   }
   // a withdrawal changes what EVERY list / stage / consumer of the project resolves (the fact is shared by identity, m40):
   // refresh all the cached node queries and the participants, not only this node and its downstream
   const afterWithdrawal = async () => {
-    await Promise.all([qc.invalidateQueries({ queryKey: ['node'] }), qc.invalidateQueries({ queryKey: ['participants'] })])
+    await Promise.all([qc.invalidateQueries({ queryKey: ['node'] }), qc.invalidateQueries({ queryKey: ['participants'] }), refreshRegistry()])
     await onChanged?.()
   }
   // a tiny custom hook (constant call count) so the rules-of-hooks lint is satisfied

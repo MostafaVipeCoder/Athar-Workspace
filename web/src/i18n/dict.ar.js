@@ -89,6 +89,7 @@ export default {
   'nav.impact': 'الأثر',
   'nav.area': 'المنطقة',
   'nav.menu': 'القائمة',
+  'nav.more': 'المزيد',
   'nav.closeMenu': 'إغلاق القائمة',
   'nav.skip': 'الانتقال إلى المحتوى',
   'nav.founder': 'المؤسس',

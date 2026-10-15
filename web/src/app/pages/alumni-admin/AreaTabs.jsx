@@ -8,6 +8,7 @@ const TABS = [
   { to: '/alumni/admin/directory', key: 'directory' },
   { to: '/alumni/admin/attention', key: 'attention' },
   { to: '/alumni/admin/quarters', key: 'quarters' },
+  { to: '/alumni/admin/closed', key: 'closed' },
   { to: '/alumni/admin/performance', key: 'performance' },
 ]
 

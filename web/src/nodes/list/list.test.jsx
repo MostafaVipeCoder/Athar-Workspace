@@ -67,6 +67,8 @@ vi.mock('../../data/people.js', async () => {
     useNetworkExperts: () => useQuery({ queryKey: ['experts'], queryFn: async () => [{ id: 'e1', kind: 'expert', title: { en: 'Ada', ar: '' }, subtitle: { en: 'CTO', ar: '' }, organization: { en: '', ar: '' }, bio: { en: '', ar: '' }, imagePath: null, links: [] }, { id: 'e2', kind: 'expert', title: { en: 'Grace', ar: '' }, subtitle: { en: '', ar: '' }, organization: { en: '', ar: '' }, bio: { en: '', ar: '' }, imagePath: null, links: [] }] }),
     useCompanies: () => useQuery({ queryKey: ['companies'], queryFn: async () => [] }),
     usePeopleMutations: () => ({ createExpert: useMutation({ mutationFn: async () => null }), createCompany: useMutation({ mutationFn: async () => null }) }),
+    uploadExpertPhoto: vi.fn(),
+    findSimilarExperts: async () => [],
   }
 })
 vi.mock('../../data/storage.js', () => ({ publicImageUrl: (p) => (p ? `http://img/${p}` : ''), publicThumbUrl: (p) => (p ? `http://img/t/${p}` : ''), uploadImage: vi.fn() }))

@@ -115,7 +115,7 @@ $$;
 insert into app_private.alumni_reminder_templates (lang, notif_title, notif_body, email_subject, email_body)
 select l, app_private.alumni_reminder_default(l, 'notif_title'), app_private.alumni_reminder_default(l, 'notif_body'), app_private.alumni_reminder_default(l, 'email_subject'), app_private.alumni_reminder_default(l, 'email_body')
   from (values ('ar'), ('en')) v (l)
-on conflict (lang) do nothing;
+on conflict do nothing;   -- (no conflict target: m70 re-keys the table by (lang, variant))
 
 -- ================================================================= 3. text helpers (placeholders, escaping, validation)
 -- the placeholder fill: plain text in, plain text out (the values come from the database, never from the request)

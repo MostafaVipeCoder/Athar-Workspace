@@ -17,6 +17,7 @@ import { useAdminErrorText, useDebounced } from './hooks.js'
 import { useQuery } from '@tanstack/react-query'
 import './i18n.common.js'
 import './quarters.i18n.js'
+import './closed.i18n.js'
 import '../../../shared/alumni/i18n.quarters.js'
 import '../../../shared/alumni/i18n.edit.js'
 
@@ -83,7 +84,7 @@ function ScheduleCard({ s }) {
 }
 
 /** One language of the wording: four editable texts, the placeholders, a LIVE PREVIEW rendered by the server (the same code as the real send: text is escaped, never raw HTML). */
-function TemplateEditor({ tpl, placeholders }) {
+function TemplateEditor({ tpl, placeholders, variant = 'figures' }) {
   const { t } = useLanguage()
   const q = (k, v) => t(`alumni.admin.qs.${k}`, v)
   const toast = useToast()
@@ -95,28 +96,29 @@ function TemplateEditor({ tpl, placeholders }) {
   const [error, setError] = useState(null)
   const dirty = FIELDS.some((f) => values[f.key] !== tpl[f.key]) || finalised !== Boolean(tpl.finalised)
   const debounced = useDebounced(values, 400)
-  const preview = useQuery({ queryKey: ['alumni', 'quarters', 'tplPreview', tpl.lang, debounced], queryFn: () => previewAlumniReminderTemplate(tpl.lang, debounced), retry: false, staleTime: 60_000, placeholderData: (p) => p })
+  const preview = useQuery({ queryKey: ['alumni', 'quarters', 'tplPreview', variant, tpl.lang, debounced], queryFn: () => previewAlumniReminderTemplate(tpl.lang, debounced, variant), retry: false, staleTime: 60_000, placeholderData: (p) => p })
   const dir = tpl.lang === 'ar' ? 'rtl' : 'ltr'
 
   async function save() {
     setError(null)
     try {
-      await saveTemplate.mutateAsync({ lang: tpl.lang, patch: { ...Object.fromEntries(FIELDS.map((f) => [f.key, values[f.key]])), finalised } })
+      await saveTemplate.mutateAsync({ lang: tpl.lang, variant, patch: { ...Object.fromEntries(FIELDS.map((f) => [f.key, values[f.key]])), finalised } })
       toast.success(q('tpl.saved'))
     } catch (err) { setError(errorText(err, Object.fromEntries(FIELDS.map((f) => [f.key, q(`tpl.${f.key}`)])))) }
   }
   async function reset() {
     if (!(await confirm({ title: q('tpl.resetTitle'), message: q('tpl.resetBody'), confirmLabel: q('tpl.reset'), destructive: true }))) return
     try {
-      await resetTemplate.mutateAsync(tpl.lang)
+      await resetTemplate.mutateAsync(variant === 'closed' ? { lang: tpl.lang, variant } : tpl.lang)
       setValues(Object.fromEntries(FIELDS.map((f) => [f.key, tpl[f.key]])))
       toast.success(q('tpl.resetDone'))
     } catch (err) { toast.error(errorText(err)) }
   }
   const pv = preview.data
   return (
-    <div className="grid gap-5 lg:grid-cols-2" data-testid={`template-${tpl.lang}`}>
+    <div className="grid gap-5 lg:grid-cols-2" data-testid={`template-${tpl.lang}`} data-variant={variant}>
       <div className="space-y-3">
+        <p className="text-sm text-muted-foreground" data-testid="variant-note">{t(`alumni.admin.cl.rem.${variant === 'closed' ? 'closedNote' : 'figuresNote'}`)}</p>
         {!tpl.finalised && <p className="rounded-input border border-accent bg-accent/20 p-3 text-sm" data-testid="not-final">{q('tpl.notFinal')}</p>}
         <p className="flex flex-wrap gap-1 text-xs text-muted-foreground">{q('tpl.placeholders')} {placeholders.map((p) => <code key={p} dir="ltr" className="rounded bg-surface px-1.5 py-0.5">{`{${p}}`}</code>)}</p>
         {FIELDS.map((f) => (
@@ -169,7 +171,7 @@ function Campaigns() {
                   <td className="px-3 py-2 text-xs tabular-nums">{e.dateTime(r.created_at)}</td>
                   <td className="px-3 py-2">{periodLabel(r.period_key, lang)}</td>
                   <td className="px-3 py-2"><Badge tone={r.status === 'superseded' ? 'outline' : r.trigger === 'manual' ? 'blue' : 'neutral'}>{r.status === 'superseded' ? q('camp.superseded') : r.trigger === 'manual' ? q('camp.manual') : q('camp.scheduled', { kind: r.kind })}</Badge></td>
-                  <td className="px-3 py-2 tabular-nums">{r.recipients}</td>
+                  <td className="px-3 py-2 tabular-nums">{r.recipients}{r.closed_recipients > 0 && <span className="block text-[11px] text-muted-foreground">{t('alumni.admin.cl.rem.closedShare', { count: r.closed_recipients })}</span>}</td>
                   <td className="px-3 py-2 tabular-nums">{r.notified}<span className="block text-[11px] text-muted-foreground">{q('camp.read', { count: r.read ?? 0 })}</span></td>
                   <td className="px-3 py-2 tabular-nums">{r.emailed}{r.no_email > 0 && <span className="block text-[11px] text-muted-foreground">{q('camp.noEmail', { count: r.no_email })}</span>}</td>
                   <td className="px-3 py-2 text-xs">{Object.entries(r.delivery ?? {}).map(([k, n]) => <Badge key={k} tone={k === 'sent' ? 'green' : k === 'queued' ? 'outline' : 'amber'} className="me-1">{['queued', 'sending', 'sent', 'failed', 'dead', 'cancelled', 'needs_review'].includes(k) ? q(`camp.ds.${k}`) : k} {n}</Badge>)}{r.note === 'no_app_url' && <span className="block text-destructive-text">{q('camp.noUrl')}</span>}</td>
@@ -190,7 +192,9 @@ export default function RemindersPage() {
   const q = (k, v) => t(`alumni.admin.qs.${k}`, v)
   const query = useAlumniQuarterSettings()
   const [lang, setLang] = useState('ar')
-  const tpl = useMemo(() => (query.data?.templates ?? []).find((x) => x.lang === lang), [query.data, lang])
+  const [variant, setVariant] = useState('figures')
+  const tpl = useMemo(() => ((variant === 'closed' ? query.data?.closed_templates : query.data?.templates) ?? []).find((x) => x.lang === lang), [query.data, lang, variant])
+  const placeholders = variant === 'closed' ? query.data?.closed_placeholders ?? [] : query.data?.placeholders ?? []
   return (
     <AdminPage testId="alumni-admin-reminders" title={q('rem.title')} subtitle={q('rem.subtitle')} actions={<Link to="/alumni/admin/quarters" className="inline-flex min-h-11 items-center gap-1 text-sm font-semibold text-primary hover:underline"><ArrowLeft className="h-4 w-4 rtl:rotate-180" aria-hidden="true" />{q('rem.back')}</Link>}>
       {query.isPending ? <Skeleton className="h-64 w-full" /> : query.isError ? <ErrorState error={query.error} title={q('loadFailed')} onRetry={() => query.refetch()} /> : (
@@ -198,8 +202,9 @@ export default function RemindersPage() {
           <ScheduleCard key={query.data.app_base_url + String(query.data.send_hour) + query.data.reminder_offsets.join()} s={query.data} />
           <SectionCard id="wording" title={q('tpl.title')} description={q('tpl.desc')}>
             <div className="space-y-4">
+              {(query.data.closed_templates ?? []).length > 0 && <Segmented label={t('alumni.admin.cl.rem.audience')} value={variant} onChange={setVariant} options={[{ value: 'figures', label: t('alumni.admin.cl.rem.figures') }, { value: 'closed', label: t('alumni.admin.cl.rem.closed') }]} />}
               <Segmented label={q('tpl.language')} value={lang} onChange={setLang} options={[{ value: 'ar', label: 'العربية' }, { value: 'en', label: 'English' }]} />
-              {tpl && <TemplateEditor key={`${tpl.lang}-${tpl.updated_at}`} tpl={tpl} placeholders={query.data.placeholders} />}
+              {tpl && <TemplateEditor key={`${variant}-${tpl.lang}-${tpl.updated_at}`} tpl={tpl} variant={variant} placeholders={placeholders} />}
             </div>
           </SectionCard>
           <Campaigns />

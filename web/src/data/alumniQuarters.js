@@ -56,25 +56,31 @@ export const listAlumniQuarterStatus = ({ period = null, filters = {}, status = 
   rpc('list_alumni_quarter_status', { p_period: period, p_filters: filters, p_status: status, p_limit: limit, p_offset: offset, p_sort: sort, p_dir: dir })
 
 // ------------------------------------------------------------------ manager: reminders
-/** `{ first_period, auto_freeze, auto_reminders, reminder_offsets, send_hour, app_base_url, timezone, current_period, due[], templates[], placeholders[], scheduler }`. */
+/** `{ first_period, auto_freeze, auto_reminders, reminder_offsets, send_hour, app_base_url, timezone, current_period, due[], templates[], placeholders[], closed_templates[], closed_placeholders[], scheduler }`. */
 export const getAlumniQuarterSettings = () => rpc('get_alumni_quarter_settings', {})
 /** Patch keys: auto_freeze, auto_reminders, reminder_offsets (1-6 distinct days, 1-90), send_hour (0-23, Cairo), app_base_url. */
 export const setAlumniQuarterSettings = (patch) => rpc('set_alumni_quarter_settings', { p_patch: patch })
-/** `lang` ar | en; patch keys: notif_title, notif_body, email_subject, email_body (plain text with {founder_name} {company_name} {quarter} {deadline} {link}), finalised. */
-export const saveAlumniReminderTemplate = (lang, patch) => rpc('save_alumni_reminder_template', { p_lang: lang, p_patch: patch })
-export const resetAlumniReminderTemplate = (lang) => rpc('reset_alumni_reminder_template', { p_lang: lang })
+/**
+ * `lang` ar | en; patch keys: notif_title, notif_body, email_subject, email_body (plain text with {founder_name} {company_name} {quarter} {deadline} {link}), finalised.
+ * `variant` = 'figures' (active companies, the default) | 'closed' (closed companies, owner decision 22: "what are you doing now?"; no {deadline}).
+ */
+export const saveAlumniReminderTemplate = (lang, patch, variant = 'figures') => rpc('save_alumni_reminder_template', { p_lang: lang, p_patch: patch, ...(variant !== 'figures' ? { p_variant: variant } : {}) })
+export const resetAlumniReminderTemplate = (lang, variant = 'figures') => rpc('reset_alumni_reminder_template', { p_lang: lang, ...(variant !== 'figures' ? { p_variant: variant } : {}) })
 /** Renders a (possibly unsaved) template with sample values through the SAME code as the real send: `{ notif_title, notif_body, email_subject, email_html, email_text }`. */
-export const previewAlumniReminderTemplate = (lang, template = null) => rpc('preview_alumni_reminder_template', { p_lang: lang, p_template: template })
-/** `{ period, recipients, with_email, without_email, companies, already_reminded, confirm_above, sample[] }`. `onlyNew` = skip founders already reminded this quarter. */
-export const previewAlumniReminders = ({ period = null, companyIds = null, filters = null, onlyNew = false } = {}) =>
-  rpc('preview_alumni_reminders', { p_period: period, p_company_ids: companyIds, p_filters: filters, p_only_new: onlyNew })
+export const previewAlumniReminderTemplate = (lang, template = null, variant = 'figures') => rpc('preview_alumni_reminder_template', { p_lang: lang, p_template: template, ...(variant !== 'figures' ? { p_variant: variant } : {}) })
+/**
+ * The two audiences, separately: `{ period, recipients, with_email, without_email, companies, already_reminded, sample[] }` = the FIGURES reminder (active companies) and `closed: { same keys }` = the
+ * "what are you doing now?" reminder (closed companies), plus `total` and `confirm_above`. `onlyNew` = skip founders already reminded this quarter; `audience` = all | figures | closed.
+ */
+export const previewAlumniReminders = ({ period = null, companyIds = null, filters = null, onlyNew = false, audience = 'all' } = {}) =>
+  rpc('preview_alumni_reminders', { p_period: period, p_company_ids: companyIds, p_filters: filters, p_only_new: onlyNew, ...(audience !== 'all' ? { p_audience: audience } : {}) })
 /**
  * Sends the reminders (notification + e-mail queued for the worker). `token` makes a double click ONE send (a new token = a deliberate resend); above 100 recipients the exact
  * `expectedCount` must be given (`alumni_confirm_required` otherwise). -> `{ campaign_id, audience, sent, already_sent, no_email }`.
  */
-export const sendAlumniReminders = ({ period = null, companyIds = null, filters = null, onlyNew = false, token, expectedCount = null, appUrl = null } = {}) =>
-  rpc('send_alumni_reminders', { p_period: period, p_company_ids: companyIds, p_filters: filters, p_only_new: onlyNew, p_token: token, p_expected_count: expectedCount, p_app_url: appUrl })
-/** `{ total, rows: [{ id, period_key, trigger, kind, status, created_at, created_by_name, recipients, notified, emailed, no_email, delivery, read, note }] }`. */
+export const sendAlumniReminders = ({ period = null, companyIds = null, filters = null, onlyNew = false, token, expectedCount = null, appUrl = null, audience = 'all' } = {}) =>
+  rpc('send_alumni_reminders', { p_period: period, p_company_ids: companyIds, p_filters: filters, p_only_new: onlyNew, p_token: token, p_expected_count: expectedCount, p_app_url: appUrl, ...(audience !== 'all' ? { p_audience: audience } : {}) })
+/** `{ total, rows: [{ id, period_key, trigger, kind, status, created_at, created_by_name, recipients, closed_recipients, notified, emailed, no_email, delivery, read, note }] }`. */
 export const listAlumniReminderCampaigns = ({ period = null, limit = 20, offset = 0 } = {}) => rpc('list_alumni_reminder_campaigns', { p_period: period, p_limit: limit, p_offset: offset })
 
 /** A fresh token for one send dialog (a double click = one send). */
@@ -115,8 +121,8 @@ export function useQuarterMutations() {
     refreezeQuarter: useMutation({ mutationFn: ({ period, companyId }) => refreezeAlumniQuarter(period, companyId ?? null), onSuccess: all }),
     correctSnapshot: useMutation({ mutationFn: ({ companyId, period, data }) => correctAlumniSnapshot(companyId, period, data), onSuccess: all }),
     saveSettings: useMutation({ mutationFn: setAlumniQuarterSettings, onSuccess: all }),
-    saveTemplate: useMutation({ mutationFn: ({ lang, patch }) => saveAlumniReminderTemplate(lang, patch), onSuccess: all }),
-    resetTemplate: useMutation({ mutationFn: resetAlumniReminderTemplate, onSuccess: all }),
+    saveTemplate: useMutation({ mutationFn: ({ lang, patch, variant }) => saveAlumniReminderTemplate(lang, patch, variant), onSuccess: all }),
+    resetTemplate: useMutation({ mutationFn: (arg) => (typeof arg === 'string' ? resetAlumniReminderTemplate(arg) : resetAlumniReminderTemplate(arg.lang, arg.variant)), onSuccess: all }),
     sendReminders: useMutation({ mutationFn: sendAlumniReminders, onSuccess: all }),
   }
 }

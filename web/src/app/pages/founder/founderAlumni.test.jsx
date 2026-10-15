@@ -478,7 +478,8 @@ describe('Founder opportunities page', () => {
     open()
     const cards = await screen.findAllByTestId('opportunity')
     expect(cards.map((c) => within(c).getByRole('heading').textContent)).toEqual(['Angel Round', 'Startup Grant'])
-    expect(within(cards[0]).getByText('3 days left')).toBeInTheDocument()
+    // the deadline is a date-only value (UTC midnight), so depending on the time of day the page shows 2 or 3 days left
+    expect(within(cards[0]).getByText(/^[23] days left$/)).toBeInTheDocument()
     expect(within(cards[1]).getByText(/Registered startups/)).toBeInTheDocument()
     expect(within(cards[0]).getByRole('link', { name: 'More information' })).toHaveAttribute('rel', 'noopener noreferrer')
     await user.click(screen.getByRole('button', { name: 'All' }))

@@ -19,7 +19,7 @@ export function ExpandableText({ text, lines = 4, threshold = 180, forceExpanded
         {value}
       </Tag>
       {needsToggle && (
-        <button type="button" onClick={() => setOpen((v) => !v)} aria-expanded={open} aria-controls={id} className="min-h-9 text-sm font-semibold text-primary underline-offset-4 hover:underline">
+        <button type="button" onClick={() => setOpen((v) => !v)} aria-expanded={open} aria-controls={id} className="min-h-11 text-sm font-semibold sm:min-h-9 text-primary underline-offset-4 hover:underline">
           {open ? labels.less ?? 'See less' : labels.more ?? 'See more'}
         </button>
       )}

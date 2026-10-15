@@ -13,6 +13,7 @@ export const PERMISSIONS = [
   'program:create',
   'form-library:manage',
   'team:manage',
+  'experts:merge', // the experts registry: merge duplicates, delete, restore (super_admin only; m77)
   'staff:manage', // 08 section 14: super_admin manages staff roles, memberships and invitations
 ]
 

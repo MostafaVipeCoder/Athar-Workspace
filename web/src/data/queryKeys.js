@@ -82,6 +82,13 @@ export const keys = {
   // Athar Network / companies registry (data/people.js)
   experts: (filter = {}) => ['experts', filter],
   expert: (id) => ['experts', 'one', id],
+  // the experts REGISTRY (m75 - m77): everything under ['experts'] so ONE invalidation after a write refreshes the list, the profile, the tags and the duplicate finder
+  expertRegistry: (state, lang) => ['experts', 'registry', lang, state],
+  expertProfile: (id) => ['experts', 'profile', id],
+  expertTags: (includeArchived = false) => ['experts', 'tags', includeArchived],
+  expertSimilar: (args) => ['experts', 'similar', args],
+  expertPairs: () => ['experts', 'pairs'],
+  expertMerges: (id) => ['experts', 'merges', id ?? 'all'],
   companies: (filter = {}) => ['companies', filter],
   company: (id) => ['companies', 'one', id],
 

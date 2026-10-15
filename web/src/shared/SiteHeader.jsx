@@ -56,7 +56,7 @@ function MobileMenuFrame({ home, items, navLabel, dark, hasNav, bp, t, children 
         <BrandMark to={home} inverse={dark} />
         {hasNav && (
           <div className={bp.slot}>
-            <NavBar items={items} label={navLabel} tone={dark ? 'inverse' : 'default'} />
+            <NavBar items={items} label={navLabel} tone={dark ? 'inverse' : 'default'} moreLabel={t('nav.more')} />
           </div>
         )}
         <div className={cn('flex items-center gap-1 sm:gap-2', !hasNav && 'ms-auto', hasNav && bp.end)}>{children}</div>

@@ -1,5 +1,5 @@
 import { Link } from 'react-router-dom'
-import { Bell, Building2, Handshake, TrendingUp, UserRound } from 'lucide-react'
+import { Bell, Building2, Compass, Handshake, TrendingUp, UserRound } from 'lucide-react'
 import { useMyAlumniProfile } from '../../../data/alumni.js'
 import { useUnreadNotifications } from '../../../data/founderNotifications.js'
 import { useLanguage } from '../../../i18n/LanguageProvider.jsx'
@@ -15,6 +15,7 @@ import './alumni.i18n.js'
 import './alumni.home.i18n.js'
 import '../../../shared/alumni/i18n.js'
 import '../../../shared/alumni/i18n.quarters.js'
+import '../../../shared/alumni/i18n.closed.js'
 
 const tile = 'flex min-h-16 items-center gap-3 rounded-card border bg-card p-3 text-start transition-colors hover:border-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring'
 
@@ -31,7 +32,9 @@ export default function HomeAlumniCards() {
   const overall = data ? overallCompleteness(data) : null
   const companies = data?.companies ?? []
   // the quarter is open and the figures are not confirmed (the server's own status of the CALENDAR quarter)
-  const dueFor = companies.filter((c) => needsUpdate(c.figures?.status))
+  // (a CLOSED company is not asked for figures: it is asked what the founder is doing now, owner decision 22)
+  const dueFor = companies.filter((c) => c.operating_status !== 'closed' && needsUpdate(c.figures?.status))
+  const closedCompanies = companies.filter((c) => c.operating_status === 'closed')
   const count = badgeCount(unread.data)
 
   // the one next step: the profile, then a company, then the company's missing items, then the yearly figures
@@ -84,6 +87,9 @@ export default function HomeAlumniCards() {
           </Link>
         </li>
         <li><Link to="/alumni/founder/opportunities" className={tile}><Handshake className="h-5 w-5 shrink-0 text-primary" aria-hidden="true" /><span className="min-w-0 flex-1 font-semibold">{t('nav.opportunities')}</span></Link></li>
+        {closedCompanies.slice(0, 2).map((c) => (
+          <li key={`closed-${c.id}`}><Link to={`/alumni/founder/after-closing?company=${c.id}`} className={tile} data-testid="home-after-closing"><Compass className="h-5 w-5 shrink-0 text-primary" aria-hidden="true" /><span className="min-w-0 flex-1 break-words font-semibold">{t('alumni.closed.homeCta', { company: pick(c, 'name') })}</span></Link></li>
+        ))}
         <li><Link to="/alumni/founder/progress" className={tile}><TrendingUp className="h-5 w-5 shrink-0 text-primary" aria-hidden="true" /><span className="min-w-0 flex-1 font-semibold">{t('alumni.founder.home.progress')}</span></Link></li>
         {companies.length === 0 && data && (
           <li><Link to="/alumni/founder/company/new" className={tile}><Building2 className="h-5 w-5 shrink-0 text-primary" aria-hidden="true" /><span className="min-w-0 flex-1 font-semibold">{t('alumni.founder.profile.createCompany')}</span></Link></li>

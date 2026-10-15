@@ -11,7 +11,7 @@ import { useConfirm } from '../../ui/ConfirmDialog.jsx'
 import { Button } from '../../ui/Button.jsx'
 import { Badge } from '../../ui/Badge.jsx'
 import { useListItems, useListMeta, useListMutations } from '../../data/lists.js'
-import { usePeopleMutations } from '../../data/people.js'
+import { uploadExpertPhoto, usePeopleMutations } from '../../data/people.js'
 import { uploadImage } from '../../data/storage.js'
 import { useAuth } from '../../app/AuthContext.js'
 import { biPick, isActiveItem } from '../../lib/entities.js'
@@ -179,9 +179,9 @@ export default function ListEdit() {
           kind={picker}
           existingIds={existingIds}
           onClose={() => setPicker(null)}
-          onUpload={upload}
+          onUpload={picker === 'expert' ? uploadExpertPhoto : upload}
           onPick={(entity) => run(() => (picker === 'expert' ? m.addNetworkPick.mutateAsync({ expertId: entity.id }) : m.addCompanyPick.mutateAsync({ companyId: entity.id })))}
-          onCreate={(view) => run(() => (picker === 'expert' ? people.createExpert.mutateAsync({ view, kind: 'expert' }) : people.createCompany.mutateAsync({ view, originProjectId: projectId, userId: user?.id })))}
+          onCreate={(view, opts) => run(() => (picker === 'expert' ? people.createExpert.mutateAsync({ view, kind: 'expert', force: opts?.force }) : people.createCompany.mutateAsync({ view, originProjectId: projectId, userId: user?.id })))}
         />
       )}
       {flow.dialog}

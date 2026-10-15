@@ -1,6 +1,6 @@
 import { useState } from 'react'
-import { Link, useSearchParams } from 'react-router-dom'
-import { Award, CheckCircle2, Circle, Layers, LineChart, Rocket } from 'lucide-react'
+import { Link, Navigate, useSearchParams } from 'react-router-dom'
+import { Award, CheckCircle2, Circle, Compass, Layers, LineChart, Rocket } from 'lucide-react'
 import { useMyAlumniProfile } from '../../../data/alumni.js'
 import { useAllMyCertificates } from '../../../data/alumniFounder.js'
 import { useMyPrograms } from '../../../data/founder.js'
@@ -19,10 +19,11 @@ import './alumni.progress.i18n.js'
 import '../../../shared/alumni/i18n.js'
 import '../../../shared/alumni/i18n.company.js'
 import '../../../shared/alumni/i18n.quarters.js'
+import '../../../shared/alumni/i18n.closed.js'
 
 /** The figures of the company the founder picked (the company of a reminder link comes in `?company=`): the quarter's draft, "confirm", and the closed quarters with their graphs. */
 function CompaniesFigures({ companies, focus }) {
-  const { pick } = useLanguage()
+  const { t, pick } = useLanguage()
   const [picked, setPicked] = useState(null)
   const current = companies.find((c) => c.id === (picked ?? focus)) ?? companies[0]
   return (
@@ -34,9 +35,17 @@ function CompaniesFigures({ companies, focus }) {
           ))}
         </div>
       )}
-      <div className="rounded-card border bg-card p-4" data-testid="progress-company">
-        <FiguresPanel key={current.id} companyId={current.id} audience="founder" companyName={pick(current, 'name')} />
-      </div>
+      {current.operating_status === 'closed' ? (
+        <div className="flex flex-wrap items-center gap-3 rounded-card border border-accent bg-accent/20 p-4" data-testid="progress-company-closed">
+          <Compass className="h-5 w-5 shrink-0" aria-hidden="true" />
+          <div className="min-w-0 flex-1"><p className="font-bold">{t('alumni.closed.progressCardTitle')}</p><p className="text-sm">{t('alumni.closed.progressCardBody')}</p></div>
+          <Link to={`/alumni/founder/after-closing?company=${current.id}`} className={buttonClass({ size: 'sm' })}>{t('alumni.closed.progressCardCta')}</Link>
+        </div>
+      ) : (
+        <div className="rounded-card border bg-card p-4" data-testid="progress-company">
+          <FiguresPanel key={current.id} companyId={current.id} audience="founder" companyName={pick(current, 'name')} />
+        </div>
+      )}
     </div>
   )
 }
@@ -53,6 +62,8 @@ export default function FounderProgressPage() {
   if (profileQ.error) return <ErrorState error={profileQ.error} title={t('alumni.founder.progress.loadFailed')} onRetry={profileQ.refetch} />
 
   const profile = profileQ.data
+  const focused = profile.companies.find((c) => c.id === search.get('company'))
+  if (focused?.operating_status === 'closed') return <Navigate to={`/alumni/founder/after-closing?company=${focused.id}`} replace />
   const programs = (programsQ.data ?? []).filter((p) => p.status !== 'withdrawn')
   const certificates = certsQ.data ?? []
   const milestones = buildMilestones({ profile, programs: programsQ.data ?? [], certificates })

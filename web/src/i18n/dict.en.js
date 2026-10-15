@@ -89,6 +89,7 @@ export default {
   'nav.impact': 'Impact',
   'nav.area': 'Area',
   'nav.menu': 'Menu',
+  'nav.more': 'More',
   'nav.closeMenu': 'Close menu',
   'nav.skip': 'Skip to content',
   'nav.founder': 'Founder',
