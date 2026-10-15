@@ -63,6 +63,7 @@ export function roleHome(roles = [], lastArea = null) {
   if (areas.length === 0) return '/no-access'
   if (lastArea && areas.includes(lastArea)) return AREA_HOME[lastArea]
   if (areas.length === 1) return AREA_HOME[areas[0]]
-  // several areas, nothing remembered: staff-capable first (06 section 8.3 says "small chooser"; chooser is step 2b UI)
-  return null
+  // several areas, nothing remembered: go straight to the first one in AREAS order (staff, network, founder).
+  // Owner decision 2026-10-15: no chooser page, the user menu already switches areas.
+  return AREA_HOME[areas[0]]
 }
