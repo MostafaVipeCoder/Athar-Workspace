@@ -50,7 +50,6 @@ function FounderForm({ companyId, member, founder, onClose, onSaved, onReload })
   const [loaded, setLoaded] = useState(founder)
   const base = useMemo(() => toForm(loaded, member?.role), [loaded, member?.role])
   const [values, setValues] = useState(base)
-  const [reason, setReason] = useState('')
   const [busy, setBusy] = useState(false)
   const [nidError, setNidError] = useState(null)
   const [notice, setNotice] = useState(null)
@@ -104,7 +103,7 @@ function FounderForm({ companyId, member, founder, onClose, onSaved, onReload })
         const role = str(values.role).trim()
         await saveCompanyTeamMember(companyId, null, role ? { ...patch, role } : patch)
       } else {
-        const r = Object.keys(patch).length ? await saveAlumniFounder(member.founder_id, patch, loaded.updated_at, reason.trim() || null) : null
+        const r = Object.keys(patch).length ? await saveAlumniFounder(member.founder_id, patch, loaded.updated_at) : null
         replaced = r?.replaced ?? []
         if (roleChanged) await saveCompanyTeamMember(companyId, member.founder_id, { role: str(values.role).trim() || null })
       }
@@ -164,7 +163,6 @@ function FounderForm({ companyId, member, founder, onClose, onSaved, onReload })
               <p className="text-sm text-muted-foreground">{d('fIdHint')}</p>
               <NationalIdField identity={identity} value={values.national_id} onChange={(v) => set('national_id', v)} selfBirthDate={values.self_birth_date} selfGender={values.self_gender} onSelfChange={(k, v) => set(k, v)} serverError={nidError} disabled={busy} />
             </div>
-            {!isNew && <Field label={d('reasonLabel')} hint={d('reasonHint')} placeholder={d('reasonPlaceholder')} value={reason} maxLength={300} onChange={(ev) => setReason(ev.target.value)} />}
             {!isNew && <p className="text-xs text-muted-foreground">{d('fPhotoNote')}</p>}
           </>
         )}

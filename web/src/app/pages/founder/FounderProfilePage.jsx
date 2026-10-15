@@ -322,8 +322,13 @@ function ProfileForm({ profile }) {
 /** /alumni/founder/profile */
 export default function FounderProfilePage() {
   const { t } = useLanguage()
+  const { hasRole } = useAuth()
   const q = useMyAlumniProfile()
   if (q.isPending) return <ProfileSkeleton />
+  // a staff account (super_admin, project manager, alumni manager) is never a founder: explain instead of showing a raw error
+  if (q.error && q.error.code === 'forbidden' && !hasRole('founder')) {
+    return <EmptyState title={t('alumni.founder.profile.staffTitle')} body={t('alumni.founder.profile.staffBody')} />
+  }
   if (q.error) return <ErrorState error={q.error} title={t('alumni.founder.profile.loadFailed')} onRetry={q.refetch} />
   return <ProfileForm profile={q.data} />
 }

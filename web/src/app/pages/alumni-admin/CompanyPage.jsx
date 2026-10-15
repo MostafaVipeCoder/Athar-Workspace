@@ -1,6 +1,6 @@
 import { useEffect } from 'react'
 import { Link, useLocation, useParams, useSearchParams } from 'react-router-dom'
-import { ArrowLeft, GitMerge, History, Layers, LineChart, MailPlus, ShieldCheck, Users } from 'lucide-react'
+import { ArrowLeft, GitMerge, Layers, LineChart, MailPlus, ShieldCheck, Users } from 'lucide-react'
 import { useAlumniCompany, useAlumniStamps } from '../../../data/alumni.js'
 import { useLanguage } from '../../../i18n/LanguageProvider.jsx'
 import { Badge } from '../../../ui/Badge.jsx'
@@ -10,15 +10,13 @@ import { COMPANY_MISSING_SECTION } from '../../../lib/alumniForms.js'
 import { RULE_SECTION } from '../../../lib/alumniAttention.js'
 import { CompletenessMeter, ProfileSection } from '../../../shared/alumni/blocks.jsx'
 import { highlightSection, scrollToSection } from '../../../shared/alumni/scrollToSection.js'
-import MetricsTable from '../../../shared/alumni/MetricsTable.jsx'
+import FiguresPanel from '../../../shared/alumni/FiguresPanel.jsx'
 import ProgramsReadOnlyList from '../../../shared/alumni/ProgramsReadOnlyList.jsx'
 import StampLine from '../../../shared/alumni/StampLine.jsx'
-import TrendBars from '../../../shared/alumni/TrendBars.jsx'
 import { CompanyLogo } from './ui.jsx'
 import ManagerFields from './ManagerFields.jsx'
 import CompanyAdminTeam from './CompanyAdminTeam.jsx'
 import CompanyProfileForm from './CompanyProfileForm.jsx'
-import HistoryPanel from './HistoryPanel.jsx'
 import { CertificateLinks, CompanyInvitations, CompanyMerge } from './CompanyExtras.jsx'
 import { useCompanyActions } from './useCompanyActions.js'
 import { reviewState } from './columns.js'
@@ -29,8 +27,9 @@ import './company.edit.i18n.js'
 import '../../../shared/alumni/i18n.js'
 import '../../../shared/alumni/i18n.company.js'
 import '../../../shared/alumni/i18n.edit.js'
+import '../../../shared/alumni/i18n.quarters.js'
 
-function Header({ company }) {
+function Header({ company, stamp }) {
   const { t, pick } = useLanguage()
   const d = (k, v) => t(`alumni.admin.co.${k}`, v)
   const labels = useLabels()
@@ -50,7 +49,7 @@ function Header({ company }) {
           {company.stage && <Badge tone="outline">{labels.label('stage', company.stage)}</Badge>}
         </div>
         {place && <p className="text-sm text-muted-foreground">{place}</p>}
-        <StampLine audience="manager" stamp={company.updated_source ? { at: company.updated_at, source: company.updated_source } : null} />
+        <StampLine audience="manager" stamp={stamp?.updated_at ? { at: stamp.updated_at, source: stamp.source, name: stamp.name } : company.updated_source ? { at: company.updated_at, source: company.updated_source } : null} />
       </div>
     </header>
   )
@@ -69,8 +68,8 @@ function SectionChips({ sections }) {
 
 /**
  * Everything about one company for a manager (design 09 M3): the editable profile (CompanyProfileForm), the manager-only fields, the team (every founder editable, national ID, bio,
- * LinkedIn), the yearly figures (edit, review, delete), the derived programs, the HISTORY of edits (and the company at any date), invitations and merge. Each section shows who edited
- * it last. A deep link from the needs-attention queue (`?focus=<item>#<section>`) scrolls to the section, highlights it and opens the form that fixes the item.
+ * LinkedIn), the quarterly figures (the draft, the closed quarters with their graphs, close now / correct), the derived programs, invitations and merge. The company and every figure form show
+ * "last modified" (owner decision 21: no per-edit history). A deep link from the needs-attention queue (`?focus=<item>#<section>`) scrolls to the section, highlights it and opens the form that fixes the item.
  */
 function CompanyEditor({ payload }) {
   const { t } = useLanguage()
@@ -79,8 +78,8 @@ function CompanyEditor({ payload }) {
   const location = useLocation()
   const company = payload.company
   const stamps = useAlumniStamps(company.id)
-  const actions = useCompanyActions(payload)
-  const stampOf = (section) => { const x = stamps.data?.sections?.[section]; return x ? <StampLine audience="manager" stamp={{ at: x.at, source: x.source, name: x.name }} /> : null }
+  const actions = useCompanyActions()
+  const stampOf = () => null
 
   const focusRule = search.get('focus')
   // a link such as /company/<id>?focus=sector#classification lands on its section, highlighted (once, after the first paint)
@@ -95,13 +94,13 @@ function CompanyEditor({ payload }) {
     { id: 'basics', label: t('alumni.common.basicsTitle') }, { id: 'classification', label: t('alumni.common.classificationTitle') }, { id: 'location', label: t('alumni.common.locationTitle') },
     { id: 'online', label: t('alumni.common.onlineTitle') }, { id: 'status', label: t('alumni.common.statusTitle') }, { id: 'directory', label: t('alumni.common.directoryTitle') },
     { id: 'manager', label: d('managerTitle') }, { id: 'team', label: d('teamTitle') }, { id: 'metrics', label: d('metricsTitle') }, { id: 'programs', label: d('programsTitle') },
-    { id: 'history', label: d('historyTitle') }, { id: 'invitations', label: d('invTitle') }, { id: 'merge', label: d('mergeTitle') },
+    { id: 'invitations', label: d('invTitle') }, { id: 'merge', label: d('mergeTitle') },
   ]
 
   return (
     <div className="space-y-5 pb-28" data-testid="admin-company">
       <Link to="/alumni/admin/directory" className="inline-flex min-h-11 items-center gap-1 text-sm font-semibold text-primary hover:underline"><ArrowLeft className="h-4 w-4 rtl:rotate-180" aria-hidden="true" />{d('back')}</Link>
-      <Header company={company} />
+      <Header company={company} stamp={stamps.data?.company} />
       <div className="rounded-card border bg-card p-4">
         <CompletenessMeter percent={company.completeness?.percent} missing={company.completeness?.missing ?? []} labelFor={(k) => t(`alumni.common.missing.${k}`)} sectionFor={(k) => COMPANY_MISSING_SECTION[k]} />
       </div>
@@ -116,15 +115,11 @@ function CompanyEditor({ payload }) {
         <CompanyAdminTeam companyId={company.id} team={payload.team} counts={payload.counts} ceoFounderId={payload.ceo_founder_id} onChanged={actions.refresh} founderStamps={stamps.data?.founders ?? []} autoOpen={focusRule} />
       </ProfileSection>
       <ProfileSection id="metrics" icon={LineChart} title={d('metricsTitle')} description={d('metricsDesc')} stamp={stampOf('metrics')}>
-        <TrendBars snapshots={payload.snapshots} />
-        <MetricsTable snapshots={payload.snapshots} onSave={actions.saveYear} onDelete={actions.deleteYear} onReload={actions.reloadYear} onReview={actions.reviewYear} audience="manager" yearStamps={stamps.data?.years ?? []} />
+        <FiguresPanel companyId={company.id} audience="manager" companyName={company.name_en || company.name_ar} />
       </ProfileSection>
       <ProfileSection id="programs" icon={Layers} title={d('programsTitle')} description={d('programsDesc')}>
         <ProgramsReadOnlyList programs={payload.programs} />
         <CertificateLinks programs={payload.programs} />
-      </ProfileSection>
-      <ProfileSection id="history" icon={History} title={d('historyTitle')} description={d('historyDesc')}>
-        <HistoryPanel companyId={company.id} />
       </ProfileSection>
       <ProfileSection id="invitations" icon={MailPlus} title={d('invTitle')}>
         <CompanyInvitations companyId={company.id} />

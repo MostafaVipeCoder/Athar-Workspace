@@ -4,10 +4,12 @@ import { useLanguage } from '../../../i18n/LanguageProvider.jsx'
 import { Badge } from '../../../ui/Badge.jsx'
 import { cn } from '../../../lib/cn.js'
 import { cellText, columnOf, governorateOf, reviewState } from './columns.js'
+import { FigureStatusBadge } from '../../../shared/alumni/FiguresPanel.jsx'
 import { CompanyLogo } from './ui.jsx'
 import RevealId from './RevealId.jsx'
 import './i18n.common.js'
 import './directory.i18n.js'
+import '../../../shared/alumni/i18n.quarters.js'
 
 const isHttp = (u) => /^https?:\/\//i.test(String(u ?? ''))
 const hostOf = (u) => {
@@ -54,6 +56,13 @@ function Cell({ col, row, env }) {
     }
     case 'status':
       return text ? <Badge tone={row.operating_status === 'closed' ? 'red' : 'green'}>{text}</Badge> : <Dash />
+    case 'freshness':
+      return row.figures?.status ? (
+        <span className="flex flex-col gap-0.5">
+          <FigureStatusBadge status={row.figures.status} />
+          <span className="text-[11px] text-muted-foreground tabular-nums">{row.figures.updated_at ? env.date(row.figures.updated_at) : t('alumni.q.form.neverModified')}</span>
+        </span>
+      ) : <Dash />
     case 'flag':
       return <Badge tone={row.is_alumni ? 'blue' : 'outline'}>{row.is_alumni ? t('alumni.admin.dir.alumniYes') : t('alumni.admin.dir.alumniNo')}</Badge>
     case 'review': {

@@ -2,8 +2,9 @@ import { useCallback, useEffect, useState } from 'react'
 import { Link, useLocation, useParams } from 'react-router-dom'
 import { ArrowLeft, ExternalLink, Globe2, Layers, LineChart, MapPin, RefreshCw, Users } from 'lucide-react'
 import {
-  alumniKeys, getMyCompanyProfile, NEW_ROW, removeCompanyTeamMember, saveCompanyTeamMember, saveMyCompanyProfile, setCompanyCeo, upsertCompanySnapshot, useAlumniLookups, useAlumniStamps, useMyCompanyProfile,
+  alumniKeys, getMyCompanyProfile, removeCompanyTeamMember, saveCompanyTeamMember, saveMyCompanyProfile, setCompanyCeo, useAlumniLookups, useAlumniStamps, useMyCompanyProfile,
 } from '../../../data/alumni.js'
+import { useCompanyFigures } from '../../../data/alumniQuarters.js'
 import { publicThumbUrl, removeObjects } from '../../../data/storage.js'
 import { useLanguage } from '../../../i18n/LanguageProvider.jsx'
 import { Badge } from '../../../ui/Badge.jsx'
@@ -19,14 +20,12 @@ import { useAuth } from '../../AuthContext.js'
 import { CompletenessMeter, ProfileSection } from '../../../shared/alumni/blocks.jsx'
 import { scrollToSection } from '../../../shared/alumni/scrollToSection.js'
 import { CompanyBasicsSection, CompanyClassificationSection, CompanyLocationSection, CompanyOnlineSection, CompanyStatusSection, DirectoryVisibilitySection } from '../../../shared/alumni/CompanySections.jsx'
-import FiguresHistory from '../../../shared/alumni/FiguresHistory.jsx'
-import MetricsTable from '../../../shared/alumni/MetricsTable.jsx'
+import FiguresPanel, { FiguresBanner } from '../../../shared/alumni/FiguresPanel.jsx'
 import StampLine from '../../../shared/alumni/StampLine.jsx'
 import { useStaleResolver } from '../../../shared/alumni/useStaleResolver.jsx'
 import ProgramsReadOnlyList from '../../../shared/alumni/ProgramsReadOnlyList.jsx'
 import SaveBar from '../../../shared/alumni/SaveBar.jsx'
 import TeamEditor from '../../../shared/alumni/TeamEditor.jsx'
-import TrendBars from '../../../shared/alumni/TrendBars.jsx'
 import UnsavedGuard from '../../../shared/alumni/UnsavedGuard.jsx'
 import { useDraftForm } from '../../../shared/alumni/useDraftForm.js'
 import { useAlumniErrorText } from '../../../shared/alumni/useAlumniErrorText.js'
@@ -38,6 +37,7 @@ import './alumni.company.i18n.js'
 import '../../../shared/alumni/i18n.js'
 import '../../../shared/alumni/i18n.company.js'
 import '../../../shared/alumni/i18n.edit.js'
+import '../../../shared/alumni/i18n.quarters.js'
 
 const sectionOfField = (field) => (['name_en', 'name_ar', 'description_en', 'description_ar', 'logo_path', 'established_on'].includes(field) ? 'basics'
   : ['startup_type', 'sector', 'subsector', 'stage', 'legal_status'].includes(field) ? 'classification'
@@ -114,7 +114,10 @@ function CompanyEditor({ payload }) {
   const { refresh, fetchFresh } = useAlumniRefresh()
   const { company } = payload
   const stamps = useAlumniStamps(company.id)
-  const stampOf = (section) => { const x = stamps.data?.sections?.[section]; return x ? <StampLine stamp={{ at: x.at, source: x.source }} /> : null }
+  const figs = useCompanyFigures(company.id)
+  // owner decision 21: no per-section history; the company row and each figure form carry their own "last modified"
+  const stampOf = () => null
+  const companyStamp = stamps.data?.company?.updated_at ? { at: stamps.data.company.updated_at, source: stamps.data.company.source } : null
   const hash = location.hash
   // a link such as /company/<id>#metrics (the Progress page, the Home) lands on its section
   useEffect(() => { if (hash) scrollToSection(hash.slice(1)) }, [hash])
@@ -198,17 +201,6 @@ function CompanyEditor({ payload }) {
     remove: async (founderId) => { await removeCompanyTeamMember(company.id, founderId); await refresh() },
     ceo: async (founderId) => { await setCompanyCeo(company.id, founderId); await refresh() },
   }
-  // a yearly row is saved with the version of the row the form loaded (NEW_ROW = "no row for this year"): a figure somebody else saved meanwhile is a conflict, never overwritten unseen
-  const saveYear = async (year, data) => {
-    const row = payload.snapshots.find((x) => x.year === year)
-    await upsertCompanySnapshot(company.id, year, data, row?.updated_at ?? NEW_ROW)
-    await refresh()
-  }
-  const reloadYear = async (year) => {
-    const fresh = await fetchFresh(alumniKeys.myCompany(company.id), () => getMyCompanyProfile(company.id))
-    return fresh.snapshots.find((x) => x.year === year) ?? null
-  }
-
   const sections = [
     { id: 'basics', label: t('alumni.founder.nav.basics') }, { id: 'classification', label: t('alumni.founder.nav.classification') },
     { id: 'location', label: t('alumni.founder.nav.location') }, { id: 'online', label: t('alumni.founder.nav.online') },
@@ -227,6 +219,10 @@ function CompanyEditor({ payload }) {
         </div>
       )}
       <CompanyCard company={company} programsCount={payload.programs?.length ?? 0} />
+      <StampLine stamp={companyStamp} />
+      {figs.data && (
+        <FiguresBanner status={figs.data.status} period={figs.data.calendar_period} deadline={figs.data.deadline} className="cursor-pointer" />
+      )}
       <div className="rounded-card border bg-card p-4">
         <CompletenessMeter
           title={t('alumni.founder.company.completeness')}
@@ -261,10 +257,8 @@ function CompanyEditor({ payload }) {
         <CoFounderInvite companyId={company.id} />
       </ProfileSection>
 
-      <ProfileSection id="metrics" icon={LineChart} title={t('alumni.founder.company.metricsTitle')} description={t('alumni.founder.company.metricsDesc')} stamp={stampOf('metrics')}>
-        <TrendBars snapshots={payload.snapshots} />
-        <MetricsTable snapshots={payload.snapshots} onSave={saveYear} onReload={reloadYear} audience="founder" yearStamps={stamps.data?.years ?? []} />
-        <FiguresHistory companyId={company.id} audience="founder" />
+      <ProfileSection id="metrics" icon={LineChart} title={t('alumni.founder.company.metricsTitle')} description={t('alumni.founder.company.metricsDesc')} >
+        <FiguresPanel companyId={company.id} audience="founder" companyName={company.name_en || company.name_ar} />
       </ProfileSection>
 
       <ProfileSection id="programs" icon={Layers} title={t('alumni.founder.company.programsTitle')} description={t('alumni.founder.company.programsDesc')}>

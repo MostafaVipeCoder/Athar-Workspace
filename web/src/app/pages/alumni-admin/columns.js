@@ -54,6 +54,8 @@ export const COLUMNS = Object.freeze([
   { key: 'visibility', header: 'Directory visibility', group: 'status', kind: 'text', extra: true },
   { key: 'reviewed', header: 'Review', group: 'status', kind: 'review', extra: true },
   { key: 'updated', header: 'Last updated', group: 'status', sort: 'updated', kind: 'date', extra: true },
+  // data freshness (owner decision 21): the status of the CALENDAR quarter's figures and when they were last modified
+  { key: 'figures_status', header: 'Figures status', group: 'metrics', kind: 'freshness', extra: true, visible: true },
 ])
 
 export const COLUMN_KEYS = Object.freeze(COLUMNS.map((c) => c.key))
@@ -148,6 +150,7 @@ export function cellText(row, key, env) {
     case 'alumni': return row?.is_alumni ? 'yes' : 'no'
     case 'visibility': return L('directory_visibility', row?.directory_visibility)
     case 'reviewed': return reviewState(row)
+    case 'figures_status': return row?.figures?.status && env.t ? `${env.t(`alumni.q.status.${row.figures.status}`)}${row.figures.updated_at ? ` · ${date(row.figures.updated_at)}` : ''}` : ''
     case 'updated': return row?.updated_source && row?.updated_at && env.t ? `${date(row.updated_at)} · ${env.t(`alumni.edit.source.${row.updated_source}`)}` : date(row?.updated_at) // who wrote it last (m60)
     default: return ''
   }

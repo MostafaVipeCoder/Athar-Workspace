@@ -192,9 +192,13 @@ export const routes = [
               { path: 'alumni/admin/impact', ...analyticsView('impact') },
               { path: 'alumni/admin/workspace', ...page(() => import('./pages/alumni-admin/WorkspacePage.jsx')) },
               { path: 'alumni/admin/company/:id', ...page(() => import('./pages/alumni-admin/CompanyPage.jsx')) },
-              // m60 (owner decisions 20.3 / 20.4): the needs-attention queue and the history of edits (tabs next to the directory)
+              // m60 (owner decision 20.3): the needs-attention queue; owner decision 21 (m66-m68): the quarter status + reminders and the performance graphs (tabs next to the directory).
+              // The per-edit history viewer is gone: its old address lands on the quarter status.
               { path: 'alumni/admin/attention', ...page(() => import('./pages/alumni-admin/AttentionPage.jsx')) },
-              { path: 'alumni/admin/history', ...page(() => import('./pages/alumni-admin/HistoryPage.jsx')) },
+              { path: 'alumni/admin/quarters', ...page(() => import('./pages/alumni-admin/QuartersPage.jsx')) },
+              { path: 'alumni/admin/quarters/reminders', ...page(() => import('./pages/alumni-admin/RemindersPage.jsx')) },
+              { path: 'alumni/admin/performance', ...page(() => import('./pages/alumni-admin/PortfolioPage.jsx')) },
+              { path: 'alumni/admin/history', element: <Navigate to="/alumni/admin/quarters" replace /> },
             ],
           },
         ],

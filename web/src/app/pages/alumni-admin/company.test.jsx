@@ -32,21 +32,17 @@ const PAYLOAD = {
   ],
   counts: { team_size: 2, female_founders: 2, founders_under_35: 2 }, ceo_founder_id: 'f1',
   programs: [{ program_id: 'g1', program_name_en: 'Accelerator', program_name_ar: 'مسرعة', program_type: 'accelerator', project_id: 'j1', project_name_en: 'Cohort 1', project_name_ar: 'الدفعة', completed: false, start_date: null, end_date: null, support: ['training'] }],
-  snapshots: [{ id: 's1', year: 2024, revenue_total: 910000, funding_raised_total: 400000, employees_total: 11, employees_female: 5, freelancers: 3, traction: '', challenges: null, needs: '', source: 'founder', updated_at: '2026-10-01T00:00:00Z' }],
+  snapshots: [{ id: 's1', period_key: '2026-Q2', year: 2026, status: 'frozen', reported: true, confirmed: false, corrected: false, previous_values: null, frozen_at: '2026-07-01T00:00:00Z', frozen_source: 'auto', revenue_total: 910000, funding_raised_total: 400000, employees_total: 11, employees_female: 5, freelancers: 3, team_size: 2, female_founders: 2, traction: '', challenges: null, needs: '', operating_status: 'open' }],
 }
 
 const STAMPS = {
   company: { updated_at: '2026-10-12T09:30:00Z', source: 'manager', name: 'Mona Adel' },
-  sections: { basics: { at: '2026-10-12T09:30:00Z', source: 'manager', name: 'Mona Adel', role: 'alumni_manager', edits: 3 }, classification: { at: '2026-10-05T08:00:00Z', source: 'founder', name: 'Sara Ali', role: 'founder', edits: 1 } },
-  years: [{ year: 2024, updated_at: '2026-10-01T00:00:00Z', source: 'founder', reviewed_at: null, reviewed: false, name: 'Sara Ali' }],
   founders: [{ founder_id: 'f1', updated_at: '2026-10-03T00:00:00Z', source: 'manager' }, { founder_id: 'f2', updated_at: '2026-10-04T00:00:00Z', source: 'founder' }],
 }
-const HISTORY = {
-  total: 2, limit: 30, offset: 0,
-  rows: [
-    { id: 2, at: '2026-10-12T09:30:00Z', last_at: '2026-10-12T09:30:00Z', edits: 1, request_id: 'r2', source: 'manager', entity_type: 'company', entity_id: 'c1', company_id: 'c1', field: 'name_en', old_value: 'Nile Robotix', new_value: 'Nile Robotics', redacted: false, actor: { role: 'alumni_manager', user_id: 'u1', name: 'Mona Adel' }, company: { name_en: 'Nile Robotics' } },
-    { id: 1, at: '2026-10-05T08:00:00Z', last_at: '2026-10-05T08:00:00Z', edits: 1, request_id: 'r1', source: 'founder', entity_type: 'company', entity_id: 'c1', company_id: 'c1', field: 'sector', old_value: null, new_value: 'technology', redacted: false, actor: { role: 'founder', user_id: 'u2', name: 'Sara Ali' }, company: { name_en: 'Nile Robotics' } },
-  ],
+const FIGURES = {
+  company_id: 'c1', calendar_period: '2026-Q4', target_period: '2026-Q4', deadline: '2026-12-31', period_end: '2026-12-31T22:00:00Z', status: 'updated', target_status: 'updated',
+  draft: { period_key: '2026-Q4', revenue_total: 90000, funding_raised_total: 400000, employees_total: 12, employees_female: 5, freelancers: 3, traction: null, challenges: null, needs: null, updated_at: '2026-10-14T08:00:00Z', updated_source: 'founder', updated_by_name: 'Sara Ali', confirmed: false },
+  snapshots: PAYLOAD.snapshots,
 }
 const STALE = () => Object.assign(new Error('alumni_stale: reload'), { code: 'P0001', hint: 'alumni_stale' })
 
@@ -58,7 +54,10 @@ function setup(extra = {}) {
       get_alumni_company: PAYLOAD,
       save_alumni_company: (a) => ({ saved: true, ...PAYLOAD, company: company({ id: a.p_company ?? 'new-co', ...(a.p_patch.name_en ? { name_en: a.p_patch.name_en } : {}), updated_at: '2026-10-14T10:00:00Z' }) }),
       get_alumni_stamps: STAMPS,
-      list_alumni_history: HISTORY,
+      get_company_figures: FIGURES,
+      close_alumni_quarter: { period: '2026-Q4', frozen: 1, already_frozen: 0, skipped: 0 },
+      reopen_alumni_quarter: { period: '2026-Q2', reopened: 1 },
+      correct_alumni_snapshot: { saved: true, changed: true, snapshots: [] },
       get_alumni_founder: (a) => ({ id: a.p_founder, name_en: a.p_founder === 'f2' ? 'Hana Mostafa' : 'Sara Ali', bio_en: 'Loves robots', updated_at: '2026-10-01T00:00:00Z', updated_source: 'founder', identity: a.p_founder === 'f2' ? { has_national_id: false } : { id_masked: '**********1234', has_national_id: true, ...(a.p_reveal ? { national_id: FULL_ID } : {}) } }),
       save_alumni_founder: (a) => ({ saved: true, replaced: [], founder: { id: a.p_founder } }),
       save_company_team_member: { saved: true, founder_id: 'f9' },
@@ -69,8 +68,6 @@ function setup(extra = {}) {
       create_alumni_invitation: (a) => ({ id: 'i9', company_id: a.p_company, email: a.p_email, token: 'T', link: `${a.p_app_url}/invite/abc`, language: a.p_language, expires_at: '2026-10-28T10:00:00Z' }),
       list_alumni_directory: { audience: 'manager', total: 1, limit: 8, offset: 0, rows: [{ id: 'c7', name_en: 'Nile Robotics Duplicate', name_ar: null, logo_path: null, sector: 'technology', governorate: 25, is_alumni: false }] },
       merge_companies: { moved: 1 },
-      upsert_company_snapshot: { saved: true, snapshot: {}, snapshots: [] },
-      delete_company_snapshot: { deleted: true, snapshots: [] },
       ...extra,
     },
   })
@@ -102,7 +99,7 @@ describe('certificates are linked, not rebuilt', () => {
 })
 
 describe('the manager company page', () => {
-  it('shows the company as a manager sees it: header badges, completeness, the manager panel, the derived team, the programs, the yearly figures', async () => {
+  it('shows the company as a manager sees it: header badges, completeness, the manager panel, the derived team, the programs, the quarterly figures', async () => {
     renderAt('/alumni/admin/company/c1')
     expect(await screen.findByRole('heading', { name: 'Nile Robotics', level: 1 })).toBeInTheDocument()
     const header = screen.getByTestId('company-header')
@@ -119,7 +116,8 @@ describe('the manager company page', () => {
     expect(within(members[1]).getAllByText('self-declared').length).toBeGreaterThan(0)
     expect(within(members[1]).getByText('no account')).toBeInTheDocument()
     expect(screen.getByTestId('programs-list')).toHaveTextContent('Cohort 1')
-    expect(screen.getByTestId('metrics-table')).toHaveTextContent('2024')
+    expect(await screen.findByTestId('quarter-grid')).toHaveTextContent('Q2 2026')
+    expect(screen.queryByText(/History of this company/)).not.toBeInTheDocument() // the per-edit history is gone (owner decision 21)
     expect(document.body.textContent).not.toContain(FULL_ID)
   })
 
@@ -219,15 +217,24 @@ describe('the manager company page', () => {
     expect(mock.rpcCalls('save_company_team_member')[0].args).toEqual({ p_company: 'c1', p_founder: null, p_patch: { name_en: 'Karim Nabil' } })
   })
 
-  it('the yearly figures: a manager can correct and DELETE a year (confirmed), through the shared metrics table', async () => {
+  it('the quarterly figures: a manager can close the quarter now (asks first) and correct a closed quarter (reopen, then the patch)', async () => {
     const user = userEvent.setup()
     renderAt('/alumni/admin/company/c1')
-    await screen.findByTestId('metrics-table')
-    await user.click(screen.getByRole('button', { name: 'Delete 2024' }))
+    await user.click(await screen.findByTestId('close-quarter-now'))
     const dialog = await screen.findByRole('dialog')
-    await user.click(within(dialog).getAllByRole('button').at(-1))
-    await waitFor(() => expect(mock.rpcCalls('delete_company_snapshot')).toHaveLength(1))
-    expect(mock.rpcCalls('delete_company_snapshot')[0].args).toEqual({ p_company: 'c1', p_year: 2024 })
+    expect(mock.rpcCalls('close_alumni_quarter')).toHaveLength(0)
+    await user.click(within(dialog).getByRole('button', { name: 'Close the quarter' }))
+    await waitFor(() => expect(mock.rpcCalls('close_alumni_quarter')).toHaveLength(1))
+    expect(mock.rpcCalls('close_alumni_quarter')[0].args).toEqual({ p_period: '2026-Q4', p_company: 'c1' })
+    await user.click(await screen.findByTestId('correct-quarter'))
+    const form = await screen.findByTestId('correct-form')
+    const revenue = within(form).getByRole('textbox', { name: /Revenue/ })
+    await user.clear(revenue)
+    await user.type(revenue, '920000')
+    await user.click(screen.getByRole('button', { name: 'Save the correction' }))
+    await waitFor(() => expect(mock.rpcCalls('correct_alumni_snapshot')).toHaveLength(1))
+    expect(mock.rpcCalls('reopen_alumni_quarter')[0].args).toEqual({ p_period: '2026-Q2', p_company: 'c1' })
+    expect(mock.rpcCalls('correct_alumni_snapshot')[0].args).toEqual({ p_company: 'c1', p_period: '2026-Q2', p_data: { revenue_total: '920000' } })
   })
 
   it('invites a founder to THIS company (the link is shown once) and merges a duplicate INTO it after a confirmation', async () => {
@@ -263,18 +270,17 @@ describe('the manager company page', () => {
     expect(mock.rpcCalls('save_alumni_company')[0].args).toMatchObject({ p_company: null, p_patch: { name_en: 'Fresh Startup' } })
   })
 
-  it('every section says who edited it last and when (the manager sees the name), and the company has its own history section', async () => {
+  it('"last modified" is shown for the company, each team member and the figures; there is no per-section stamp and no history section', async () => {
     renderAt('/alumni/admin/company/c1')
     await screen.findByRole('heading', { name: 'Nile Robotics', level: 1 })
-    await waitFor(() => expect(within(document.getElementById('basics')).getByTestId('stamp-line')).toHaveTextContent('Last edited by Mona Adel (Athar team) on'))
-    await waitFor(() => expect(within(document.getElementById('classification')).getByTestId('stamp-line')).toHaveTextContent('Last edited by Sara Ali (founder) on'))
+    await waitFor(() => expect(within(screen.getByTestId('company-header')).getByTestId('stamp-line')).toHaveTextContent('Last edited by'))
     const members = await screen.findAllByTestId('admin-team-member')
     await waitFor(() => expect(within(members[1]).getByTestId('stamp-line')).toHaveTextContent('Last edited by a founder of the company'))
     expect(within(members[0]).getByTestId('stamp-line')).toHaveTextContent('Athar team')
-    const history = document.getElementById('history')
-    expect(await within(history).findAllByTestId('history-save')).toHaveLength(2)
-    expect(mock.rpcCalls('list_alumni_history')[0].args).toEqual({ p_filters: { company_id: 'c1' }, p_limit: 30, p_offset: 0 })
-    expect(within(history).getByText('Sara Ali')).toBeInTheDocument()
+    expect(await screen.findByTestId('figures-stamp')).toHaveTextContent('Last edited by Sara Ali')
+    expect(document.getElementById('history')).toBeNull()
+    expect(within(document.getElementById('basics')).queryByTestId('stamp-line')).toBeNull()
+    expect(mock.rpcCalls('list_alumni_history')).toHaveLength(0)
   })
 
   it('a stale save where the founder changed ANOTHER field: their value is loaded, mine stays, Save again carries the new version and only my field', async () => {
@@ -333,17 +339,17 @@ describe('the manager company page', () => {
     expect(mock.rpcCalls('save_alumni_company')).toHaveLength(1)
   })
 
-  it('a manager can give the reason of a change; it travels with the save and is kept in the history', async () => {
+  it('there is no "reason for this change" field any more: the save is exactly (company, patch, version)', async () => {
     const user = userEvent.setup()
     renderAt('/alumni/admin/company/c1')
     await screen.findByRole('heading', { name: 'Nile Robotics', level: 1 })
-    expect(screen.queryByTestId('change-reason')).not.toBeInTheDocument()
     const english = screen.getAllByLabelText('English', { selector: 'input' })[0]
     await user.type(english, ' Ltd')
-    await user.type(within(await screen.findByTestId('change-reason')).getByLabelText(/Reason for this change/), 'registered as a company')
+    expect(screen.queryByTestId('change-reason')).not.toBeInTheDocument()
+    expect(screen.queryByLabelText(/Reason for this change/)).not.toBeInTheDocument()
     await user.click(within(await screen.findByTestId('save-bar')).getByRole('button', { name: 'Save' }))
     await waitFor(() => expect(mock.rpcCalls('save_alumni_company')).toHaveLength(1))
-    expect(mock.rpcCalls('save_alumni_company')[0].args).toEqual({ p_company: 'c1', p_patch: { name_en: 'Nile Robotics Ltd' }, p_expected: '2026-10-10T10:00:00Z', p_reason: 'registered as a company' })
+    expect(mock.rpcCalls('save_alumni_company')[0].args).toEqual({ p_company: 'c1', p_patch: { name_en: 'Nile Robotics Ltd' }, p_expected: '2026-10-10T10:00:00Z' })
   })
 
   it('a link from the needs-attention queue lands on the section of the item, highlighted: ?focus=sector#classification', async () => {

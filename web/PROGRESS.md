@@ -1093,6 +1093,8 @@ Independent reviewers examined m44 (certificates survive a withdrawal), m45 (ima
 
 **Recommendation (as given before decision 21)**: log every edit (what m60 does) and do NOT build periodic copies: the volume is tiny, nothing is lost, there is no job to miss, "as of" any date is answered by replay, and the typo case is handled by coalescing; give the manager ONE lightweight checkpoint (`review_company_snapshot`: "these figures of 2024 were reviewed on <date>"; the UI shows "changed after the last review") for official reporting; derive graphs from the yearly figures (already one row per company and year), never from the log.
 
+> **DONE (m65 - m68, 2026-10-15): everything listed under "Removed or disabled" and "Web" below has been removed; the lists are kept as the record of what was removed.**
+
 **Status after decision 21 (the owner decided otherwise, for a reason this comparison did not weigh: graphs and a portfolio indicator must read frozen values, and a typo must never look like growth)**: the history is quarterly frozen snapshots; figures are free-form drafts with only "last modified date / by"; a closed quarter can be reopened by the manager and is then flagged as corrected; quarterly reminders (notification + e-mail). The per-edit log is to be removed or disabled. What that means for m60 (the follow-up task's map):
 - **Stays (decision-21-compatible)**: `updated_by` / `updated_source` and the BEFORE stamp triggers (`companies_biu_stamp`, `founders_biu_stamp`, `company_founders_biu_stamp`, `company_internal_biu_stamp`, `founder_identities_biu_stamp`), `get_alumni_stamps` (its `sections` come from the log: switch them to the rows' own `updated_at` / `updated_source` or drop the per-section part), the version tokens and conflict UI (all of `useStaleResolver` / `ConflictDialog` / `lib/alumniConflicts`), `review_company_snapshot` (the seed of "close a period": `reviewed_at` / `reviewed_by`), the invited-founder adoption, `list_alumni_attention`, v60 sections S (stale / no-op / review), T (stamps, except the log-based sections), M (merge), Q (queue), V (invited founder; V06 / V14 - V16 assert log entries, adapt).
 - **Removed or disabled**: `public.alumni_change_log` (+ `app_private.alumni_log_epoch`), the nine logger triggers (`companies_ai_/au_/ad_alumni_log`, `company_internal_aiud_alumni_log`, `founders_ai_/au_alumni_log`, `founder_identities_aiud_alumni_log`, `company_founders_aiud_alumni_log`, `company_snapshots_aiud_alumni_log`) and their functions (`alumni_log_*`), `alumni_state_as_of` / `alumni_state_diff` / `alumni_state_flat` / `alumni_state_current`, `list_alumni_history`, the `p_reason` arguments (or keep them as a "note on the last change" column), the m41 scanner patches that skip the log, and v60 sections L, P, I, K, R, H, A. **Cheapest "disable" without dropping anything**: `alter table public.<t> disable trigger <name>` for the nine triggers (the log and its viewer then stay readable and frozen); the stamp triggers are separate and keep working.
@@ -1275,3 +1277,48 @@ Independent reviewers examined m44 (certificates survive a withdrawal), m45 (ima
 
 ### Baseline
 Row counts identical to the start; intentional delta: app_private_functions +4 (m64 helpers).
+
+## Decision 21 - quarterly frozen snapshots, reminders, audit log removed (m65-m68)
+
+### Done
+- DB: m65 (audit log removed), m66 (draft `company_figures` + one frozen snapshot per company per Africa/Cairo quarter; freeze, close now, reopen/correct with `previous_values`, founder confirm), m67 (readers over frozen snapshots only; `get_alumni_portfolio`), m68 (reminders: schedule, ar/en templates with live preview, campaigns, per-founder idempotency, notification + email_outbox, pg_cron scheduler functions). Verify: v65 9, v66 99, v67 26, v68 86; v49/v51/v60/v64 updated; older suite green.
+- Web: Quarter status page, Reminders page, Portfolio performance page (graphs + Excel), per-company quarterly panel with lazy charts, workspace edits the draft, directory freshness column, founder banner + Confirm my figures. 125 files / 1500 tests pass, eslint clean, build OK (QuarterChart is its own 7 kB chunk).
+- Browser (throwaway data): owner scenario 10,000 then 100,000 then Close now gives ONE Q4 point of 100,000; correction/un-reported/corrected quarters render; Performance and Reminders pages in Arabic RTL at 375px without horizontal overflow; quarters page in English desktop.
+
+### Deviations
+- Founder-side browser login (banner, confirm, notification link) and the reminder send dialog were verified by component tests and v66/v68 SQL, not clicked in the browser.
+- The scheduler is pg_cron driven by db/scripts/alumni-quarter-schedule.sh; nothing is scheduled by a migration.
+- The 14 `alumni_change_log` rows are gone with their table (intentional).
+
+### Open questions
+- Final wording of the reminder templates (flagged "to be finalised by the owner").
+- Whether the platform base URL setting should be filled in before enabling the scheduler in production.
+
+### Handover
+Enable the scheduler with `db/scripts/alumni-quarter-schedule.sh enable`. Baseline deltas: change_log/epoch removed; +5 tables; public_functions 208->220, app_private_functions 254->269, public_policies 197->196.
+
+## Review fixes of the quarterly snapshots and reminders (m69 + v69, 2026-10-15; the fixer): done, deviations, open questions, handover
+
+### Done
+- **m69 / v69 (32 checks)**: year roll-up takes `employees_female` from the quarter of `employees_total` (clamped); operating status / `closed_on` of a freeze or backfill are the state AT THE QUARTER END; `correct_alumni_snapshot` accepts `operating_status` / `closed_on` (reopened snapshot or backfill) and a backfill derives `team_size` / `female_founders`; column-level SELECT on `company_snapshots` (no actor columns); founders save / confirm only for alumni companies; reminder audience skips closed companies and banned / deleted users; stored `app_base_url` wins over `p_app_url`; with no address only the notification is created (`email_state no_link`, note `no_app_url`). v49 C08 and v68 adjusted to these rules.
+- **Web**: plural-aware counts (`quarters.i18n.js` plural objects through `tn()`, `quarters.plurals.test.js`), Arabic particles fixed ("عن الربع", "مقارنة مع"), raw keys localised (quarter label, e-mail states, Cairo time); charts drawn at their real width (12px text at any width, whole distinct ticks, fewer ticks on narrow cards, keyboard arrows, 44px toggles, `-99.6%` not `-100%`); stale yearly wording removed (founder Progress, workspace column / filter, founder banner link, notes title); correction form edits the company status at the quarter end; send dialog: Send vs Resend by already-reminded count and the not-final notice; Performance empty state for a filtered range and a note on reporting coverage; AreaTabs scrolls the open tab into view; checkbox and button targets 44px; dead keys and `defaultSnapshotYear` removed; docs rewritten (`web/README.md`, `alumni.contract.md` section 9, db README, MIGRATION-LOG).
+- **Verification**: every `db/verify/v*.sql` green (v49 320, v66 99, v67 26, v68 86, v69 32); m69 re-run twice; `node --test` 325/325; lint clean; vitest 1514/1514; build OK. Browser (own tab, port 5713, throwaway manager + company, removed): charts 12px at 1200 and 375px, tick labels whole, Arabic reminders schedule "3 أيام", quarter status dialog and 44px checkboxes, no console error.
+
+### Deviations
+- Not done (not cheap): a guard trigger on frozen snapshots, freeing advisory locks per batch (documented in db/README "known limits"); carry-forward of stock / cumulative values in the portfolio (the page now says totals count reporting companies only); per-metric "corrected" flags on portfolio charts (the portfolio RPC reports one count per quarter); the log_min_error_statement note is documentation only.
+- `yearOptions` is NOT dead (directory, analytics, export use it); only `defaultSnapshotYear` was removed. `lib/alumniQuarters` period helpers stay (used by pages, not only tests).
+
+### Open questions
+- Should a closed company with no `closed_on` count as closed in earlier quarters? (Now: yes, date unknown.)
+- Final reminder wording and the platform address (needed for e-mail links; without it no e-mail is sent).
+
+### Handover
+Baseline row counts identical to the start (companies 141, founders 3, snapshots 0, notifications 0, outbox 0, users 12, settings fingerprint unchanged); no intentional delta except the m69 function / view / grant changes.
+
+## Final verification (2026-10-15, port 5714): verdict pass
+
+- lint clean; vitest 126 files / 1514 tests; `node --test` 325/325; build OK (biggest chunks: xlsx 429 kB, vendor-react 317 kB, vendor-supabase 223 kB, ProjectCanvas 202 kB).
+- Every `db/verify/v01..v69` ran against the local DB: 0 failed (v12 / v13 are reports; v02 / v10 only informational warns).
+- Baseline: users / profiles / roles 12, founders 3, companies 141, 4 programs, 16 projects, 0 snapshots / notifications / outbox, 371 storage objects, 65 public tables, 220 public / 269 app_private functions, 196 policies. Drift vs older logs: nodes 86 (was 82), revisions 86, edges 56 (was 53): data of parallel tasks, not of this check.
+- Secrets grep of web/ docs/ db/ supabase-new/: nothing; only web/.env.local holds a (local) key and it is git-ignored, as is local-db/.
+- Browser smoke (throwaway super_admin, deleted afterwards, counts restored): Programs, a project canvas, directory, quarter status, founder Programs in Arabic RTL and English: render, all API calls 200, no app console error (one unattributed "400" console line on the very first unauthenticated load, no request of the app returns 400).

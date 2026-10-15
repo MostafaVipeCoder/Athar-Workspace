@@ -8,11 +8,13 @@ import { Button } from '../../../ui/Button.jsx'
 import { Skeleton } from '../../../ui/States.jsx'
 import { buttonClass } from '../../../ui/buttonStyles.js'
 import { overallCompleteness } from '../../../lib/alumniProgress.js'
+import { daysLeft, needsUpdate, periodLabel } from '../../../lib/alumniQuarters.js'
 import { badgeCount } from '../../../lib/badge.js'
 import { CompletenessMeter } from '../../../shared/alumni/blocks.jsx'
 import './alumni.i18n.js'
 import './alumni.home.i18n.js'
 import '../../../shared/alumni/i18n.js'
+import '../../../shared/alumni/i18n.quarters.js'
 
 const tile = 'flex min-h-16 items-center gap-3 rounded-card border bg-card p-3 text-start transition-colors hover:border-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring'
 
@@ -22,13 +24,14 @@ const tile = 'flex min-h-16 items-center gap-3 rounded-card border bg-card p-3 t
  * (it used to vanish without a word); a failed unread count just hides its badge (the programs below are the page).
  */
 export default function HomeAlumniCards() {
-  const { t, pick } = useLanguage()
+  const { t, pick, lang } = useLanguage()
   const profile = useMyAlumniProfile({ meta: { silent: true }, retry: false })
   const unread = useUnreadNotifications()
   const data = profile.data
   const overall = data ? overallCompleteness(data) : null
   const companies = data?.companies ?? []
-  const dueFor = companies.filter((c) => c.completeness?.missing?.includes('annual_update'))
+  // the quarter is open and the figures are not confirmed (the server's own status of the CALENDAR quarter)
+  const dueFor = companies.filter((c) => needsUpdate(c.figures?.status))
   const count = badgeCount(unread.data)
 
   // the one next step: the profile, then a company, then the company's missing items, then the yearly figures
@@ -39,7 +42,7 @@ export default function HomeAlumniCards() {
     else {
       const open = companies.find((c) => c.completeness?.missing?.filter((k) => k !== 'annual_update').length > 0)
       if (open) next = { to: `/alumni/founder/company/${open.id}`, text: t('alumni.founder.home.nextCompanyFill', { company: pick(open, 'name') }) }
-      else if (dueFor.length > 0) next = { to: `/alumni/founder/company/${dueFor[0].id}#metrics`, text: t('alumni.founder.home.nextFigures', { company: pick(dueFor[0], 'name') }) }
+      else if (dueFor.length > 0) next = { to: `/alumni/founder/progress?company=${dueFor[0].id}`, text: t('alumni.founder.home.nextFigures', { company: pick(dueFor[0], 'name') }) }
     }
   }
 
@@ -62,8 +65,11 @@ export default function HomeAlumniCards() {
       {dueFor.length > 0 && (
         <p className="flex flex-wrap items-center gap-2 rounded-card border border-accent bg-accent/20 p-3 text-sm" data-testid="annual-due">
           <TrendingUp className="h-4 w-4 shrink-0" aria-hidden="true" />
-          <span className="min-w-0 flex-1">{t('alumni.founder.home.figuresDue')}</span>
-          <Link to={`/alumni/founder/company/${dueFor[0].id}#metrics`} className="font-semibold text-primary underline-offset-4 hover:underline">{t('alumni.founder.home.addFigures')}</Link>
+          <span className="min-w-0 flex-1">
+            <span className="font-bold">{t('alumni.q.banner.title', { quarter: periodLabel(dueFor[0].figures.period, lang) })}</span>
+            {daysLeft(dueFor[0].figures.deadline) !== null && daysLeft(dueFor[0].figures.deadline) >= 0 && <span> {t('alumni.q.banner.daysLeft', { days: daysLeft(dueFor[0].figures.deadline) })}</span>}
+          </span>
+          <Link to={`/alumni/founder/progress?company=${dueFor[0].id}`} className="font-semibold text-primary underline-offset-4 hover:underline">{t('alumni.founder.home.addFigures')}</Link>
         </p>
       )}
       <ul className="grid gap-2 sm:grid-cols-2">

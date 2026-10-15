@@ -186,11 +186,13 @@ describe('the needs-attention queue', () => {
     expect(document.body.textContent).not.toMatch(/alumni\.admin\.att\./)
   })
 
-  it('the three registry views are tabs: directory, needs attention, history', async () => {
+  it('the registry views are tabs: directory, needs attention, quarter status, performance', async () => {
     renderPage()
     const tabs = await screen.findByTestId('area-tabs')
     expect(within(tabs).getByRole('link', { name: 'Directory' })).toHaveAttribute('href', '/alumni/admin/directory')
     expect(within(tabs).getByRole('link', { name: 'Needs attention' })).toHaveAttribute('href', '/alumni/admin/attention')
-    expect(within(tabs).getByRole('link', { name: 'History' })).toHaveAttribute('href', '/alumni/admin/history')
+    expect(within(tabs).getByRole('link', { name: 'Quarter status' })).toHaveAttribute('href', '/alumni/admin/quarters')
+    expect(within(tabs).getByRole('link', { name: 'Performance' })).toHaveAttribute('href', '/alumni/admin/performance')
+    expect(within(tabs).queryByRole('link', { name: 'History' })).not.toBeInTheDocument()
   })
 })

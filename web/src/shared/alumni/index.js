@@ -6,8 +6,8 @@
  *   fields:     ChipSelect, LookupSelect, GovernoratePicker, SectorPicker, useLookupOptions, NationalIdField
  *   blocks:     ProfileSection, DerivedValue, CompletenessMeter, scrollToSection
  *   company:    CompanyBasicsSection, CompanyClassificationSection, CompanyLocationSection, CompanyOnlineSection, CompanyStatusSection, DirectoryVisibilitySection
- *   data views: TeamEditor, ProgramsReadOnlyList, MetricsTable, TrendBars / TrendChart, useMetricFormat
- * Pure logic: lib/alumniForms.js (form <-> patch, instant validation), lib/nationalId.js (instant ID feedback), lib/alumniProgress.js (milestones, yearly trends).
+ *   data views: TeamEditor, ProgramsReadOnlyList, FiguresPanel (the quarterly figures: draft, confirm, closed quarters, graphs), useMetricFormat
+ * Pure logic: lib/alumniForms.js (form <-> patch, instant validation), lib/nationalId.js (instant ID feedback), lib/alumniProgress.js (milestones), lib/alumniQuarters.js (quarters, series).
  */
 export { useDraftForm } from './useDraftForm.js'
 export { useAlumniRefresh } from './useAlumniRefresh.js'
@@ -22,6 +22,5 @@ export { scrollToSection } from './scrollToSection.js'
 export { CompanyBasicsSection, CompanyClassificationSection, CompanyLocationSection, CompanyOnlineSection, CompanyStatusSection, DirectoryVisibilitySection } from './CompanySections.jsx'
 export { default as TeamEditor } from './TeamEditor.jsx'
 export { default as ProgramsReadOnlyList } from './ProgramsReadOnlyList.jsx'
-export { default as MetricsTable } from './MetricsTable.jsx'
-export { default as TrendBars, TrendChart } from './TrendBars.jsx'
+export { default as FiguresPanel, FiguresBanner, FigureStatusBadge, QuarterHistory } from './FiguresPanel.jsx'
 export { useMetricFormat } from './useMetricFormat.js'

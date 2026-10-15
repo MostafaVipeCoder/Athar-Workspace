@@ -207,7 +207,7 @@ export function validateSnapshotForm(form) {
   return errors
 }
 
-/** Only the cells whose number changed (a cleared cell is `null`): the patch of `upsert_company_snapshot`. Empty = nothing to save. */
+/** Only the cells whose number changed (a cleared cell is `null`): the patch of `save_company_figures`. Empty = nothing to save. */
 export function snapshotPatch(base, form) {
   const patch = {}
   for (const k of SNAP_FIELDS) {
@@ -219,8 +219,7 @@ export function snapshotPatch(base, form) {
   return patch
 }
 
-/** The default year of the grid: the latest year with data, else last year (the annual update is about the year that just ended). */
-export const defaultSnapshotYear = (latestYear, now = new Date()) => latestYear || now.getFullYear() - 1
+/** The years offered by the year pickers (directory, analytics, export): the latest year with data and the recent years before it. */
 export const yearOptions = (latestYear, now = new Date(), span = 6) => {
   const top = Math.max(now.getFullYear(), latestYear || 0)
   return Array.from({ length: span }, (_, i) => top - i)

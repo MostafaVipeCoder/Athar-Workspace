@@ -138,7 +138,7 @@ export default function DirectoryFilters({ filters, onChange, programs = [], lab
       {onClear && (
         <div className="flex items-center justify-between gap-3">
           <p className="text-sm text-muted-foreground" aria-live="polite">{count > 0 ? tn('alumni.admin.dir.filtersActive', count) : ''}</p>
-          <Button variant="ghost" size="sm" onClick={onClear} disabled={count === 0}>{d('clearFilters')}</Button>
+          <Button variant="ghost" size="sm" className="min-h-11" onClick={onClear} disabled={count === 0}>{d('clearFilters')}</Button>
         </div>
       )}
     </section>

@@ -105,10 +105,10 @@ describe('the manager area wiring', () => {
     renderWithProviders(<AuthContext.Provider value={auth}><NetworkShell /></AuthContext.Provider>, { route: '/alumni/admin/dashboard?lang=en' })
     const nav = screen.getAllByRole('navigation', { name: 'Network' })[0]
     const hrefs = [...nav.querySelectorAll('a')].map((a) => a.getAttribute('href'))
-    expect(hrefs).toEqual(['/alumni/admin/dashboard', '/alumni/admin/directory', '/alumni/admin/invitations', '/alumni/admin/opportunities', '/alumni/admin/notifications', '/alumni/admin/analytics', '/alumni/admin/workspace'])
+    expect(hrefs).toEqual(['/alumni/admin/dashboard', '/alumni/admin/directory', '/alumni/admin/invitations', '/alumni/admin/opportunities', '/alumni/admin/notifications', '/alumni/admin/quarters', '/alumni/admin/analytics', '/alumni/admin/workspace'])
   })
 
-  it('the seven-link nav leaves the burger at 1280px (xl), not 1024px: it only fits on one line from there', () => {
+  it('the eight-link nav leaves the burger at 1280px (xl), not 1024px: it only fits on one line from there', () => {
     const auth = { user: { id: 'u' }, profile: null, roles: ['alumni_manager'], areas: ['network'], status: 'authed', hasRole: () => true, can: () => true, signIn: vi.fn(), signOut: vi.fn(), reloadRoles: vi.fn() }
     renderWithProviders(<AuthContext.Provider value={auth}><NetworkShell /></AuthContext.Provider>, { route: '/alumni/admin/dashboard?lang=en' })
     const burger = screen.getByRole('button', { name: 'Menu' })
@@ -123,7 +123,8 @@ describe('the manager area wiring', () => {
     walk(routes)
     const admin = flat.filter((r) => r.path.startsWith('alumni/admin/'))
     expect(admin.map((r) => r.path).sort()).toEqual(['alumni/admin/analytics', 'alumni/admin/attention', 'alumni/admin/company/:id', 'alumni/admin/dashboard', 'alumni/admin/directory', 'alumni/admin/directory/import', 'alumni/admin/history', 'alumni/admin/impact',
-      'alumni/admin/invitations', 'alumni/admin/notifications', 'alumni/admin/opportunities', 'alumni/admin/workspace'])
-    for (const r of admin) expect(typeof r.lazy).toBe('function')
+      'alumni/admin/invitations', 'alumni/admin/notifications', 'alumni/admin/opportunities', 'alumni/admin/performance', 'alumni/admin/quarters', 'alumni/admin/quarters/reminders', 'alumni/admin/workspace'])
+    // the per-edit history viewer is gone (owner decision 21): its old address only redirects
+    for (const r of admin) expect(r.path === 'alumni/admin/history' ? Boolean(r.element) : typeof r.lazy === 'function').toBe(true)
   })
 })

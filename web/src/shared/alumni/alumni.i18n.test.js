@@ -10,6 +10,7 @@ import './i18n.js'
 import './i18n.id.js'
 import './i18n.company.js'
 import './i18n.edit.js'
+import './i18n.quarters.js'
 import '../../app/pages/founder/alumni.i18n.js'
 import '../../app/pages/founder/alumni.profile.i18n.js'
 import '../../app/pages/founder/alumni.company.i18n.js'
@@ -30,6 +31,8 @@ function reachableDictionaryKeys(file, seen = new Set()) {
   seen.add(file)
   const src = readFileSync(file, 'utf8')
   const keys = new Set()
+  // the quarterly dictionary registers nested objects under 'alumni.q' (flattened at run time): its keys are read from the registry
+  if (/registerMessages\(\s*'alumni\.q'/.test(src)) for (const k of Object.keys(getMessages('en'))) if (k.startsWith('alumni.q.')) keys.add(k)
   if (/registerMessages\(\s*'alumni'/.test(src)) for (const m of src.matchAll(/["']([A-Za-z0-9_.]+)["']\s*:/g)) keys.add(`alumni.${m[1]}`)
   for (const m of src.matchAll(/(?:from|import)\s+['"](\.{1,2}\/[^'"]+)['"]/g)) {
     let target = resolve(dirname(file), m[1])

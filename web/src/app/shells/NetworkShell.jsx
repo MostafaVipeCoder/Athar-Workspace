@@ -19,6 +19,7 @@ export default function NetworkShell() {
     { to: '/alumni/admin/invitations', label: t('nav.invitations') },
     { to: '/alumni/admin/opportunities', label: t('nav.opportunities') },
     { to: '/alumni/admin/notifications', label: t('nav.notifications') },
+    { to: '/alumni/admin/quarters', label: t('nav.quarters') },
     { to: '/alumni/admin/analytics', label: t('nav.analytics') },
     { to: '/alumni/admin/workspace', label: t('nav.workspace') },
   ]

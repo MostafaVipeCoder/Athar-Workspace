@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { RefreshCw, Save, Undo2 } from 'lucide-react'
-import { alumniKeys, getAlumniCompany, saveAlumniCompany, useAlumniStamps } from '../../../data/alumni.js'
+import { alumniKeys, getAlumniCompany, saveAlumniCompany } from '../../../data/alumni.js'
 import { removeObjects } from '../../../data/storage.js'
 import { useLanguage } from '../../../i18n/LanguageProvider.jsx'
 import { Button } from '../../../ui/Button.jsx'
@@ -13,7 +13,6 @@ import { useAuth } from '../../AuthContext.js'
 import { scrollToSection } from '../../../shared/alumni/scrollToSection.js'
 import { CompanyBasicsSection, CompanyClassificationSection, CompanyLocationSection, CompanyOnlineSection, CompanyStatusSection, DirectoryVisibilitySection } from '../../../shared/alumni/CompanySections.jsx'
 import SaveBar from '../../../shared/alumni/SaveBar.jsx'
-import StampLine from '../../../shared/alumni/StampLine.jsx'
 import UnsavedGuard from '../../../shared/alumni/UnsavedGuard.jsx'
 import { useDraftForm } from '../../../shared/alumni/useDraftForm.js'
 import { useAlumniRefresh } from '../../../shared/alumni/useAlumniRefresh.js'
@@ -47,8 +46,8 @@ export default function CompanyProfileForm({ payload, create = false, embedded =
   const errorText = useAdminErrorText()
   const { refresh, fetchFresh } = useAlumniRefresh()
   const company = payload.company
-  const stamps = useAlumniStamps(create ? null : company.id)
-  const stampOf = (section) => { const x = stamps.data?.sections?.[section]; return x ? <StampLine audience="manager" stamp={{ at: x.at, source: x.source, name: x.name }} /> : null }
+  // one "last modified" for the whole company row (shown in the page header): there are no per-section stamps any more (owner decision 21)
+  const stampOf = () => null
   const form = useDraftForm(() => companyToForm(company), {
     version: company.updated_at ?? 'new',
     isDirty: (values, base) => Object.keys(buildCompanyPatch(base, values)).length > 0,
@@ -58,7 +57,6 @@ export default function CompanyProfileForm({ payload, create = false, embedded =
   const [submitted, setSubmitted] = useState(false)
   const [serverErrors, setServerErrors] = useState({})
   const [stale, setStale] = useState(false)
-  const [reason, setReason] = useState('')
   const [busy, setBusy] = useState(false)
   const resolver = useStaleResolver({ form, toForm: (p) => companyToForm(p.company), versionOf: (p) => p.company.updated_at, whoOf: (p) => p.company.updated_source, audience: 'manager' })
 
@@ -74,7 +72,7 @@ export default function CompanyProfileForm({ payload, create = false, embedded =
   // the drawer asks before closing with unsaved edits
   useEffect(() => { onDirtyChange?.(dirty) }, [dirty, onDirtyChange])
 
-  function undo() { form.reset(); resolver.clearNotice(); setServerErrors({}); setSubmitted(false); setStale(false); setReason('') }
+  function undo() { form.reset(); resolver.clearNotice(); setServerErrors({}); setSubmitted(false); setStale(false) }
 
   async function save() {
     setSubmitted(true)
@@ -83,7 +81,7 @@ export default function CompanyProfileForm({ payload, create = false, embedded =
     if (found.length) { scrollToSection(sectionOfField(found[0])); return }
     setBusy(true)
     try {
-      const saved = await saveAlumniCompany(create ? null : company.id, patch, create ? null : form.version, reason.trim() || null)
+      const saved = await saveAlumniCompany(create ? null : company.id, patch, create ? null : form.version)
       await refresh()
       if (create) {
         toast.success(d('created'))
@@ -93,7 +91,6 @@ export default function CompanyProfileForm({ payload, create = false, embedded =
       form.rebase(companyToForm(saved.company), saved.company.updated_at)
       setStale(false)
       resolver.clearNotice()
-      setReason('')
       toast.success(d('saved'))
     } catch (err) {
       const parsed = parseAlumniError(err)
@@ -131,12 +128,6 @@ export default function CompanyProfileForm({ payload, create = false, embedded =
       <CompanyOnlineSection values={values} set={set} errors={errors} disabled={busy} stamp={stampOf('online')} />
       <CompanyStatusSection values={values} set={set} setMany={setMany} errors={errors} disabled={busy} stamp={stampOf('status')} />
       <DirectoryVisibilitySection values={values} set={set} errors={errors} disabled={busy} blocked={Boolean(company.internal?.directory_hidden)} isAlumni={Boolean(company.is_alumni)} stamp={stampOf('directory')} />
-
-      {dirty && !create && (
-        <div className="rounded-card border border-dashed bg-surface/40 p-4" data-testid="change-reason">
-          <Field label={d('reasonLabel')} hint={d('reasonHint')} placeholder={d('reasonPlaceholder')} value={reason} maxLength={300} disabled={busy} onChange={(ev) => setReason(ev.target.value)} />
-        </div>
-      )}
 
       {embedded ? (
         <div className="sticky bottom-0 -mx-1 flex flex-wrap items-center gap-2 border-t bg-background px-1 py-3" data-testid="embedded-save">

@@ -7,13 +7,12 @@ import { Modal } from '../../../ui/Modal.jsx'
 import { Badge } from '../../../ui/Badge.jsx'
 import { buttonClass } from '../../../ui/buttonStyles.js'
 import { useConfirm } from '../../../ui/ConfirmDialog.jsx'
-import MetricsTable from '../../../shared/alumni/MetricsTable.jsx'
+import FiguresPanel from '../../../shared/alumni/FiguresPanel.jsx'
 import StampLine from '../../../shared/alumni/StampLine.jsx'
 import { Query, FactRow, Segmented } from './ui.jsx'
 import ManagerFields from './ManagerFields.jsx'
 import CompanyAdminTeam from './CompanyAdminTeam.jsx'
 import CompanyProfileForm from './CompanyProfileForm.jsx'
-import HistoryPanel from './HistoryPanel.jsx'
 import RevealId from './RevealId.jsx'
 import { useCompanyActions } from './useCompanyActions.js'
 import { reviewState } from './columns.js'
@@ -25,12 +24,13 @@ import './company.edit.i18n.js'
 import '../../../shared/alumni/i18n.js'
 import '../../../shared/alumni/i18n.company.js'
 import '../../../shared/alumni/i18n.edit.js'
+import '../../../shared/alumni/i18n.quarters.js'
 
-const TABS = ['overview', 'edit', 'team', 'figures', 'history']
+const TABS = ['overview', 'edit', 'team', 'figures']
 
 /**
  * The company drawer of the directory (M2 / M3): what a manager needs without leaving the list, now with EVERY field editable (owner decision 20.3): an overview with the manager-owned
- * fields (alumni mark, private hint, directory veto, review stamp), the full profile form, the team (every founder, national ID, bio), the yearly figures and the history of the company.
+ * fields (alumni mark, private hint, directory veto, review stamp), the full profile form, the team (every founder, national ID, bio) and the quarterly figures (draft, closed quarters, corrections).
  * Program participation, the founders' derived values and the counts are read-only: they are derived by the database (the CEO's age / gender / governorate come from the national ID).
  * IDs are masked with an audited reveal. Closing the drawer with unsaved edits asks first.
  */
@@ -62,8 +62,7 @@ export default function CompanyDrawer({ row, onClose }) {
               tab === 'overview' ? <DrawerBody data={data} />
                 : tab === 'edit' ? <div className="space-y-3"><p className="text-sm text-muted-foreground">{co('drawerEditHint')}</p><CompanyProfileForm key={data.company.id} payload={data} embedded onDirtyChange={setDirty} /></div>
                 : tab === 'team' ? <DrawerTeam data={data} />
-                : tab === 'figures' ? <DrawerFigures data={data} />
-                : <HistoryPanel companyId={data.company.id} />
+                : <DrawerFigures data={data} />
             )}
           </Query>
         </div>
@@ -73,15 +72,13 @@ export default function CompanyDrawer({ row, onClose }) {
 }
 
 function DrawerTeam({ data }) {
-  const actions = useCompanyActions(data)
+  const actions = useCompanyActions()
   const stamps = useAlumniStamps(data.company.id)
   return <CompanyAdminTeam companyId={data.company.id} team={data.team} counts={data.counts} ceoFounderId={data.ceo_founder_id} onChanged={actions.refresh} founderStamps={stamps.data?.founders ?? []} />
 }
 
 function DrawerFigures({ data }) {
-  const actions = useCompanyActions(data)
-  const stamps = useAlumniStamps(data.company.id)
-  return <MetricsTable snapshots={data.snapshots} onSave={actions.saveYear} onDelete={actions.deleteYear} onReload={actions.reloadYear} onReview={actions.reviewYear} audience="manager" yearStamps={stamps.data?.years ?? []} />
+  return <FiguresPanel companyId={data.company.id} audience="manager" companyName={data.company.name_en || data.company.name_ar} />
 }
 
 function DrawerBody({ data }) {
@@ -92,7 +89,7 @@ function DrawerBody({ data }) {
   const c = data.company
   const internal = c.internal ?? {}
   const review = reviewState({ reviewed_at: internal.reviewed_at, updated_at: c.updated_at })
-  const latest = data.snapshots?.[0]
+  const latest = (data.snapshots ?? []).find((s) => s.reported)
 
   return (
     <div className="space-y-6" data-testid="company-drawer">
@@ -156,10 +153,10 @@ function DrawerBody({ data }) {
       </section>
 
       <section aria-labelledby="dr-metrics" className="space-y-2">
-        <h3 id="dr-metrics" className="text-base font-bold">{latest ? d('drawer.metrics', { year: latest.year }) : d('drawer.metrics', { year: '' })}</h3>
+        <h3 id="dr-metrics" className="text-base font-bold">{latest ? d('drawer.metrics', { year: latest.period_key }) : d('drawer.metrics', { year: '' })}</h3>
         {!latest ? <p className="text-sm text-muted-foreground">{d('drawer.noMetrics')}</p> : (
           <dl className="grid grid-cols-2 gap-x-3 gap-y-2">
-            <FactRow label={d('col.revenue', { year: latest.year })}>{fmt.money(latest.revenue_total)}</FactRow>
+            <FactRow label={d('col.revenue', { year: latest.period_key })}>{fmt.money(latest.revenue_total)}</FactRow>
             <FactRow label={d('col.funding_raised')}>{fmt.money(latest.funding_raised_total)}</FactRow>
             <FactRow label={d('col.employees')}>{fmt.num(latest.employees_total)}</FactRow>
             <FactRow label={d('col.female_employees')}>{fmt.num(latest.employees_female)}</FactRow>

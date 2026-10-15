@@ -154,7 +154,7 @@ export function fieldErrorOf(parsed) {
   return null
 }
 
-// ------------------------------------------------------------------ the yearly row (company_snapshots)
+// ------------------------------------------------------------------ the figures form (the draft of the quarter, company_figures; the frozen quarters are company_snapshots)
 export const SNAPSHOT_NUMBER_KEYS = Object.freeze(['revenue_total', 'funding_raised_total', 'employees_total', 'employees_female', 'freelancers'])
 export const SNAPSHOT_TEXT_KEYS = Object.freeze(['traction', 'challenges', 'needs'])
 export const SNAPSHOT_KEYS = Object.freeze([...SNAPSHOT_NUMBER_KEYS, ...SNAPSHOT_TEXT_KEYS])
@@ -167,7 +167,7 @@ export function snapshotToForm(snapshot) {
   return out
 }
 
-/** The `data` of `upsert_company_snapshot`: changed keys only; numbers are sent as trimmed strings (the server parses them), an emptied field is null. */
+/** The `data` of `save_company_figures`: changed keys only; numbers are sent as trimmed strings (the server parses them), an emptied field is null. */
 export function buildSnapshotPatch(base, values) {
   const norm = (v) => (typeof v === 'string' ? v.trim() : v)
   const next = Object.fromEntries(SNAPSHOT_KEYS.map((k) => [k, norm(values[k])]))

@@ -7,13 +7,11 @@ registerMessages('alumni.admin.ws', {
     rowReloaded: 'Changed by {who} on {date} while you were editing. Their latest values are loaded and your edits were the same, so nothing is left to save.',
     nowValue: 'Now: {value}',
     stampLine: '{who} on {date}',
-    historyLink: 'Open the full history of the yearly figures',
   },
   ar: {
     rowStale: 'غيّر {who} هذا الصف بتاريخ {date} أثناء تعديلك. حُمّلت أحدث قيمه؛ والأرقام التي كتبتها وتختلف عن قيمه معلَّمة. اضغط حفظ مرة أخرى للإبقاء على أرقامك.',
     rowReloaded: 'غيّر {who} هذا الصف بتاريخ {date} أثناء تعديلك. حُمّلت أحدث قيمه وكانت تعديلاتك مطابقة لها، فلا يوجد ما يُحفظ.',
     nowValue: 'الآن: {value}',
     stampLine: '{who} بتاريخ {date}',
-    historyLink: 'فتح السجل الكامل للأرقام السنوية',
   },
 })

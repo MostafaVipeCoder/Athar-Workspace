@@ -5,6 +5,7 @@ import { useLanguage } from '../../../i18n/LanguageProvider.jsx'
 import { useToast } from '../../../ui/Toast.jsx'
 import { copyText } from '../../../lib/clipboard.js'
 import './i18n.common.js'
+import '../../../shared/alumni/i18n.quarters.js'
 
 /** A value that follows `value` after `ms` of silence (the search boxes: one request per pause, not per key). */
 export function useDebounced(value, ms = 300) {
@@ -48,6 +49,7 @@ const TOKEN_KEYS = {
   alumni_stale: 'alumni.admin.common.err.stale', alumni_not_found: 'alumni.admin.common.err.notFound', alumni_rate_limited: 'alumni.admin.common.err.rateLimited',
   alumni_in_use: 'alumni.admin.common.err.inUse', national_id_invalid: 'alumni.admin.common.err.nidInvalid', national_id_conflict: 'alumni.admin.common.err.nidConflict',
   alumni_company_exists: 'alumni.admin.common.err.companyExists', opportunity_closed: 'alumni.admin.common.err.opportunityClosed',
+  alumni_confirm_required: 'alumni.q.err.confirmRequired', alumni_not_reopened: 'alumni.q.err.notReopened', alumni_quarter_future: 'alumni.q.err.quarterFuture',
 }
 
 /**

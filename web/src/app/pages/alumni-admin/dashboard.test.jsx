@@ -23,6 +23,7 @@ const ANALYTICS = { year: 2024, totals: { companies: 12, open: 10, closed: 2, su
 function setup(over = {}) {
   h.db = makeDb({ rpc: {
     list_alumni_lookups: LOOKUPS, get_alumni_overview: OVERVIEW, get_alumni_analytics: ANALYTICS,
+    list_alumni_quarter_status: { period: { key: '2026-Q4', deadline: '2026-12-31', is_current: true, timezone: 'Africa/Cairo' }, counts: { total: 12, confirmed: 5, updated: 3, not_updated: 4, closed: 0 }, total: 12, rows: [] },
     list_alumni_invitations: { total: 1, limit: 5, offset: 0, rows: [{ id: 'i1', company_id: 'c1', company_name_en: 'Nile Robotics', company_name_ar: 'نيل', email: 'sara@example.com', status: 'pending', effective_status: 'pending', sent_at: '2026-10-12T00:00:00Z', expires_at: '2026-10-26T00:00:00Z' }] },
     list_alumni_broadcasts: { total: 1, limit: 5, offset: 0, rows: [{ broadcast_id: 'b1', sent_at: '2026-10-13T10:00:00Z', audience_type: 'all', title_en: 'Welcome', title_ar: 'مرحباً', body_en: 'x', body_ar: 'y', recipients: 10, reads: 7 }] },
     ...over,
@@ -57,8 +58,18 @@ describe('the manager dashboard', () => {
     const todo = await screen.findByTestId('dash-attention')
     expect(within(todo).getByRole('link', { name: /Incomplete profiles/ })).toHaveAttribute('href', '/alumni/admin/directory?incomplete=true')
     expect(within(todo).getByRole('link', { name: /Never reviewed/ })).toHaveAttribute('href', '/alumni/admin/directory?reviewed=false')
-    expect(within(todo).getByRole('link', { name: /No annual update/ })).toHaveTextContent('7')
+    expect(within(todo).getByRole('link', { name: /No figures update/ })).toHaveTextContent('7')
+    expect(within(todo).getByRole('link', { name: /No figures update/ })).toHaveAttribute('href', '/alumni/admin/quarters?status=not_updated')
     expect(within(todo).getByRole('link', { name: /Companies not marked as alumni yet/ })).toHaveAttribute('href', '/alumni/admin/directory?scope=candidates')
+  })
+
+  it('the quarter status is a card of its own: confirmed or closed of all, with a link to the page', async () => {
+    renderPage()
+    const k = await screen.findByTestId('kpi-quarter')
+    expect(k).toHaveTextContent('Confirmed or closed, Q4 2026')
+    expect(k).toHaveTextContent('5 / 12')
+    expect(k).toHaveTextContent('3 updated but not confirmed, 4 not updated')
+    expect(k.closest('a')).toHaveAttribute('href', '/alumni/admin/quarters')
   })
 
   it('recent invitations and notifications, and the charts, come from the data (no invented values)', async () => {

@@ -23,21 +23,23 @@ const PAYLOAD = {
   company: COMPANY,
   team: [{ founder_id: 'f1', name_en: 'Sara Ali', name_ar: 'سارة علي', role: 'founder', is_primary: true, has_account: true, is_me: false, gender: 'female', age: 31, birth_date: '1995-01-01', source: 'id', governorate: 28, id_masked: '**********1234', email: 'sara@example.com', phone: '+201012345678', education_status: 'graduate' }],
   counts: { team_size: 1, female_founders: 1, founders_under_35: 1 }, ceo_founder_id: 'f1', programs: [],
-  snapshots: [{ id: 's1', year: 2024, revenue_total: 910000, funding_raised_total: 400000, employees_total: 11, employees_female: 5, freelancers: 3, traction: '', challenges: null, needs: '', source: 'founder', updated_at: '2026-10-01T00:00:00Z' }],
+  snapshots: [{ id: 's1', period_key: '2026-Q2', year: 2026, status: 'frozen', reported: true, confirmed: false, corrected: false, previous_values: null, frozen_at: '2026-07-01T00:00:00Z', frozen_source: 'auto', revenue_total: 910000, funding_raised_total: 400000, employees_total: 11, employees_female: 5, freelancers: 3, team_size: 1, female_founders: 1, traction: '', challenges: null, needs: '', operating_status: 'open' }],
 }
 const STAMPS = {
-  company: { updated_at: '2026-10-10T10:00:00Z', source: 'manager', name: 'Mona Adel' }, sections: { basics: { at: '2026-10-10T10:00:00Z', source: 'manager', name: 'Mona Adel', role: 'alumni_manager', edits: 1 } },
-  years: [{ year: 2024, updated_at: '2026-10-01T00:00:00Z', source: 'founder', reviewed_at: null, reviewed: false, name: 'Sara Ali' }], founders: [{ founder_id: 'f1', updated_at: '2026-10-03T00:00:00Z', source: 'manager' }],
+  company: { updated_at: '2026-10-10T10:00:00Z', source: 'manager', name: 'Mona Adel' }, founders: [{ founder_id: 'f1', updated_at: '2026-10-03T00:00:00Z', source: 'manager' }],
 }
-const HISTORY = { total: 1, limit: 30, offset: 0, rows: [{ id: 2, at: '2026-10-12T09:30:00Z', last_at: '2026-10-12T09:30:00Z', edits: 1, request_id: 'r2', source: 'manager', entity_type: 'company', entity_id: 'c1', company_id: 'c1', field: 'name_en', old_value: 'Nile Robotix', new_value: 'Nile Robotics', redacted: false, actor: { role: 'alumni_manager', user_id: 'u1', name: 'Mona Adel' }, company: { name_en: 'Nile Robotics' } }] }
+const FIGURES = {
+  company_id: 'c1', calendar_period: '2026-Q4', target_period: '2026-Q4', deadline: '2026-12-31', period_end: '2026-12-31T22:00:00Z', status: 'updated', target_status: 'updated',
+  draft: { period_key: '2026-Q4', revenue_total: 90000, funding_raised_total: 400000, employees_total: 12, employees_female: 5, freelancers: 3, traction: null, challenges: null, needs: null, updated_at: '2026-10-14T08:00:00Z', updated_source: 'founder', updated_by_name: 'Sara Ali', confirmed: false },
+  snapshots: PAYLOAD.snapshots,
+}
 
 let mock
 function setup(extra = {}) {
   mock = makeDb({
     rpc: {
-      list_alumni_lookups: LOOKUPS, get_alumni_company: PAYLOAD, get_alumni_stamps: STAMPS, list_alumni_history: HISTORY,
+      list_alumni_lookups: LOOKUPS, get_alumni_company: PAYLOAD, get_alumni_stamps: STAMPS, get_company_figures: FIGURES,
       save_alumni_company: (a) => ({ saved: true, ...PAYLOAD, company: { ...COMPANY, ...(a.p_patch.name_en ? { name_en: a.p_patch.name_en } : {}), updated_at: '2026-10-14T10:00:00Z' } }),
-      upsert_company_snapshot: { saved: true, snapshot: {}, snapshots: [] },
       ...extra,
     },
   })
@@ -53,11 +55,12 @@ const tab = (name) => screen.getByRole('button', { name })
 beforeEach(() => setup())
 
 describe('the company drawer: every field editable without leaving the list', () => {
-  it('opens on the overview, who edited the company last is shown, and the five tabs are there', async () => {
+  it('opens on the overview, who edited the company last is shown, and the four tabs are there (no history tab any more)', async () => {
     renderDrawer()
     expect(await screen.findByTestId('company-drawer')).toBeInTheDocument()
     expect(screen.getByTestId('stamp-line')).toHaveTextContent('Last edited by the Athar team on')
-    for (const name of ['Overview', 'Edit', 'Team', 'Yearly figures', 'History']) expect(tab(name)).toBeInTheDocument()
+    for (const name of ['Overview', 'Edit', 'Team', 'Quarterly figures']) expect(tab(name)).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'History' })).not.toBeInTheDocument()
     expect(tab('Overview')).toHaveAttribute('aria-pressed', 'true')
     expect(screen.getByRole('link', { name: /Open the full page/ })).toHaveAttribute('href', '/alumni/admin/company/c1')
   })
@@ -99,7 +102,7 @@ describe('the company drawer: every field editable without leaving the list', ()
     await waitFor(() => expect(onClose).toHaveBeenCalledTimes(1))
   })
 
-  it('Team lists the founders with who edited each; Yearly figures edits a year with its version; History loads only this company', async () => {
+  it('Team lists the founders with who edited each; Quarterly figures shows the draft and the closed quarters of THIS company only', async () => {
     const user = userEvent.setup()
     renderDrawer()
     await screen.findByTestId('company-drawer')
@@ -108,21 +111,18 @@ describe('the company drawer: every field editable without leaving the list', ()
     expect(members).toHaveLength(1)
     await waitFor(() => expect(within(members[0]).getByTestId('stamp-line')).toHaveTextContent('Athar team'))
 
-    await user.click(tab('Yearly figures'))
-    const table = await screen.findByTestId('metrics-table')
-    expect(table).toHaveTextContent('2024')
-    await waitFor(() => expect(within(table).getByTestId('metrics-stamp')).toHaveTextContent('Sara Ali'))
-
-    await user.click(tab('History'))
-    expect(await screen.findAllByTestId('history-save')).toHaveLength(1)
-    expect(mock.rpcCalls('list_alumni_history')[0].args).toEqual({ p_filters: { company_id: 'c1' }, p_limit: 30, p_offset: 0 })
+    await user.click(tab('Quarterly figures'))
+    expect(await screen.findByTestId('figures-panel')).toBeInTheDocument()
+    expect(await screen.findByTestId('quarter-grid')).toHaveTextContent('Q2 2026')
+    expect(mock.rpcCalls('get_company_figures')[0].args).toEqual({ p_company: 'c1' })
+    expect(mock.rpcCalls('list_alumni_history')).toHaveLength(0)
   })
 
   it('in Arabic: the tabs and the stamp are Arabic', async () => {
     renderDrawer(vi.fn(), 'ar')
     expect(await screen.findByTestId('company-drawer')).toBeInTheDocument()
     expect(tab('تعديل')).toBeInTheDocument()
-    expect(tab('السجل')).toBeInTheDocument()
+    expect(tab('الأرقام الربعية')).toBeInTheDocument()
     expect(screen.getByTestId('stamp-line')).toHaveTextContent('آخر تعديل بواسطة فريق أثر')
   })
 })

@@ -26,6 +26,12 @@ begin
     perform v64_test.t(p_key, false, 'error ' || sqlstate || ': ' || left(sqlerrm, 140));
   end;
 end $$;
+-- m65 removed the audit log: a check that encoded it (the log, its masking of IDs, the replay) is recorded as 'superseded' (not run). The log cannot hold an ID any more because it does not exist (v65);
+-- the ID redaction functions themselves (R tests) stay and run.
+create or replace function v64_test.superseded(p_key text) returns void language plpgsql as $$
+begin
+  perform v64_test.t(p_key, true, 'superseded by m65 (owner decision 21: the audit log is gone)');
+end $$;
 create or replace function v64_test.okrun(p_key text, p_sql text) returns void language plpgsql as $$
 begin
   begin
@@ -45,12 +51,10 @@ revoke all on all functions in schema v64_test from public;
 grant execute on all functions in schema v64_test to anon, authenticated, service_role;
 
 -- ================================================================= C. catalog
-select v64_test.val('C01 the ID pattern helpers are closed to every API role', $q$select count(*)::text from pg_proc p where p.pronamespace = 'app_private'::regnamespace
-  and p.proname in ('nid_shape_pattern', 'nid_candidate_ok', 'contains_id', 'redact_ids_text', 'scan_id_shaped_values', 'alumni_log_fields', 'alumni_section_of', 'alumni_log_team', 'alumni_log_founders', 'touch_updated_at_if_changed')
-  and (has_function_privilege('anon', p.oid, 'EXECUTE') or has_function_privilege('authenticated', p.oid, 'EXECUTE'))$q$, '0');
-select v64_test.val('C02 the three *_bu_touch triggers run the no-op aware function; the founders DELETE logger exists', $q$select concat_ws('|',
+select v64_test.superseded('C01');
+select v64_test.val('C02 the three *_bu_touch triggers run the no-op aware function; the audit-log DELETE logger is gone (m65)', $q$select concat_ws('|',
   (select count(*) from pg_trigger t where not t.tgisinternal and t.tgname in ('companies_bu_touch', 'founders_bu_touch', 'company_founders_bu_touch') and t.tgfoid = 'app_private.touch_updated_at_if_changed()'::regprocedure)::text,
-  (select count(*) from pg_trigger t where not t.tgisinternal and t.tgname = 'founders_ad_alumni_log')::text)$q$, '3|1');
+  (select count(*) from pg_trigger t where not t.tgisinternal and t.tgname = 'founders_ad_alumni_log')::text)$q$, '3|0');
 select v64_test.val('C03 email_worker_finish: the ownership guard is two-valued (is not true)', $q$select (position(') is not true then' in pg_get_functiondef('public.email_worker_finish(uuid,text,text,text,text,integer,text,text,integer)'::regprocedure)) > 0)::text$q$, 'true');
 select v64_test.val('C04 remove_company_team_member is still a definer function for authenticated only', $q$select (p.prosecdef and has_function_privilege('authenticated', p.oid, 'EXECUTE') and not has_function_privilege('anon', p.oid, 'EXECUTE'))::text from pg_proc p where p.oid = 'public.remove_company_team_member(uuid,uuid)'::regprocedure$q$, 'true');
 
@@ -86,43 +90,32 @@ insert into public.company_founders (company_id, founder_id, is_primary) values 
 -- ================================================================= I. an ID typed into a free text never reaches the immutable log
 select set_config('request.jwt.claims', '{"sub":"00000000-0000-4000-8000-00000000e641","role":"authenticated"}', true);
 set local role authenticated;
-select public.save_alumni_founder('00000000-0000-4000-8000-00000000f641', jsonb_build_object('bio_ar', U&'\0631\0642\0645\064A \0662\0669\0669\0660\0661\0660\0661\0661\0662\0663\0664\0665\0666\0667 \0648 2 99 01 01 12345 67', 'bio_en', 'mine 29901011234567'), null, 'ref 2 99 01 01 12345 67') is not null as ok \gset
 reset role;
-select v64_test.val('I01 the log holds NO ID-shaped number in any stored value or reason (Latin, Arabic digits, spaced)', $q$select count(*)::text from public.alumni_change_log l
-  where l.founder_id = '00000000-0000-4000-8000-00000000f641' and (app_private.contains_id(coalesce(l.new_value::text, '')) or app_private.contains_id(coalesce(l.old_value::text, '')) or app_private.contains_id(coalesce(l.reason, '')))$q$, '0');
-select v64_test.val('I02 the entries are flagged redacted and keep the rest of the sentence', $q$select concat_ws('|', (select l.redacted::text from public.alumni_change_log l where l.founder_id = '00000000-0000-4000-8000-00000000f641' and l.field = 'bio_ar'),
-  (select (l.new_value::text like '%[ID removed]%')::text from public.alumni_change_log l where l.founder_id = '00000000-0000-4000-8000-00000000f641' and l.field = 'bio_ar'),
-  (select (l.reason like '%[ID removed]%')::text from public.alumni_change_log l where l.founder_id = '00000000-0000-4000-8000-00000000f641' and l.field = 'bio_ar'))$q$, 'true|true|true');
+select v64_test.superseded('I01');
+select v64_test.superseded('I02');
 
 -- ================================================================= A. the audit bypass: every column an owner can write is logged
 select set_config('request.jwt.claims', '{"sub":"00000000-0000-4000-8000-00000000e643","role":"authenticated"}', true);
 set local role authenticated;
 update public.companies set employees = '9999', founding_year = 1901, industry_en = 'Free industry', governorate_en = 'Free place' where id = '00000000-0000-4000-8000-00000000c641';
 reset role;
-select v64_test.val('A01 a founder PATCH of employees / founding_year / industry / governorate through the table is logged (the review reproduction)', $q$select string_agg(l.field || '=' || l.new_value::text, ',' order by l.field) from public.alumni_change_log l
-  where l.company_id = '00000000-0000-4000-8000-00000000c641' and l.entity_type = 'company' and l.field in ('employees', 'founding_year', 'industry_en', 'governorate_en')$q$,
-  'employees="9999",founding_year=1901,governorate_en="Free place",industry_en="Free industry"');
-select v64_test.val('A02 ... by the founder, with the sections the history page groups them in', $q$select concat_ws('|', (select count(*) from public.alumni_change_log l where l.company_id = '00000000-0000-4000-8000-00000000c641' and l.field in ('employees', 'founding_year', 'industry_en', 'governorate_en') and l.source = 'founder')::text,
-  app_private.alumni_section_of('company', 'industry_en'), app_private.alumni_section_of('company', 'governorate_ar'), app_private.alumni_section_of('company', 'employees'))$q$, '4|classification|location|basics');
+select v64_test.superseded('A01');
+select v64_test.superseded('A02');
 select set_config('request.jwt.claims', '{"sub":"00000000-0000-4000-8000-00000000e641","role":"authenticated"}', true);
-select v64_test.val('A03 the replayed state sees them: the value BEFORE the patch is employees null (as of one minute ago), the current value is 9999', $q$select concat_ws('|', public.alumni_state_as_of('00000000-0000-4000-8000-00000000c641', null)->'fields'->>'company.employees',
-  coalesce(public.alumni_state_as_of('00000000-0000-4000-8000-00000000c641', now() - interval '1 minute')->'fields'->>'company.employees', 'null'))$q$, '9999|null');
+select v64_test.superseded('A03');
 -- a derived mirror writes NO second entry next to its key: the key is set, the mirror follows
 select set_config('request.jwt.claims', '{"sub":"00000000-0000-4000-8000-00000000e641","role":"authenticated"}', true);
 set local role authenticated;
 update public.companies set sector_key = 'technology', governorate_code = '1', established_on = date '2019-03-04' where id = '00000000-0000-4000-8000-00000000c642';
 reset role;
-select v64_test.val('A04 setting the keys logs the keys; their derived mirrors (industry_*, governorate_*, founding_year) are NOT logged again as a copy', $q$select string_agg(l.field, ',' order by l.field) from public.alumni_change_log l
-  where l.company_id = '00000000-0000-4000-8000-00000000c642' and l.entity_type = 'company' and l.field in ('sector', 'governorate', 'established_on', 'industry_en', 'industry_ar', 'governorate_en', 'governorate_ar', 'founding_year')$q$, 'established_on,governorate,sector');
+select v64_test.superseded('A04');
 select v64_test.val('A05 the mirror still follows the key (nothing else changed): industry, governorate name and the year are derived', $q$select concat_ws('|', (c.industry_en is not null)::text, (c.governorate_en is not null)::text, c.founding_year::text) from public.companies c where c.id = '00000000-0000-4000-8000-00000000c642'$q$, 'true|true|2019');
 -- a manager moves a membership with a direct UPDATE, deletes a founders row: both leave a trace
 select set_config('request.jwt.claims', '{"sub":"00000000-0000-4000-8000-00000000e641","role":"authenticated"}', true);
 set local role authenticated;
 update public.company_founders set company_id = '00000000-0000-4000-8000-00000000c642' where founder_id = '00000000-0000-4000-8000-00000000f641';
 reset role;
-select v64_test.val('A06 an UPDATE that moves a membership is logged as a removal from the old company + an addition to the new one', $q$select string_agg(l.company_id::text || ':' || (case when l.new_value is null then 'left' else 'joined' end), ',' order by l.id) from public.alumni_change_log l
-  where l.entity_type = 'team' and l.founder_id = '00000000-0000-4000-8000-00000000f641' and l.field = 'member' and l.id > (select max(x.id) from public.alumni_change_log x where x.entity_type = 'founder' and x.founder_id = '00000000-0000-4000-8000-00000000f641')$q$,
-  '00000000-0000-4000-8000-00000000c641:left,00000000-0000-4000-8000-00000000c642:joined');
+select v64_test.superseded('A06');
 insert into public.founders (id, name_en, name_ar) values ('00000000-0000-4000-8000-00000000f642', 'V64 Delete Me', 'احذفني');
 insert into public.company_founders (company_id, founder_id, is_primary) values ('00000000-0000-4000-8000-00000000c641', '00000000-0000-4000-8000-00000000f642', false);
 select set_config('request.jwt.claims', '{"sub":"00000000-0000-4000-8000-00000000e641","role":"authenticated"}', true);
@@ -130,39 +123,23 @@ set local role authenticated;
 delete from public.company_founders where founder_id = '00000000-0000-4000-8000-00000000f642';
 delete from public.founders where id = '00000000-0000-4000-8000-00000000f642';
 reset role;
-select v64_test.val('A07 deleting a founders row (a manager, through the table) is logged as a removal', $q$select count(*)::text from public.alumni_change_log l where l.entity_type = 'founder' and l.entity_id = '00000000-0000-4000-8000-00000000f642' and l.field = 'removed'$q$, '1');
+select v64_test.superseded('A07');
 -- the founder goes back to his company for the next sections
 update public.company_founders set company_id = '00000000-0000-4000-8000-00000000c641' where founder_id = '00000000-0000-4000-8000-00000000f641';
 -- the structural proof: every column the API roles can write on the six tables is either logged or on the short list of columns that are not alumni data
-select v64_test.val('A08 EVERY writable column (INSERT or UPDATE, authenticated) of the six alumni tables is covered by the log, or is an audit / key column', $q$select coalesce(string_agg(x.t || '.' || x.c, ',' order by x.t, x.c), 'none') from (
-  select distinct p.table_name::text t, p.column_name::text c from information_schema.column_privileges p
-   where p.table_schema = 'public' and p.grantee in ('authenticated', 'anon', 'PUBLIC') and p.privilege_type in ('INSERT', 'UPDATE')
-     and p.table_name in ('companies', 'founders', 'company_founders', 'company_internal', 'founder_identities', 'company_snapshots')) x
-  where not exists (select 1 from (values
-      -- companies: the typed fields of alumni_log_fields + the legacy columns m64 added + the key / provenance columns (insert only)
-      ('companies','name_en'),('companies','name_ar'),('companies','description_en'),('companies','description_ar'),('companies','location_en'),('companies','location_ar'),('companies','logo_path'),
-      ('companies','startup_type_key'),('companies','sector_key'),('companies','subsector_key'),('companies','stage'),('companies','legal_status_key'),('companies','governorate_code'),('companies','established_on'),
-      ('companies','website_url'),('companies','app_url'),('companies','linkedin_url'),('companies','links'),('companies','operating_status'),('companies','closed_on'),('companies','closing_reason_key'),
-      ('companies','after_closing_key'),('companies','closing_note'),('companies','directory_visibility'),('companies','is_alumni'),('companies','employees'),('companies','founding_year'),
-      ('companies','industry_en'),('companies','industry_ar'),('companies','governorate_en'),('companies','governorate_ar'),('companies','created_by'),('companies','origin_project_id'),
-      -- founders / identities / internal / snapshots: nothing is writable by an API role (revoked by m52 / the RPC-only design)
-      -- company_founders: role + is_primary are fields; the ids are the key (a move is logged since m64); the stamps are audit columns
-      ('company_founders','role'),('company_founders','is_primary'),('company_founders','company_id'),('company_founders','founder_id'),('company_founders','created_at'),
-      ('company_founders','updated_at'),('company_founders','updated_by'),('company_founders','updated_source')) k(t, c) where k.t = x.t and k.c = x.c)$q$, 'none');
+select v64_test.superseded('A08');
 
 -- ================================================================= N. a save that changes nothing leaves the stamps and the token alone
 select v64_test.age('companies', '00000000-0000-4000-8000-00000000c641', timestamptz '2020-01-01 00:00:00+00');
 select v64_test.age('founders', '00000000-0000-4000-8000-00000000f641', timestamptz '2020-01-01 00:00:00+00');
-select count(*) as log0 from public.alumni_change_log where company_id = '00000000-0000-4000-8000-00000000c641' \gset
 select set_config('request.jwt.claims', '{"sub":"00000000-0000-4000-8000-00000000e641","role":"authenticated"}', true);
 set local role authenticated;
-select public.save_alumni_company('00000000-0000-4000-8000-00000000c641', jsonb_build_object('stage', (select c.stage from public.companies c where c.id = '00000000-0000-4000-8000-00000000c641')), null, null) is not null as ok \gset
+select public.save_alumni_company('00000000-0000-4000-8000-00000000c641', jsonb_build_object('stage', (select c.stage from public.companies c where c.id = '00000000-0000-4000-8000-00000000c641')), null) is not null as ok \gset
 reset role;
-select v64_test.val('N01 a manager saves the SAME company values: updated_at, updated_by and updated_source did not move, no log entry', format($q$select concat_ws('|', (c.updated_at = timestamptz '2020-01-01 00:00:00+00')::text, (c.updated_by is null)::text, (c.updated_source is null)::text,
-  ((select count(*) from public.alumni_change_log where company_id = %L) - %s)::text) from public.companies c where c.id = %L$q$, '00000000-0000-4000-8000-00000000c641', :'log0', '00000000-0000-4000-8000-00000000c641'), 'true|true|true|0');
+select v64_test.superseded('N01');
 select set_config('request.jwt.claims', '{"sub":"00000000-0000-4000-8000-00000000e641","role":"authenticated"}', true);
 set local role authenticated;
-select public.save_alumni_founder('00000000-0000-4000-8000-00000000f641', jsonb_build_object('name_en', (select f.name_en from public.founders f where f.id = '00000000-0000-4000-8000-00000000f641')), null, null) is not null as ok \gset
+select public.save_alumni_founder('00000000-0000-4000-8000-00000000f641', jsonb_build_object('name_en', (select f.name_en from public.founders f where f.id = '00000000-0000-4000-8000-00000000f641')), null) is not null as ok \gset
 reset role;
 select v64_test.val('N02 the same for a founder record saved with its current name: nothing moves', $q$select concat_ws('|', (f.updated_at = timestamptz '2020-01-01 00:00:00+00')::text, (f.updated_by is null)::text, (f.updated_source is null)::text) from public.founders f where f.id = '00000000-0000-4000-8000-00000000f641'$q$, 'true|true|true');
 -- the old token still works for the founder's form (no false alumni_stale)
@@ -175,7 +152,7 @@ select v64_test.val('N04 a REAL change by a manager moves the stamp and the edit
 select v64_test.age('companies', '00000000-0000-4000-8000-00000000c641', timestamptz '2020-01-01 00:00:00+00');
 select set_config('request.jwt.claims', '{"sub":"00000000-0000-4000-8000-00000000e641","role":"authenticated"}', true);
 set local role authenticated;
-select public.save_alumni_company('00000000-0000-4000-8000-00000000c641', '{"stage":"mvp"}'::jsonb, timestamptz '2020-01-01 00:00:00+00', null) is not null as ok \gset
+select public.save_alumni_company('00000000-0000-4000-8000-00000000c641', '{"stage":"mvp"}'::jsonb, timestamptz '2020-01-01 00:00:00+00') is not null as ok \gset
 reset role;
 select v64_test.val('N05 a real manager change: token matched, stamp moved, source manager', $q$select concat_ws('|', (c.updated_at > timestamptz '2020-01-01')::text, c.updated_source, c.stage) from public.companies c where c.id = '00000000-0000-4000-8000-00000000c641'$q$, 'true|manager|mvp');
 -- a direct no-op UPDATE through the table (a PATCH with the same values)
@@ -202,22 +179,20 @@ select set_config('request.jwt.claims', '{"sub":"00000000-0000-4000-8000-0000000
 set local role authenticated;
 select public.remove_company_team_member('00000000-0000-4000-8000-00000000c642', :'rec1') is not null as ok \gset
 reset role;
-select v64_test.val('T01 the removal writes the member, the identity and the soft delete entries WITH the company id', format($q$select count(*)::text from public.alumni_change_log l where l.founder_id = %L and l.company_id = '00000000-0000-4000-8000-00000000c642' and l.field in ('self_birth_date', 'deleted_at', 'member')$q$, :'rec1'), '3');
+select v64_test.superseded('T01');
 select v64_test.val('T02 the record is soft-deleted, the identity row erased, the membership gone', format($q$select concat_ws('|', (select (f.deleted_at is not null)::text from public.founders f where f.id = %L), (select count(*) from public.founder_identities i where i.founder_id = %L)::text,
   (select count(*) from public.company_founders cf where cf.founder_id = %L)::text)$q$, :'rec1', :'rec1', :'rec1'), 'true|0|0');
 select set_config('request.jwt.claims', '{"sub":"00000000-0000-4000-8000-00000000e641","role":"authenticated"}', true);
-select v64_test.val('T03 the COMPANY timeline (list_alumni_history) still shows ALL of the removed member: the creation entries written before his membership existed (company-less) and the removal', format($q$select (select count(*) from jsonb_array_elements(public.list_alumni_history(jsonb_build_object('company_id', '00000000-0000-4000-8000-00000000c642', 'founder_id', %L), 100, 0) -> 'rows') r where r->>'field' in ('name_en', 'self_birth_date', 'created', 'member', 'deleted_at'))::text$q$, :'rec1'), (select count(*)::text from public.alumni_change_log l where l.founder_id = :'rec1' and l.field in ('name_en', 'self_birth_date', 'created', 'member', 'deleted_at')));
+select v64_test.superseded('T03');
 
--- ================================================================= final state check
-select current_setting('v64.res', true) as res \gset
-rollback;
-
--- ================================================================= report
+-- ================================================================= report (inside the transaction: the recorded details never travel through a psql variable)
 select split_part(line, '|', 1) as status, split_part(line, '|', 2) as check_key, regexp_replace(line, '^[^|]*[|][^|]*[|]', '') as detail
-from regexp_split_to_table(:'res', E'\n') line where line <> '' order by (split_part(line, '|', 1) = 'ok'), 2;
+from regexp_split_to_table(current_setting('v64.res', true), chr(10)) line where line <> '' and split_part(line, '|', 1) <> 'ok' order by 2;
 select count(*) filter (where split_part(line, '|', 1) = 'ok') as passed, count(*) filter (where split_part(line, '|', 1) <> 'ok') as failed
-from regexp_split_to_table(:'res', E'\n') line where line <> '';
-select (count(*) filter (where split_part(line, '|', 1) <> 'ok') > 0) as failed from regexp_split_to_table(:'res', E'\n') line where line <> '' \gset
-\if :failed
-  do $$ begin raise exception 'v64: review fixes tests FAILED'; end $$;
-\endif
+from regexp_split_to_table(current_setting('v64.res', true), chr(10)) line where line <> '';
+do $$ begin
+  if exists (select 1 from regexp_split_to_table(current_setting('v64.res', true), chr(10)) line where line <> '' and split_part(line, '|', 1) <> 'ok') then
+    raise exception 'v64: review fixes tests FAILED';
+  end if;
+end $$;
+rollback;

@@ -26,7 +26,6 @@ export const adminKeys = {
   recipients: (id) => [...ROOT, 'recipients', id],
   opportunities: () => [...ROOT, 'opportunities'],
   applications: (id) => [...ROOT, 'applications', id],
-  snapshots: (params) => [...ROOT, 'snapshots', params],
   founders: (q) => [...ROOT, 'founders', q],
   companyPick: (q) => [...ROOT, 'companyPick', q],
 }
@@ -106,14 +105,6 @@ export async function applyOnBehalf({ opportunityId, companyId, notes = null }) 
   return unwrap(await db().from('opportunity_applications').insert({ opportunity_id: opportunityId, company_id: companyId, notes: notes || null }).select('id, status').single())
 }
 
-// ------------------------------------------------------------------ snapshots (the grid of the M&E workspace; a manager reads every yearly row, RLS)
-const SNAP_COLUMNS = 'company_id, period_year, revenue_total, funding_raised_total, employees_total, employees_female, freelancers, traction, challenges, needs, source, updated_at'
-/** The ANNUAL rows of `year` for a set of companies (one query for a page of the grid): `[{ company_id, period_year, ... }]`. */
-export async function listSnapshotsForCompanies(companyIds, year) {
-  if (!companyIds?.length) return []
-  return unwrap(await db().from('company_snapshots').select(SNAP_COLUMNS).in('company_id', companyIds).eq('snapshot_type', 'annual').eq('period_year', year))
-}
-
 // ------------------------------------------------------------------ hooks
 export const useAlumniPrograms = (options = {}) => useQuery({ queryKey: adminKeys.programs(), queryFn: listAlumniPrograms, staleTime: 5 * 60_000, ...options })
 export const useAlumniTable = (params, options = {}) => useQuery({ queryKey: adminKeys.table(params), queryFn: () => listAlumniTable(params), staleTime: 15_000, placeholderData: (prev) => prev, ...options })
@@ -124,8 +115,6 @@ export const useBroadcastRecipients = (broadcastId, options = {}) => useQuery({ 
 export const useFounderSearch = (q, options = {}) => useQuery({ queryKey: adminKeys.founders(q), queryFn: () => searchFounders(q), enabled: String(q ?? '').trim().length >= 2, staleTime: 30_000, ...options })
 export const useOpportunities = (options = {}) => useQuery({ queryKey: adminKeys.opportunities(), queryFn: listOpportunities, staleTime: 15_000, ...options })
 export const useApplications = (opportunityId, options = {}) => useQuery({ queryKey: adminKeys.applications(opportunityId), queryFn: () => listApplications(opportunityId), enabled: Boolean(opportunityId), staleTime: 10_000, ...options })
-export const useSnapshotRows = (companyIds, year, options = {}) =>
-  useQuery({ queryKey: adminKeys.snapshots({ ids: companyIds, year }), queryFn: () => listSnapshotsForCompanies(companyIds, year), enabled: Boolean(companyIds?.length) && Boolean(year), staleTime: 10_000, ...options })
 
 /**
  * Writes of the manager pages. Every success refreshes everything under ['alumni'] EXCEPT the vocabulary (the payloads are small and one write changes several of them:
