@@ -90,7 +90,8 @@ create index if not exists alumni_change_log_actor_idx   on public.alumni_change
 
 alter table public.alumni_change_log enable row level security;
 alter table public.alumni_change_log force row level security;
-revoke all on public.alumni_change_log from public, anon, authenticated;
+revoke all on public.alumni_change_log from public, anon, authenticated, service_role;
+grant select on public.alumni_change_log to service_role;
 -- a column-limited SELECT only (no actor id, no reason, no request id): the history viewer goes through list_alumni_history (definer) for the names
 grant select (id, at, last_at, actor_role, source, entity_type, entity_id, company_id, founder_id, period_key, field, old_value, new_value, redacted, edits) on public.alumni_change_log to authenticated;
 drop policy if exists alumni_change_log_select_manager on public.alumni_change_log;
@@ -158,6 +159,7 @@ language sql immutable parallel safe set search_path = '' as $$
     when p_field = 'phone' then to_jsonb(regexp_replace(p_val #>> '{}', '[0-9](?=[0-9]{2})', '*', 'g'))
     when p_field = 'email' then to_jsonb(regexp_replace(p_val #>> '{}', '^(.).*(@.*)$', '\1***\2'))
     when p_field = 'self_birth_date' then to_jsonb(left(p_val #>> '{}', 4))
+    when p_field in ('logo_path', 'photo_path') then to_jsonb(true)   -- a storage path is not history (the file may be gone, the image converter rewrites paths): only "a file is set"
     else p_val end
 $$;
 
@@ -196,7 +198,7 @@ begin
   select * into a from app_private.alumni_actor();
   v_old := app_private.alumni_log_mask(p_field, p_old);
   v_new := app_private.alumni_log_mask(p_field, p_new);
-  v_red := p_redacted or p_field in ('phone', 'email', 'self_birth_date');
+  v_red := p_redacted or p_field in ('phone', 'email', 'self_birth_date', 'logo_path', 'photo_path');
   -- a national ID typed into a FREE-TEXT value (a hint, a bio, a note) must not survive in an immutable log: the m52 redaction runs over the stored values and the reason
   if v_old is not null and app_private.redact_ids_json(v_old) is distinct from v_old then v_old := app_private.redact_ids_json(v_old); v_red := true; end if;
   if v_new is not null and app_private.redact_ids_json(v_new) is distinct from v_new then v_new := app_private.redact_ids_json(v_new); v_red := true; end if;
@@ -421,7 +423,7 @@ begin
   select coalesce(jsonb_object_agg(q.k, q.v), '{}'::jsonb) into v_changes from (
     select distinct on (z.k) z.k,
            case when z.field = 'member' then (case when z.old_value is null or z.old_value = 'null'::jsonb then 'null'::jsonb else 'true'::jsonb end)
-                when z.field = 'national_id' then (case when z.old_value = 'true'::jsonb then 'true'::jsonb else 'null'::jsonb end)
+                when z.field = 'national_id' then to_jsonb(z.old_value = 'true'::jsonb)
                 else coalesce(z.old_value, 'null'::jsonb) end as v
       from (select l.at, l.id, l.field, l.old_value,
                    case l.entity_type when 'company' then 'company.' || l.field when 'internal' then 'internal.' || l.field when 'snapshot' then 'year.' || l.period_key || '.' || l.field
@@ -430,10 +432,21 @@ begin
              where l.at > p_at and l.field not in ('created', 'removed') and (l.company_id = p_company or l.founder_id = any (v_fids))) z
      order by z.k, z.at, z.id) q;
   cur := cur || v_changes;
+  -- a member who left AFTER p_at: his role / CEO flag at p_at come from the removal entry (a later role / CEO change entry, which is older information, wins)
+  select coalesce(jsonb_object_agg(q.k, q.v), '{}'::jsonb) into v_changes from (
+    select distinct on (l.entity_id) l.entity_id as fid, 'team.' || l.entity_id || '.role' as k, l.old_value -> 'role' as v from public.alumni_change_log l
+     where l.company_id = p_company and l.entity_type = 'team' and l.field = 'member' and l.at > p_at and jsonb_typeof(l.old_value) = 'object' order by l.entity_id, l.at, l.id) q
+   where not (cur ? q.k) and coalesce(cur -> ('team.' || q.fid || '.member'), 'null'::jsonb) = 'true'::jsonb;
+  cur := cur || v_changes;
+  select coalesce(jsonb_object_agg(q.k, q.v), '{}'::jsonb) into v_changes from (
+    select distinct on (l.entity_id) l.entity_id as fid, 'team.' || l.entity_id || '.is_primary' as k, l.old_value -> 'is_primary' as v from public.alumni_change_log l
+     where l.company_id = p_company and l.entity_type = 'team' and l.field = 'member' and l.at > p_at and jsonb_typeof(l.old_value) = 'object' order by l.entity_id, l.at, l.id) q
+   where not (cur ? q.k) and coalesce(cur -> ('team.' || q.fid || '.member'), 'null'::jsonb) = 'true'::jsonb;
+  cur := cur || v_changes;
   -- only the founders that were on the team at p_at; no nulls
   select coalesce(jsonb_object_agg(e.key, e.value), '{}'::jsonb) into r from jsonb_each(cur) e
    where e.value <> 'null'::jsonb
-     and (e.key !~ '^founder\.' or coalesce(cur -> ('team.' || split_part(e.key, '.', 2) || '.member'), 'null'::jsonb) = 'true'::jsonb);
+     and (e.key !~ '^(founder|team)\.' or coalesce(cur -> ('team.' || split_part(e.key, '.', 2) || '.member'), 'null'::jsonb) = 'true'::jsonb);
   return r;
 end $$;
 
@@ -754,7 +767,7 @@ declare v_uid uuid := (select auth.uid());
 begin
   if v_uid is null then raise exception 'not authenticated' using errcode = '42501'; end if;
   if not app_private.alumni_is_manager() then raise exception 'forbidden' using errcode = '42501'; end if;
-  update public.company_snapshots s set reviewed_at = case when coalesce(p_reviewed, true) then now() end, reviewed_by = case when coalesce(p_reviewed, true) then v_uid end
+  update public.company_snapshots s set reviewed_at = case when coalesce(p_reviewed, true) then clock_timestamp() end, reviewed_by = case when coalesce(p_reviewed, true) then v_uid end
    where s.company_id = p_company and s.snapshot_type = 'annual' and s.period_year = p_year;
   if not found then raise exception 'alumni_not_found' using errcode = 'P0002', hint = 'alumni_not_found'; end if;
   return jsonb_build_object('saved', true, 'snapshots', app_private.alumni_snapshots_json(p_company));
@@ -894,6 +907,36 @@ begin
   return jsonb_build_object('accepted', true, 'company_id', i.company_id);
 end $$;
 
+-- ================================================================= 7c. ADDITIVE payload keys: who wrote the row last (the three payload builders of m49), and the review checkpoint of a yearly row
+do $$
+declare v_def text; v_new text; r record;
+begin
+  for r in select * from (values
+      ('app_private.alumni_founder_json(uuid,boolean,boolean)', $a$'updated_at', f.updated_at);$a$, $b$'updated_at', f.updated_at, 'updated_source', f.updated_source);$b$, 'updated_source'),
+      ('app_private.alumni_company_json(uuid,boolean)', $a$'created_at', c.created_at, 'updated_at', c.updated_at);$a$, $b$'created_at', c.created_at, 'updated_at', c.updated_at, 'updated_source', c.updated_source);$b$, 'updated_source'),
+      ('app_private.alumni_snapshots_json(uuid)', $a$'needs', s.needs, 'source', s.source, 'updated_at', s.updated_at)$a$, $b$'needs', s.needs, 'source', s.source, 'updated_at', s.updated_at, 'reviewed_at', s.reviewed_at)$b$, 'reviewed_at')) t (fn, a, b, marker) loop
+    v_def := pg_get_functiondef(r.fn::regprocedure);
+    if position(r.marker in v_def) > 0 then continue; end if;
+    v_new := replace(v_def, r.a, r.b);
+    if v_new = v_def then raise exception 'm60: % has no anchor to patch', r.fn; end if;
+    execute v_new;
+    raise notice 'm60: % carries %', r.fn, r.marker;
+  end loop;
+end $$;
+
+-- the invitation may be sent to the e-mail of a record WITHOUT an account (that is the whole point of the adoption above); only an e-mail of a member who already has an account is refused
+do $$
+declare v_def text; v_new text;
+begin
+  v_def := pg_get_functiondef('public.create_alumni_invitation(uuid,text,text,text)'::regprocedure);
+  if position('f.auth_user_id is not null and cf.company_id' in v_def) = 0 then
+    v_new := replace(v_def, 'where cf.company_id = p_company and lower(f.email::text) = v_email)', 'where f.auth_user_id is not null and cf.company_id = p_company and lower(f.email::text) = v_email)');
+    if v_new = v_def then raise exception 'm60: create_alumni_invitation has no already_member check to patch'; end if;
+    execute v_new;
+    raise notice 'm60: create_alumni_invitation accepts the e-mail of a record without an account';
+  end if;
+end $$;
+
 -- ================================================================= 8. the "needs attention" queue
 -- the catalogue: key, severity (required | recommended), the section of the company page that fixes it, the order
 create or replace function app_private.alumni_attention_catalog() returns table (key text, severity text, section text, sort integer)
@@ -1020,6 +1063,28 @@ begin
                                            from app_private.alumni_participations() ap2 join public.programs g on g.id = ap2.program_id where ap2.company_id = p.company_id) pr on true))
     into v_result;
   return v_result;
+end $$;
+
+-- ================================================================= 8b. the generic column scanners of m41 / m45 (rewrite_storage_refs, storage_dangling_refs) skip the immutable log
+-- (the log holds no storage path by design, but a free-text value could: the converter must never try to UPDATE the log, and an old value is history, not a live reference)
+do $$
+declare v_def text; v_new text;
+begin
+  v_def := pg_get_functiondef('app_private.rewrite_storage_refs(text,text)'::regprocedure);
+  if position('alumni_change_log' in v_def) = 0 then
+    v_new := replace(v_def, 'where c.table_schema = ''public'' and c.data_type in (''text'', ''character varying'', ''json'', ''jsonb'', ''ARRAY'') and c.is_generated = ''NEVER''',
+                            'where c.table_schema = ''public'' and c.table_name <> ''alumni_change_log'' and c.data_type in (''text'', ''character varying'', ''json'', ''jsonb'', ''ARRAY'') and c.is_generated = ''NEVER''');
+    if v_new = v_def then raise exception 'm60: rewrite_storage_refs has no column scan to patch'; end if;
+    execute v_new;
+    raise notice 'm60: rewrite_storage_refs skips alumni_change_log';
+  end if;
+  v_def := pg_get_functiondef('app_private.storage_dangling_refs()'::regprocedure);
+  if position('alumni_change_log' in v_def) = 0 then
+    v_new := replace(v_def, 'where c.table_schema = ''public'' and c.data_type = ''jsonb''', 'where c.table_schema = ''public'' and c.table_name <> ''alumni_change_log'' and c.data_type = ''jsonb''');
+    if v_new = v_def then raise exception 'm60: storage_dangling_refs has no jsonb scan to patch'; end if;
+    execute v_new;
+    raise notice 'm60: storage_dangling_refs skips alumni_change_log';
+  end if;
 end $$;
 
 -- ================================================================= 9. grants: nothing of the machinery is executable by an API role; the RPCs are for signed-in users (each checks its role)

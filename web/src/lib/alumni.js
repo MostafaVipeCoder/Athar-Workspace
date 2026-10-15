@@ -111,6 +111,8 @@ const norm = (v) => (v === '' || v === undefined ? null : v)
 // key-order independent (the server returns {url,kind,label}, a form may build {kind,url,label})
 const stable = (v) => (Array.isArray(v) ? v.map(stable) : v && typeof v === 'object' ? Object.fromEntries(Object.keys(v).sort().map((k) => [k, stable(v[k])])) : v)
 const same = (a, b) => JSON.stringify(stable(norm(a))) === JSON.stringify(stable(norm(b)))
+/** Two form values are equal when they are the same after the empty-string-is-null and key-order normalisation (what a patch is built from). */
+export const sameValue = same
 
 /**
  * The patch to send: ONLY the keys of `keys` whose value changed between `base` (what the server returned) and `next` (the form state); empty strings count as

@@ -23,6 +23,10 @@ export const alumniKeys = {
   publicDirectory: (params = {}) => ['alumni', 'publicDirectory', params],
   adminCompany: (id) => ['alumni', 'admin', 'company', id],
   adminFounder: (id) => ['alumni', 'admin', 'founder', id], // never keyed by "reveal"
+  stamps: (id) => ['alumni', 'stamps', id], // "last edited by ... on ..." per section (m60)
+  history: (params = {}) => ['alumni', 'history', params],
+  attention: (params = {}) => ['alumni', 'attention', params],
+  asOf: (id, at) => ['alumni', 'asOf', id, at],
   analytics: (params = {}) => ['alumni', 'analytics', params],
   invitations: (params = {}) => ['alumni', 'invitations', params],
 }
@@ -42,11 +46,12 @@ export const previewNationalId = (id) => rpc('preview_national_id', { p_id: id }
 // ------------------------------------------------------------------ founder side
 /** `{ founder:{ ..., identity:{ source, national_id, id_masked, has_national_id, self_birth_date, self_gender, derived }, completeness }, companies[] }`. */
 export const getMyAlumniProfile = () => rpc('get_my_alumni_profile', {})
-/** Patch keys: name_en, name_ar, bio_en, bio_ar, phone, linkedin_url, photo_path, education_status, national_id, self_birth_date, self_gender. Returns `{ saved:true, replaced[], founder }` or `{ saved:false, error }`. */
-export const saveMyFounderProfile = (patch) => rpc('save_my_founder_profile', { p_patch: patch })
+/** Patch keys: name_en, name_ar, bio_en, bio_ar, phone, linkedin_url, photo_path, education_status, national_id, self_birth_date, self_gender. Returns `{ saved:true, replaced[], founder }` or `{ saved:false, error }`.
+ *  `expected` (m60) = the `founder.updated_at` the form was loaded with: a profile somebody else changed meanwhile is refused (`alumni_stale`). */
+export const saveMyFounderProfile = (patch, expected = null) => rpc('save_my_founder_profile', expected ? { p_patch: patch, p_expected: expected } : { p_patch: patch })
 /** Same call, but the soft failure THROWS (an AppError with `token = 'national_id_conflict'`): use it as a mutationFn so a conflict is an error state, not a success. */
-export async function saveMyFounderProfileStrict(patch) {
-  const r = await saveMyFounderProfile(patch)
+export async function saveMyFounderProfileStrict(patch, expected = null) {
+  const r = await saveMyFounderProfile(patch, expected)
   if (r?.saved === false) {
     const e = new AppError('conflict', { messageKey: 'alumni.err.nidConflict', retryable: false, detail: 'national_id:conflict' })
     e.token = r.error ?? 'national_id_conflict'
@@ -62,8 +67,14 @@ export const saveMyCompanyProfile = (companyId, patch, expected = null) => rpc('
 export const saveCompanyTeamMember = (companyId, founderId, patch) => rpc('save_company_team_member', { p_company: companyId, p_founder: founderId ?? null, p_patch: patch })
 export const removeCompanyTeamMember = (companyId, founderId) => rpc('remove_company_team_member', { p_company: companyId, p_founder: founderId })
 export const setCompanyCeo = (companyId, founderId) => rpc('set_company_ceo', { p_company: companyId, p_founder: founderId })
-/** `data` keys: revenue_total, funding_raised_total, employees_total, employees_female, freelancers, traction, challenges, needs (null clears, absent keys are kept). */
-export const upsertCompanySnapshot = (companyId, year, data) => rpc('upsert_company_snapshot', { p_company: companyId, p_year: year, p_data: data })
+/** The `expected` of a year the form loaded NO row for: a row that appeared meanwhile is a conflict (m60: '-infinity'). */
+export const NEW_ROW = '-infinity'
+/**
+ * `data` keys: revenue_total, funding_raised_total, employees_total, employees_female, freelancers, traction, challenges, needs (null clears, absent keys are kept).
+ * `expected` (m60) = the `updated_at` of the row the form loaded, or NEW_ROW; `reason` is recorded in the history (managers only). A save that changes nothing answers `changed: false`.
+ */
+export const upsertCompanySnapshot = (companyId, year, data, expected = null, reason = null) =>
+  rpc('upsert_company_snapshot', { p_company: companyId, p_year: year, p_data: data, ...(expected ? { p_expected: expected } : {}), ...(reason ? { p_reason: reason } : {}) })
 
 // ------------------------------------------------------------------ invitations (the sign-up / invitation pages and the co-founder invitation)
 /** Anonymous: `{ valid, company_name, masked_email }` (existing RPC). */
@@ -87,9 +98,33 @@ export const listPublicAlumniDirectory = ({ filters = {}, limit = 24, offset = 0
 export const getAlumniCompany = (companyId) => rpc('get_alumni_company', { p_company: companyId })
 /** `reveal` = true returns the full national ID and is LOGGED on the server: ask only on an explicit click. */
 export const getAlumniFounder = (founderId, { reveal = false } = {}) => rpc('get_alumni_founder', { p_founder: founderId, p_reveal: reveal })
-/** Like the founder patch plus `is_alumni` and `internal: { hint, directory_hidden, reviewed }`; `companyId` null creates a company. */
-export const saveAlumniCompany = (companyId, patch, expected = null) => rpc('save_alumni_company', { p_company: companyId ?? null, p_patch: patch, p_expected: expected })
-export const saveAlumniFounder = (founderId, patch) => rpc('save_alumni_founder', { p_founder: founderId, p_patch: patch })
+/** Like the founder patch plus `is_alumni` and `internal: { hint, directory_hidden, reviewed }`; `companyId` null creates a company. `reason` (m60) is recorded in the history. */
+export const saveAlumniCompany = (companyId, patch, expected = null, reason = null) => rpc('save_alumni_company', { p_company: companyId ?? null, p_patch: patch, p_expected: expected, ...(reason ? { p_reason: reason } : {}) })
+/** A manager edits ANY founder (details, bio, e-mail, the national ID). `expected` = the `founder.updated_at` the form loaded (m60: a stale form is refused), `reason` goes to the history. */
+export const saveAlumniFounder = (founderId, patch, expected = null, reason = null) =>
+  rpc('save_alumni_founder', { p_founder: founderId, p_patch: patch, ...(expected ? { p_expected: expected } : {}), ...(reason ? { p_reason: reason } : {}) })
+/** Manager: mark / unmark a yearly row as reviewed (a checkpoint, not an edit: the founder's version token does not move). */
+export const reviewCompanySnapshot = (companyId, year, reviewed = true) => rpc('review_company_snapshot', { p_company: companyId, p_year: year, p_reviewed: reviewed })
+
+// ------------------------------------------------------------------ history, stamps, the needs-attention queue (m60)
+/** "Last edited by ... on ..." per section of one company: `{ company:{updated_at,source,name?}, sections:{ basics:{at,source,role,edits,name?} ... }, years:[{year,updated_at,source,reviewed,reviewed_at,name?}], founders:[{founder_id,updated_at,source}] }` (a founder never gets a name). */
+export const getAlumniStamps = (companyId) => rpc('get_alumni_stamps', { p_company: companyId })
+/**
+ * The change log. Filters: company_id, founder_id, entity_type (company | internal | founder | identity | team | snapshot), field, year, actor (user id), actor_role, source (founder | manager | import | system),
+ * from, to (timestamps), q (company name), order (asc | desc). A manager sees everything (`limit` up to 5000: the export); a founder only the yearly figures of his own company (no names).
+ * -> `{ total, limit, offset, rows:[{ id, at, last_at, edits, source, entity_type, entity_id, company_id, founder_id, period_key, field, old_value, new_value, redacted, section, actor:{role,user_id?,name?}, company?, founder?, reason?, request_id? }] }`.
+ */
+export const listAlumniHistory = ({ filters = {}, limit = 50, offset = 0 } = {}) => rpc('list_alumni_history', { p_filters: filters, p_limit: limit, p_offset: offset })
+/** Manager: the flat state of a company at a date (`fields`: company.<f> / internal.<f> / year.<Y>.<f> / team.<id>.<member|role|is_primary> / founder.<id>.<f>), rebuilt from the log. `at` null = now. */
+export const getAlumniStateAsOf = (companyId, at = null) => rpc('alumni_state_as_of', { p_company: companyId, p_at: at })
+/** Manager: the keys whose value differs between two dates: `{ changes:[{ key, from, to }], log_started_at, before_log }`. `to` null = now. */
+export const getAlumniStateDiff = (companyId, from, to = null) => rpc('alumni_state_diff', { p_company: companyId, p_from: from, p_to: to })
+/**
+ * Manager: the queue of companies with missing data. Filters: scope (all | alumni | candidates), q, program_id, project_id, missing (a rule key), severity (required | recommended), has_account, invited.
+ * `rules` = the catalogue keys that count (null = all). -> `{ total, limit, offset, sort, rules:[{key,severity,section,selected,count}], counts:{total,with_issues,complete,by_rule}, rows:[...] }`; `limit` up to 5000 (the export).
+ */
+export const listAlumniAttention = ({ filters = {}, rules = null, limit = 25, offset = 0, sort = 'missing' } = {}) =>
+  rpc('list_alumni_attention', { p_filters: filters, p_rules: rules, p_limit: limit, p_offset: offset, p_sort: sort })
 export const setCompaniesAlumni = (ids, value) => rpc('set_companies_alumni', { p_ids: ids, p_value: value })
 export const deleteCompanySnapshot = (companyId, year) => rpc('delete_company_snapshot', { p_company: companyId, p_year: year })
 /** `{ columns[38], rows[][38], meta }` in the owner's header order; `year` null = the latest year with data. */
@@ -106,6 +141,12 @@ export const useMyCompanyProfile = (companyId, options = {}) =>
   useQuery({ queryKey: alumniKeys.myCompany(companyId), queryFn: () => getMyCompanyProfile(companyId), enabled: Boolean(companyId), staleTime: 30_000, ...options })
 export const useAlumniCompany = (companyId, options = {}) =>
   useQuery({ queryKey: alumniKeys.adminCompany(companyId), queryFn: () => getAlumniCompany(companyId), enabled: Boolean(companyId), staleTime: 30_000, ...options })
+export const useAlumniStamps = (companyId, options = {}) =>
+  useQuery({ queryKey: alumniKeys.stamps(companyId), queryFn: () => getAlumniStamps(companyId), enabled: Boolean(companyId), staleTime: 15_000, ...options })
+export const useAlumniHistory = (params = {}, options = {}) =>
+  useQuery({ queryKey: alumniKeys.history(params), queryFn: () => listAlumniHistory(params), staleTime: 15_000, placeholderData: (prev) => prev, ...options })
+export const useAlumniAttention = (params = {}, options = {}) =>
+  useQuery({ queryKey: alumniKeys.attention(params), queryFn: () => listAlumniAttention(params), staleTime: 15_000, placeholderData: (prev) => prev, ...options })
 export const useAlumniAnalytics = (params = {}, options = {}) =>
   useQuery({ queryKey: alumniKeys.analytics(params), queryFn: () => getAlumniAnalytics(params), staleTime: 60_000, ...options })
 export const useAlumniInvitations = (params = {}, options = {}) =>
@@ -121,17 +162,18 @@ export function useAlumniMutations() {
   const all = () => qc.invalidateQueries({ queryKey: alumniKeys.root(), predicate: (q) => q.queryKey[1] !== 'lookups' })
   const lookups = () => qc.invalidateQueries({ queryKey: alumniKeys.lookups() })
   return {
-    saveFounder: useMutation({ mutationFn: saveMyFounderProfileStrict, onSuccess: all }), // a national_id_conflict is an ERROR state (err.token)
+    saveFounder: useMutation({ mutationFn: (patch) => saveMyFounderProfileStrict(patch), onSuccess: all }), // a national_id_conflict is an ERROR state (err.token)
     saveCompany: useMutation({ mutationFn: ({ companyId, patch, expected }) => saveMyCompanyProfile(companyId, patch, expected), onSuccess: all }),
     saveTeamMember: useMutation({ mutationFn: ({ companyId, founderId, patch }) => saveCompanyTeamMember(companyId, founderId, patch), onSuccess: all }),
     removeTeamMember: useMutation({ mutationFn: ({ companyId, founderId }) => removeCompanyTeamMember(companyId, founderId), onSuccess: all }),
     setCeo: useMutation({ mutationFn: ({ companyId, founderId }) => setCompanyCeo(companyId, founderId), onSuccess: all }),
-    saveSnapshot: useMutation({ mutationFn: ({ companyId, year, data }) => upsertCompanySnapshot(companyId, year, data), onSuccess: all }),
+    saveSnapshot: useMutation({ mutationFn: ({ companyId, year, data, expected, reason }) => upsertCompanySnapshot(companyId, year, data, expected, reason), onSuccess: all }),
+    reviewSnapshot: useMutation({ mutationFn: ({ companyId, year, reviewed }) => reviewCompanySnapshot(companyId, year, reviewed), onSuccess: all }),
     deleteSnapshot: useMutation({ mutationFn: ({ companyId, year }) => deleteCompanySnapshot(companyId, year), onSuccess: all }),
     createInvitation: useMutation({ mutationFn: createAlumniInvitation, onSuccess: all }),
     revokeInvitation: useMutation({ mutationFn: revokeAlumniInvitation, onSuccess: all }),
-    saveAdminCompany: useMutation({ mutationFn: ({ companyId, patch, expected }) => saveAlumniCompany(companyId, patch, expected), onSuccess: all }),
-    saveAdminFounder: useMutation({ mutationFn: ({ founderId, patch }) => saveAlumniFounder(founderId, patch), onSuccess: all }),
+    saveAdminCompany: useMutation({ mutationFn: ({ companyId, patch, expected, reason }) => saveAlumniCompany(companyId, patch, expected, reason), onSuccess: all }),
+    saveAdminFounder: useMutation({ mutationFn: ({ founderId, patch, expected, reason }) => saveAlumniFounder(founderId, patch, expected, reason), onSuccess: all }),
     markAlumni: useMutation({ mutationFn: ({ ids, value }) => setCompaniesAlumni(ids, value), onSuccess: all }),
     saveLookup: useMutation({ mutationFn: ({ kind, key, patch }) => saveAlumniLookup(kind, key, patch), onSuccess: lookups }),
     deleteLookup: useMutation({ mutationFn: ({ kind, key }) => deleteAlumniLookup(kind, key), onSuccess: lookups }),

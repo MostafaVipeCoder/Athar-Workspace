@@ -319,7 +319,7 @@ export function buildAuthUrl(cfg, { state, challenge, loginHint = null, system =
   q.set('prompt', system ? 'consent select_account' : 'consent')
   q.set('include_granted_scopes', 'true')
   q.set('hd', cfg.allowedDomain)
-  if (loginHint && /^[^\s@<>"]{1,64}@[^\s@<>"]{1,255}$/.test(loginHint)) q.set('login_hint', loginHint)
+  if (loginHint && isEmailAddress(loginHint)) q.set('login_hint', loginHint)
   return u.toString()
 }
 
@@ -490,7 +490,7 @@ export function decodeIdTokenClaims(idToken) {
   if (parts.length !== 3 || parts[0].length > 2048 || parts[1].length > 8192) throw new GoogleError('id_token_invalid')
   try {
     const claims = JSON.parse(b64uToStr(parts[1]))
-    if (!claims || typeof claims !== 'object') throw new Error('claims')
+    if (!claims || typeof claims !== 'object' || Array.isArray(claims)) throw new Error('claims')
     return claims
   } catch (e) {
     throw new GoogleError('id_token_invalid', { cause: e })

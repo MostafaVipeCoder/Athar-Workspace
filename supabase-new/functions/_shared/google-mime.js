@@ -22,8 +22,8 @@ export class MimeError extends Error {
 
 export const MIME_LIMITS = Object.freeze({ maxRecipients: 20, maxSubjectChars: 300, maxNameChars: 120, maxMessageBytes: 1_048_576 })
 
-const CTRL_RE = /[\u0000-\u001f\u007f\u0085  ]/g // C0 controls, DEL, NEL, LS, PS (all can end a line in some parser)
-const HAS_LINE_BREAK = /[\r\n\u0000\u0085  ]/
+const CTRL_RE = /[\u0000-\u001f\u007f\u0085\u2028\u2029]/g // C0 controls, DEL, NEL, LS, PS (all can end a line in some parser)
+const HAS_LINE_BREAK = /[\r\n\u0000\u0085\u2028\u2029]/
 
 /** Neutralise free text that goes into a header: every control character (CR and LF included) becomes a space, runs collapse. */
 export function cleanHeaderText(value, max = 998) {
@@ -108,10 +108,12 @@ export function encodeDisplayName(name) {
 /** Strict mailbox: rejects CR / LF / NUL / spaces / angle brackets / quotes outright (they are how header injection is built). */
 export function normalizeAddress(value, field) {
   const raw = typeof value === 'string' ? { email: value } : value
-  const email = raw?.email
-  if (typeof email !== 'string' || HAS_LINE_BREAK.test(email) || /[\s<>",;()[\]\\]/.test(email)) throw new MimeError(HAS_LINE_BREAK.test(String(email ?? '')) ? 'header_injection' : 'invalid_address', field)
-  if (!isEmailAddress(email.trim())) throw new MimeError('invalid_address', field)
-  return { email: email.trim().toLowerCase(), name: raw.name ? cleanHeaderText(raw.name, MIME_LIMITS.maxNameChars) : '' }
+  const original = raw?.email
+  if (typeof original !== 'string') throw new MimeError('invalid_address', field)
+  if (HAS_LINE_BREAK.test(original)) throw new MimeError('header_injection', field) // checked BEFORE trimming: a CR / LF is never silently dropped
+  const email = original.replace(/^[ \t]+|[ \t]+$/g, '')
+  if (/[\s<>",;()[\]\\]/.test(email) || !isEmailAddress(email)) throw new MimeError('invalid_address', field)
+  return { email: email.toLowerCase(), name: raw.name ? cleanHeaderText(raw.name, MIME_LIMITS.maxNameChars) : '' }
 }
 
 function mailbox(a) {
@@ -165,10 +167,7 @@ export function htmlToText(html) {
 const escapeHtml = (s) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
 /** A minimal HTML alternative for a plain-text body (escaped, line breaks kept, direction auto for Arabic). */
 export function textToHtml(text) {
-  return `<div dir="auto" style="white-space:normal">${escapeHtml(text).replace(/
-||
-/g, '<br>
-')}</div>`
+  return `<div dir="auto" style="white-space:normal">${escapeHtml(text).replace(/\r\n|\r|\n/g, '<br>\n')}</div>`
 }
 
 const toCrlf = (s) => String(s).replace(/\r\n|\r|\n/g, '\r\n')
