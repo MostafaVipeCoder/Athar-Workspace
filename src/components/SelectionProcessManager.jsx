@@ -29,13 +29,83 @@ import {
 import { useNavigate, useParams } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 import AtherTeamBookingAdmin from './AtherTeamBookingAdmin';
+import RichTextEditor from './RichTextEditor';
 import {
     getSubmissions,
     updateSubmissionStatus,
     syncSubmissionsFromSheet,
     getEvent,
-    updateEvent
+    updateEvent,
+    extractPrimaryEmail
 } from '../lib/api';
+
+/**
+ * Extracts the best English founder/full name from a submission record.
+ * Priority: additional_data English name keys > founder_name column > startup_name
+ */
+const getFounderDisplayName = (sub) => {
+    const ad = sub.additional_data;
+    if (ad && typeof ad === 'object') {
+        // Search through all keys for English name patterns
+        const keys = Object.keys(ad);
+        // 1. Prefer keys that contain both an English/name indicator AND exclude company/startup
+        const englishNameKey = keys.find(k => {
+            const kl = k.toLowerCase();
+            return (kl.includes('english') || kl.includes('إنجليزي') || kl.includes('en)') || kl.includes('name_en') || kl.includes('full_name'))
+                && (kl.includes('name') || kl.includes('اسم'))
+                && !kl.includes('company') && !kl.includes('startup') && !kl.includes('project')
+                && !kl.includes('second') && !kl.includes('ثاني');
+        });
+        if (englishNameKey && ad[englishNameKey]) return String(ad[englishNameKey]).trim();
+
+        // 2. Fall back to any key with 'full name' or 'اسمك بالكامل' that isn't company-related
+        const fullNameKey = keys.find(k => {
+            const kl = k.toLowerCase();
+            return (kl.includes('full name') || kl.includes('اسمك بالكامل') || kl.includes('اسم المؤسس'))
+                && !kl.includes('company') && !kl.includes('startup') && !kl.includes('second') && !kl.includes('ثاني');
+        });
+        if (fullNameKey && ad[fullNameKey]) return String(ad[fullNameKey]).trim();
+
+        // 3. Any key with 'name' that isn't company/startup/second member
+        const anyNameKey = keys.find(k => {
+            const kl = k.toLowerCase();
+            return (kl.includes('name') || kl.includes('اسم'))
+                && !kl.includes('company') && !kl.includes('startup') && !kl.includes('project')
+                && !kl.includes('second') && !kl.includes('ثاني') && !kl.includes('timestamp') && !kl.includes('email');
+        });
+        if (anyNameKey && ad[anyNameKey]) return String(ad[anyNameKey]).trim();
+    }
+    // Fallback to DB column or startup name
+    return sub.founder_name || sub.startup_name || '-';
+};
+
+/**
+ * Extracts the company/project/startup name from a submission record.
+ * Priority: additional_data company keys > company_name column > startup_name
+ */
+const getCompanyDisplayName = (sub) => {
+    const ad = sub.additional_data;
+    if (ad && typeof ad === 'object') {
+        const keys = Object.keys(ad);
+        // 1. Exact or near-exact startup/company/project name keys
+        const companyKey = keys.find(k => {
+            const kl = k.toLowerCase();
+            return (kl === 'startup name' || kl === 'company name' || kl === 'project name'
+                || kl.includes('اسم الشركة') || kl.includes('اسم المشروع') || kl.includes('اسم الستارتب'))
+                || ((kl.includes('company') || kl.includes('startup') || kl.includes('project') || kl.includes('الشركة') || kl.includes('المشروع'))
+                    && (kl.includes('name') || kl.includes('اسم')));
+        });
+        if (companyKey && ad[companyKey]) return String(ad[companyKey]).trim();
+
+        // 2. Broader match
+        const broadKey = keys.find(k => {
+            const kl = k.toLowerCase();
+            return kl.includes('company') || kl.includes('startup') || kl.includes('project') || kl.includes('الشركة') || kl.includes('المشروع');
+        });
+        if (broadKey && ad[broadKey]) return String(ad[broadKey]).trim();
+    }
+    return sub.company_name || sub.startup_name || '-';
+};
 
 const SelectionProcessManager = () => {
     const { eventId } = useParams();
@@ -96,10 +166,33 @@ const SelectionProcessManager = () => {
     const [decisionModal, setDecisionModal] = useState({ show: false, submission: null, newStatus: null, reason: '' });
     const [toast, setToast] = useState({ show: false, message: '', type: 'success' });
 
+    // Email Audit State
+    // { [submission_id]: { interview?: { status, count }, rejection?: {...}, acceptance?: {...} } }
+    const [emailStatusMap, setEmailStatusMap] = useState({});
+    // Progress bar state during bulk sends: { current, total, type }
+    const [bulkProgress, setBulkProgress] = useState(null);
+
+    // Chunk helper
+    const chunkArray = (arr, size) => {
+        const chunks = [];
+        for (let i = 0; i < arr.length; i += size) chunks.push(arr.slice(i, i + size));
+        return chunks;
+    };
+
     const currentSubmissions = submissions.filter(s => {
         const matchesTab = s.status === activeTab || (activeTab === 'approved' && s.status === 'displayed');
-        const matchesSearch = s.startup_name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-            s.industry?.toLowerCase().includes(searchTerm.toLowerCase());
+        const term = searchTerm.toLowerCase();
+        if (!term) return matchesTab;
+        const founderDisplay = getFounderDisplayName(s).toLowerCase();
+        const companyDisplay = getCompanyDisplayName(s).toLowerCase();
+        const matchesSearch =
+            founderDisplay.includes(term) ||
+            companyDisplay.includes(term) ||
+            s.startup_name?.toLowerCase().includes(term) ||
+            s.company_name?.toLowerCase().includes(term) ||
+            s.founder_name?.toLowerCase().includes(term) ||
+            s.founder_email?.toLowerCase().includes(term) ||
+            s.industry?.toLowerCase().includes(term);
         return matchesTab && matchesSearch;
     });
 
@@ -169,25 +262,40 @@ const SelectionProcessManager = () => {
             // Interview emails
             setInterviewAdminEmails(evData.interview_admin_emails || []);
             setInterviewCCEmails(evData.interview_cc_emails || []);
-            setEmailTemplateSubject(evData.interview_email_template_subject || 'Interview Invitation: {{company_name}}');
-            setEmailTemplateBody(evData.interview_email_template_body || 'Dear {{first_name}},\n\nYou have been invited for an interview. Please book your slot: {{booking_link}}\n\nWarmly,\n{{project_manager_name}}');
+            setEmailTemplateSubject(evData.interview_email_template_subject || 'Dear {{first_name}},<br><br>You have been invited for an interview. Please book your slot: <a href="{{booking_link}}">{{booking_link}}</a><br><br>Warmly,<br>{{project_manager_name}}');
+            setEmailTemplateBody(evData.interview_email_template_body || '<p>Dear {{first_name}},</p><p>You have been invited for an interview. Please book your slot: <a href="{{booking_link}}">Click here</a></p><p>Warmly,<br>{{project_manager_name}}</p>');
 
             // Rejection emails
             setRejectionAdminEmails(evData.rejection_admin_emails || []);
             setRejectionCCEmails(evData.rejection_cc_emails || []);
             setRejectionEmailTemplateSubject(evData.rejection_email_template_subject || 'Thank You for Your Application');
-            setRejectionEmailTemplateBody(evData.rejection_email_template_body || 'Dear {{first_name}},\n\nThank you for applying. We regret to inform you that we will not be moving forward at this time.\n\nBest regards,\nThe Ather Team');
+            setRejectionEmailTemplateBody(evData.rejection_email_template_body || '<p>Dear {{first_name}},</p><p>Thank you for applying. We regret to inform you that we will not be moving forward at this time.</p><p>Best regards,<br>The Ather Team</p>');
 
             // Acceptance emails
             setAcceptanceAdminEmails(evData.acceptance_admin_emails || []);
             setAcceptanceCCEmails(evData.acceptance_cc_emails || []);
             setAcceptanceEmailTemplateSubject(evData.acceptance_email_template_subject || "Congratulations! You've been selected - {{company_name}}");
-            setAcceptanceEmailTemplateBody(evData.acceptance_email_template_body || 'Dear {{first_name}},\n\nCongratulations! We are thrilled to inform you that {{company_name}} has been selected to join our program.\n\nLooking forward to working with you!\n\nWarmly,\n{{project_manager_name}}');
+            setAcceptanceEmailTemplateBody(evData.acceptance_email_template_body || '<p>Dear {{first_name}},</p><p>Congratulations! We are thrilled to inform you that <strong>{{company_name}}</strong> has been selected to join our program.</p><p>Looking forward to working with you!</p><p>Warmly,<br>{{project_manager_name}}</p>');
 
             // Google Meet settings
             setMeetingLinkMode(evData.meeting_link_mode || 'unique');
             setSharedGoogleMeetLink(evData.shared_google_meet_link || '');
             setMeetLinkError('');
+
+            // Build email status map from DB email_send_count
+            const newStatusMap = {};
+            (subData || []).forEach(sub => {
+                const counts = sub.email_send_count || {};
+                if (Object.keys(counts).length > 0) {
+                    newStatusMap[sub.submission_id] = {};
+                    ['interview', 'rejection', 'acceptance'].forEach(type => {
+                        if (counts[type] > 0) {
+                            newStatusMap[sub.submission_id][type] = { status: 'sent', count: counts[type] };
+                        }
+                    });
+                }
+            });
+            setEmailStatusMap(newStatusMap);
 
             setError(null);
         } catch (err) {
@@ -218,10 +326,10 @@ const SelectionProcessManager = () => {
             const result = await syncSubmissionsFromSheet(eventId, sheetUrl);
             await loadData();
             let message = `Sync complete!`;
-            if (result.inserted > 0 || result.deleted > 0) {
-                message = `Sync complete: Added ${result.inserted}, Removed ${result.deleted}`;
+            if (result.inserted > 0 || result.updated > 0) {
+                message = `Sync complete: Added ${result.inserted} new, Updated ${result.updated} existing`;
             } else {
-                message = `Sync complete: No changes detected.`;
+                message = `Sync complete: All records up to date.`;
             }
             showToast(message, 'success');
         } catch (err) {
@@ -317,16 +425,48 @@ const SelectionProcessManager = () => {
         }
     };
 
+    // Helper to apply per-submission results into emailStatusMap
+    const applyEmailResults = (results, emailType) => {
+        if (!Array.isArray(results)) return;
+        setEmailStatusMap(prev => {
+            const next = { ...prev };
+            results.forEach(r => {
+                if (!r.submission_id) return;
+                const existing = next[r.submission_id] || {};
+                const prevTypeData = existing[emailType] || { count: 0 };
+                next[r.submission_id] = {
+                    ...existing,
+                    [emailType]: {
+                        status: r.success ? 'sent' : 'failed',
+                        count: r.success ? (prevTypeData.count || 0) + 1 : (prevTypeData.count || 0),
+                        error: r.success ? undefined : r.error
+                    }
+                };
+            });
+            return next;
+        });
+    };
+
     const handleSendEmail = async (submission) => {
         try {
             setSendingEmail(submission.submission_id);
+            // Optimistically mark as sending
+            setEmailStatusMap(prev => ({
+                ...prev,
+                [submission.submission_id]: { ...(prev[submission.submission_id] || {}), interview: { status: 'sending', count: (prev[submission.submission_id]?.interview?.count || 0) } }
+            }));
             const { data, error } = await supabase.functions.invoke('send-interview-invitations', {
                 body: { eventId, submissionIds: [submission.submission_id] }
             });
             if (error || data?.success === false) throw new Error(error?.message || data?.error || 'Failed to send interview email');
-            showToast(`Interview email sent to ${submission.startup_name}!`, 'success');
+            applyEmailResults(data.results, 'interview');
+            showToast(`Interview email sent to ${submission.company_name || submission.startup_name}!`, 'success');
         } catch (err) {
             console.error('Failed to send interview email:', err);
+            setEmailStatusMap(prev => ({
+                ...prev,
+                [submission.submission_id]: { ...(prev[submission.submission_id] || {}), interview: { status: 'failed', count: prev[submission.submission_id]?.interview?.count || 0 } }
+            }));
             showToast(err.message || 'Failed to send interview email', 'error');
         } finally {
             setSendingEmail(null);
@@ -336,13 +476,22 @@ const SelectionProcessManager = () => {
     const handleSendRejectionEmail = async (submission) => {
         try {
             setSendingRejectionEmail(submission.submission_id);
+            setEmailStatusMap(prev => ({
+                ...prev,
+                [submission.submission_id]: { ...(prev[submission.submission_id] || {}), rejection: { status: 'sending', count: (prev[submission.submission_id]?.rejection?.count || 0) } }
+            }));
             const { data, error } = await supabase.functions.invoke('send-rejection-emails', {
                 body: { eventId, submissionIds: [submission.submission_id] }
             });
             if (error || data?.success === false) throw new Error(error?.message || data?.error || 'Failed to send rejection email');
-            showToast(`Rejection email sent to ${submission.startup_name}!`, 'success');
+            applyEmailResults(data.results, 'rejection');
+            showToast(`Rejection email sent to ${submission.company_name || submission.startup_name}!`, 'success');
         } catch (err) {
             console.error('Failed to send rejection email:', err);
+            setEmailStatusMap(prev => ({
+                ...prev,
+                [submission.submission_id]: { ...(prev[submission.submission_id] || {}), rejection: { status: 'failed', count: prev[submission.submission_id]?.rejection?.count || 0 } }
+            }));
             showToast(err.message || 'Failed to send rejection email', 'error');
         } finally {
             setSendingRejectionEmail(null);
@@ -352,13 +501,22 @@ const SelectionProcessManager = () => {
     const handleSendAcceptanceEmail = async (submission) => {
         try {
             setSendingAcceptanceEmail(submission.submission_id);
+            setEmailStatusMap(prev => ({
+                ...prev,
+                [submission.submission_id]: { ...(prev[submission.submission_id] || {}), acceptance: { status: 'sending', count: (prev[submission.submission_id]?.acceptance?.count || 0) } }
+            }));
             const { data, error } = await supabase.functions.invoke('send-acceptance-emails', {
                 body: { eventId, submissionIds: [submission.submission_id] }
             });
             if (error || data?.success === false) throw new Error(error?.message || data?.error || 'Failed to send acceptance email');
-            showToast(`Acceptance email sent to ${submission.startup_name}!`, 'success');
+            applyEmailResults(data.results, 'acceptance');
+            showToast(`Acceptance email sent to ${submission.company_name || submission.startup_name}!`, 'success');
         } catch (err) {
             console.error('Failed to send acceptance email:', err);
+            setEmailStatusMap(prev => ({
+                ...prev,
+                [submission.submission_id]: { ...(prev[submission.submission_id] || {}), acceptance: { status: 'failed', count: prev[submission.submission_id]?.acceptance?.count || 0 } }
+            }));
             showToast(err.message || 'Failed to send acceptance email', 'error');
         } finally {
             setSendingAcceptanceEmail(null);
@@ -366,28 +524,60 @@ const SelectionProcessManager = () => {
     };
 
     const handleBulkSendEmail = async (type) => {
+        const BATCH_SIZE = 100;
+        let functionName = '';
+        let targetStatus = '';
+        let emailType = type;
+        if (type === 'interview') { functionName = 'send-interview-invitations'; targetStatus = 'interview'; }
+        else if (type === 'rejection') { functionName = 'send-rejection-emails'; targetStatus = 'rejected'; }
+        else if (type === 'acceptance') { functionName = 'send-acceptance-emails'; targetStatus = 'approved'; }
+
+        const targetSubs = submissions.filter(s =>
+            s.status === targetStatus || (targetStatus === 'approved' && s.status === 'displayed')
+        );
+        const submissionIds = targetSubs.map(s => s.submission_id);
+        if (submissionIds.length === 0) return;
+
         try {
             setBulkEmailLoading(true);
             setBulkConfirmModal({ show: false, type: null, count: 0 });
-            let functionName = '';
-            let targetStatus = '';
-            if (type === 'interview') { functionName = 'send-interview-invitations'; targetStatus = 'interview'; }
-            else if (type === 'rejection') { functionName = 'send-rejection-emails'; targetStatus = 'rejected'; }
-            else if (type === 'acceptance') { functionName = 'send-acceptance-emails'; targetStatus = 'approved'; }
-            const targetSubs = submissions.filter(s =>
-                s.status === targetStatus || (targetStatus === 'approved' && s.status === 'displayed')
-            );
-            const submissionIds = targetSubs.map(s => s.submission_id);
-            const { data, error } = await supabase.functions.invoke(functionName, {
-                body: { eventId, submissionIds }
-            });
-            if (error || data?.success === false) throw new Error(error?.message || data?.error || 'Bulk email failed');
-            showToast(`Bulk ${type} emails sent to ${submissionIds.length} startups!`, 'success');
+            setBulkProgress({ current: 0, total: submissionIds.length, type });
+
+            const batches = chunkArray(submissionIds, BATCH_SIZE);
+            let totalSent = 0;
+            let totalFailed = 0;
+
+            for (const batch of batches) {
+                const { data, error } = await supabase.functions.invoke(functionName, {
+                    body: { eventId, submissionIds: batch }
+                });
+                if (error) {
+                    // Whole batch failed — mark all as failed
+                    batch.forEach(id => {
+                        setEmailStatusMap(prev => ({
+                            ...prev,
+                            [id]: { ...(prev[id] || {}), [emailType]: { status: 'failed', count: prev[id]?.[emailType]?.count || 0, error: error.message } }
+                        }));
+                    });
+                    totalFailed += batch.length;
+                } else {
+                    applyEmailResults(data.results, emailType);
+                    totalSent += (data.results || []).filter(r => r.success).length;
+                    totalFailed += (data.results || []).filter(r => !r.success).length;
+                }
+                setBulkProgress(prev => ({ ...prev, current: prev.current + batch.length }));
+            }
+
+            const msg = totalFailed > 0
+                ? `Bulk ${type}: ${totalSent} sent, ${totalFailed} failed.`
+                : `Bulk ${type} emails sent to ${totalSent} startups!`;
+            showToast(msg, totalFailed > 0 ? 'warning' : 'success');
         } catch (err) {
             console.error('Bulk email failed:', err);
             showToast(err.message || 'Failed to send bulk emails', 'error');
         } finally {
             setBulkEmailLoading(false);
+            setBulkProgress(null);
         }
     };
 
@@ -659,11 +849,11 @@ const SelectionProcessManager = () => {
                                         </div>
                                         <div>
                                             <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-2">Body</label>
-                                            <textarea
+                                            <RichTextEditor
                                                 value={emailTemplateBody}
-                                                onChange={(e) => setEmailTemplateBody(e.target.value)}
-                                                rows={8}
-                                                className="w-full bg-slate-50 border border-slate-100 rounded-2xl px-4 py-3 text-sm font-bold text-slate-700 focus:outline-none focus:ring-4 focus:ring-[#1a27c9]/5 focus:border-[#1a27c9]/30 transition-all resize-none"
+                                                onChange={setEmailTemplateBody}
+                                                placeholder="Write your interview invitation email body here..."
+                                                minHeight="200px"
                                             />
                                         </div>
                                         <p className="text-xs text-slate-400">Available variables: <code className="bg-slate-100 px-1 rounded">{'{{company_name}}'}</code> <code className="bg-slate-100 px-1 rounded">{'{{founder_name}}'}</code> <code className="bg-slate-100 px-1 rounded">{'{{project_manager_name}}'}</code> <code className="bg-slate-100 px-1 rounded">{'{{booking_link}}'}</code></p>
@@ -904,11 +1094,11 @@ const SelectionProcessManager = () => {
                                         </div>
                                         <div>
                                             <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-2">Body</label>
-                                            <textarea
+                                            <RichTextEditor
                                                 value={rejectionEmailTemplateBody}
-                                                onChange={(e) => setRejectionEmailTemplateBody(e.target.value)}
-                                                rows={8}
-                                                className="w-full bg-slate-50 border border-slate-100 rounded-2xl px-4 py-3 text-sm font-bold text-slate-700 focus:outline-none focus:ring-4 focus:ring-rose-500/10 focus:border-rose-500/30 transition-all resize-none"
+                                                onChange={setRejectionEmailTemplateBody}
+                                                placeholder="Write your rejection email body here..."
+                                                minHeight="200px"
                                             />
                                         </div>
                                         <p className="text-xs text-slate-400">Available variables: <code className="bg-slate-100 px-1 rounded">{'{{company_name}}'}</code> <code className="bg-slate-100 px-1 rounded">{'{{founder_name}}'}</code></p>
@@ -1021,11 +1211,11 @@ const SelectionProcessManager = () => {
                                         </div>
                                         <div>
                                             <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-2">Body</label>
-                                            <textarea
+                                            <RichTextEditor
                                                 value={acceptanceEmailTemplateBody}
-                                                onChange={(e) => setAcceptanceEmailTemplateBody(e.target.value)}
-                                                rows={8}
-                                                className="w-full bg-slate-50 border border-slate-100 rounded-2xl px-4 py-3 text-sm font-bold text-slate-700 focus:outline-none focus:ring-4 focus:ring-emerald-500/10 focus:border-emerald-500/30 transition-all resize-none"
+                                                onChange={setAcceptanceEmailTemplateBody}
+                                                placeholder="Write your acceptance email body here..."
+                                                minHeight="200px"
                                             />
                                         </div>
                                         <p className="text-xs text-slate-400">Available variables: <code className="bg-slate-100 px-1 rounded">{'{{company_name}}'}</code> <code className="bg-slate-100 px-1 rounded">{'{{founder_name}}'}</code> <code className="bg-slate-100 px-1 rounded">{'{{project_manager_name}}'}</code></p>
@@ -1073,37 +1263,57 @@ const SelectionProcessManager = () => {
                                 />
                             </div>
 
-                            {/* Bulk email buttons */}
-                            {activeTab === 'interview' && interviewCount > 0 && (
-                                <button
-                                    onClick={() => setBulkConfirmModal({ show: true, type: 'interview', count: interviewCount })}
-                                    disabled={bulkEmailLoading}
-                                    className="flex items-center gap-2 px-5 py-3 bg-purple-600 text-white rounded-2xl font-black text-xs uppercase tracking-widest hover:bg-purple-700 transition-all shadow-lg shadow-purple-100 disabled:opacity-50"
-                                >
-                                    {bulkEmailLoading ? <Loader2 size={16} className="animate-spin" /> : <Send size={16} />}
-                                    Send Interview Emails to All ({interviewCount})
-                                </button>
-                            )}
-                            {activeTab === 'approved' && approvedCount > 0 && (
-                                <button
-                                    onClick={() => setBulkConfirmModal({ show: true, type: 'acceptance', count: approvedCount })}
-                                    disabled={bulkEmailLoading}
-                                    className="flex items-center gap-2 px-5 py-3 bg-emerald-600 text-white rounded-2xl font-black text-xs uppercase tracking-widest hover:bg-emerald-700 transition-all shadow-lg shadow-emerald-100 disabled:opacity-50"
-                                >
-                                    {bulkEmailLoading ? <Loader2 size={16} className="animate-spin" /> : <Send size={16} />}
-                                    Send Acceptance Emails to All ({approvedCount})
-                                </button>
-                            )}
-                            {activeTab === 'rejected' && rejectedCount > 0 && (
-                                <button
-                                    onClick={() => setBulkConfirmModal({ show: true, type: 'rejection', count: rejectedCount })}
-                                    disabled={bulkEmailLoading}
-                                    className="flex items-center gap-2 px-5 py-3 bg-rose-600 text-white rounded-2xl font-black text-xs uppercase tracking-widest hover:bg-rose-700 transition-all shadow-lg shadow-rose-100 disabled:opacity-50"
-                                >
-                                    {bulkEmailLoading ? <Loader2 size={16} className="animate-spin" /> : <Send size={16} />}
-                                    Send Rejection Emails to All ({rejectedCount})
-                                </button>
-                            )}
+                            {/* Bulk email buttons + progress bar */}
+                            <div className="flex flex-col gap-3 items-end">
+                                {activeTab === 'interview' && interviewCount > 0 && (
+                                    <button
+                                        onClick={() => setBulkConfirmModal({ show: true, type: 'interview', count: interviewCount })}
+                                        disabled={bulkEmailLoading}
+                                        className="flex items-center gap-2 px-5 py-3 bg-purple-600 text-white rounded-2xl font-black text-xs uppercase tracking-widest hover:bg-purple-700 transition-all shadow-lg shadow-purple-100 disabled:opacity-50"
+                                    >
+                                        {bulkEmailLoading ? <Loader2 size={16} className="animate-spin" /> : <Send size={16} />}
+                                        Send Interview Emails to All ({interviewCount})
+                                    </button>
+                                )}
+                                {activeTab === 'approved' && approvedCount > 0 && (
+                                    <button
+                                        onClick={() => setBulkConfirmModal({ show: true, type: 'acceptance', count: approvedCount })}
+                                        disabled={bulkEmailLoading}
+                                        className="flex items-center gap-2 px-5 py-3 bg-emerald-600 text-white rounded-2xl font-black text-xs uppercase tracking-widest hover:bg-emerald-700 transition-all shadow-lg shadow-emerald-100 disabled:opacity-50"
+                                    >
+                                        {bulkEmailLoading ? <Loader2 size={16} className="animate-spin" /> : <Send size={16} />}
+                                        Send Acceptance Emails to All ({approvedCount})
+                                    </button>
+                                )}
+                                {activeTab === 'rejected' && rejectedCount > 0 && (
+                                    <button
+                                        onClick={() => setBulkConfirmModal({ show: true, type: 'rejection', count: rejectedCount })}
+                                        disabled={bulkEmailLoading}
+                                        className="flex items-center gap-2 px-5 py-3 bg-rose-600 text-white rounded-2xl font-black text-xs uppercase tracking-widest hover:bg-rose-700 transition-all shadow-lg shadow-rose-100 disabled:opacity-50"
+                                    >
+                                        {bulkEmailLoading ? <Loader2 size={16} className="animate-spin" /> : <Send size={16} />}
+                                        Send Rejection Emails to All ({rejectedCount})
+                                    </button>
+                                )}
+                                {/* Progress Bar */}
+                                {bulkProgress && (
+                                    <div className="w-full max-w-xs">
+                                        <div className="flex justify-between items-center mb-1">
+                                            <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Sending {bulkProgress.type}...</span>
+                                            <span className="text-[10px] font-bold text-slate-400">{bulkProgress.current} / {bulkProgress.total}</span>
+                                        </div>
+                                        <div className="w-full bg-slate-100 rounded-full h-2 overflow-hidden">
+                                            <div
+                                                className="h-2 rounded-full transition-all duration-500"
+                                                style={{
+                                                    width: `${Math.round((bulkProgress.current / bulkProgress.total) * 100)}%`,
+                                                    backgroundColor: bulkProgress.type === 'interview' ? '#9333ea' : bulkProgress.type === 'acceptance' ? '#059669' : '#e11d48'
+                                                }}
+                                            />
+                                        </div>
+                                    </div>
+                                )}
+                            </div>
                         </div>
 
                         <div className="overflow-x-auto">
@@ -1111,101 +1321,151 @@ const SelectionProcessManager = () => {
                                 <thead>
                                     <tr className="bg-slate-50/50">
                                         <th className="px-6 py-5 text-[10px] font-black text-slate-400 uppercase tracking-widest border-b border-slate-100 w-16 text-center">View</th>
-                                        {columns.slice(0, 5).map((col, idx) => (
-                                            <th key={`${col}-${idx}`} className="px-6 py-5 text-[10px] font-black text-slate-400 uppercase tracking-widest border-b border-slate-100">
-                                                {col}
-                                            </th>
-                                        ))}
+                                        <th className="px-6 py-5 text-[10px] font-black text-slate-400 uppercase tracking-widest border-b border-slate-100">Timestamp</th>
+                                        <th className="px-6 py-5 text-[10px] font-black text-slate-400 uppercase tracking-widest border-b border-slate-100">Founder Name</th>
+                                        <th className="px-6 py-5 text-[10px] font-black text-slate-400 uppercase tracking-widest border-b border-slate-100">Company / Project Name</th>
+                                        <th className="px-6 py-5 text-[10px] font-black text-slate-400 uppercase tracking-widest border-b border-slate-100">Founder Email</th>
                                         <th className="px-6 py-5 text-[10px] font-black text-slate-400 uppercase tracking-widest border-b border-slate-100 text-right">Actions</th>
                                     </tr>
                                 </thead>
                                 <tbody>
                                     {loading ? (
                                         <tr>
-                                            <td colSpan={columns.length + 2} className="py-32 text-center">
+                                            <td colSpan={6} className="py-32 text-center">
                                                 <Loader2 size={40} className="animate-spin text-[#1a27c9] mx-auto mb-4" />
                                                 <p className="text-slate-400 font-black text-xs uppercase tracking-widest">Loading Grid Data...</p>
                                             </td>
                                         </tr>
                                     ) : currentSubmissions.length === 0 ? (
                                         <tr>
-                                            <td colSpan={columns.length + 2} className="py-32 text-center">
+                                            <td colSpan={6} className="py-32 text-center">
                                                 <AlertCircle size={40} className="text-slate-200 mx-auto mb-4" />
                                                 <p className="text-slate-400 font-black text-xs uppercase tracking-widest">No applicants in this stage.</p>
                                             </td>
                                         </tr>
                                     ) : (
-                                        currentSubmissions.map(sub => (
-                                            <tr key={sub.submission_id} className="hover:bg-slate-50/80 transition-premium group">
-                                                <td className="px-6 py-5 border-b border-slate-50 text-center">
-                                                    <button
-                                                        onClick={() => setSelectedSubmission(sub)}
-                                                        className="w-10 h-10 rounded-xl bg-slate-50 text-slate-400 flex items-center justify-center hover:bg-[#1a27c9] hover:text-white transition-premium"
-                                                    >
-                                                        <Eye size={18} />
-                                                    </button>
-                                                </td>
-                                                {columns.slice(0, 5).map((col, idx) => {
-                                                    let val = '';
-                                                    const lowCol = col.toLowerCase();
-                                                    if (lowCol.includes('name')) val = sub.startup_name;
-                                                    else if (lowCol.includes('industry') || lowCol.includes('sector')) val = sub.industry;
-                                                    else if (lowCol.includes('location') || lowCol.includes('city')) val = sub.location;
-                                                    else val = sub.additional_data?.[col];
-                                                    return (
-                                                        <td key={`${col}-${idx}`} className="px-6 py-5 border-b border-slate-50 text-sm font-bold text-slate-600 truncate max-w-[200px]">
-                                                            {formatValue(val)}
-                                                        </td>
-                                                    );
-                                                })}
-                                                <td className="px-6 py-5 border-b border-slate-50 text-right space-x-2 whitespace-nowrap">
-                                                    {sub.status === 'screening' && (
-                                                        <>
-                                                            <button onClick={() => handleStatusUpdate(sub.submission_id, 'interview')} className="px-4 py-2 rounded-xl bg-purple-50 text-purple-600 text-[10px] font-black uppercase tracking-widest hover:bg-purple-600 hover:text-white transition-premium">Interview</button>
-                                                            <button onClick={() => handleStatusUpdate(sub.submission_id, 'holding', { additional_data: { ...sub.additional_data, origin_stage: 'screening' } })} className="px-4 py-2 rounded-xl bg-amber-50 text-amber-600 text-[10px] font-black uppercase tracking-widest hover:bg-amber-600 hover:text-white transition-premium">Hold</button>
-                                                            <button onClick={() => handleStatusUpdate(sub.submission_id, 'rejected')} className="px-4 py-2 rounded-xl bg-rose-50 text-rose-600 text-[10px] font-black uppercase tracking-widest hover:bg-rose-600 hover:text-white transition-premium">Reject</button>
-                                                        </>
-                                                    )}
-                                                    {sub.status === 'interview' && (
-                                                        <>
-                                                            <button onClick={() => handleSendEmail(sub)} disabled={sendingEmail === sub.submission_id} className="px-4 py-2 rounded-xl bg-purple-50 text-purple-600 text-[10px] font-black uppercase tracking-widest hover:bg-purple-600 hover:text-white transition-premium disabled:opacity-50 inline-flex items-center gap-1">
-                                                                {sendingEmail === sub.submission_id ? <Loader2 size={12} className="animate-spin" /> : <Mail size={12} />} Send Email
-                                                            </button>
-                                                            <button onClick={() => handleStatusUpdate(sub.submission_id, 'approved')} className="px-4 py-2 rounded-xl bg-emerald-50 text-emerald-600 text-[10px] font-black uppercase tracking-widest hover:bg-emerald-600 hover:text-white transition-premium">Approve</button>
-                                                            <button onClick={() => handleStatusUpdate(sub.submission_id, 'rejected')} className="px-4 py-2 rounded-xl bg-rose-50 text-rose-600 text-[10px] font-black uppercase tracking-widest hover:bg-rose-600 hover:text-white transition-premium">Reject</button>
-                                                            <button onClick={() => handleStatusUpdate(sub.submission_id, 'holding', { additional_data: { ...sub.additional_data, origin_stage: 'interview' } })} className="px-4 py-2 rounded-xl bg-amber-50 text-amber-600 text-[10px] font-black uppercase tracking-widest hover:bg-amber-600 hover:text-white transition-premium">Hold</button>
-                                                        </>
-                                                    )}
-                                                    {(sub.status === 'approved' || sub.status === 'displayed') && (
-                                                        <div className="flex items-center gap-2 justify-end">
-                                                            <button onClick={() => handleSendAcceptanceEmail(sub)} disabled={sendingAcceptanceEmail === sub.submission_id} className="px-4 py-2 rounded-xl bg-emerald-50 text-emerald-600 text-[10px] font-black uppercase tracking-widest hover:bg-emerald-600 hover:text-white transition-premium disabled:opacity-50 inline-flex items-center gap-1">
-                                                                {sendingAcceptanceEmail === sub.submission_id ? <Loader2 size={12} className="animate-spin" /> : <Mail size={12} />} Send Acceptance
-                                                            </button>
-                                                            {sub.status === 'approved' && (
-                                                                <button onClick={() => handleStatusUpdate(sub.submission_id, 'displayed')} className="px-4 py-2 rounded-xl bg-blue-50 text-blue-600 text-[10px] font-black uppercase tracking-widest hover:bg-blue-600 hover:text-white transition-premium">Display</button>
-                                                            )}
-                                                            {sub.status === 'displayed' && (
-                                                                <span className="px-4 py-2 rounded-xl bg-emerald-100 text-emerald-700 text-[10px] font-black uppercase tracking-widest border border-emerald-200">Displayed</span>
-                                                            )}
-                                                            <button onClick={() => handleStatusUpdate(sub.submission_id, 'rejected')} className="px-4 py-2 rounded-xl bg-rose-50 text-rose-600 text-[10px] font-black uppercase tracking-widest hover:bg-rose-600 hover:text-white transition-premium">Reject</button>
-                                                        </div>
-                                                    )}
-                                                    {sub.status === 'holding' && (
-                                                        <button onClick={() => { const origin = sub.additional_data?.origin_stage || 'screening'; handleStatusUpdate(sub.submission_id, origin); }} className="px-4 py-2 rounded-xl bg-slate-100 text-slate-600 text-[10px] font-black uppercase tracking-widest hover:bg-slate-600 hover:text-white transition-premium">
-                                                            {sub.additional_data?.origin_stage === 'interview' ? 'Back to Interview' : 'Back to Screening'}
+                                        currentSubmissions.map(sub => {
+                                            const timestampVal = sub.submitted_at || sub.additional_data?.Timestamp || sub.created_at;
+                                            const founderNameVal = getFounderDisplayName(sub);
+                                            const companyNameVal = getCompanyDisplayName(sub);
+                                            const founderEmailVal = sub.founder_email || extractPrimaryEmail(sub.additional_data) || '-';
+
+                                            return (
+                                                <tr key={sub.submission_id} className="hover:bg-slate-50/80 transition-premium group">
+                                                    <td className="px-6 py-5 border-b border-slate-50 text-center">
+                                                        <button
+                                                            onClick={() => setSelectedSubmission(sub)}
+                                                            className="w-10 h-10 rounded-xl bg-slate-50 text-slate-400 flex items-center justify-center hover:bg-[#1a27c9] hover:text-white transition-premium"
+                                                        >
+                                                            <Eye size={18} />
                                                         </button>
-                                                    )}
-                                                    {sub.status === 'rejected' && (
-                                                        <div className="flex items-center gap-2 justify-end">
-                                                            <button onClick={() => handleSendRejectionEmail(sub)} disabled={sendingRejectionEmail === sub.submission_id} className="px-4 py-2 rounded-xl bg-rose-50 text-rose-600 text-[10px] font-black uppercase tracking-widest hover:bg-rose-600 hover:text-white transition-premium disabled:opacity-50 inline-flex items-center gap-1">
-                                                                {sendingRejectionEmail === sub.submission_id ? <Loader2 size={12} className="animate-spin" /> : <Mail size={12} />} Send Rejection
+                                                    </td>
+                                                    <td className="px-6 py-5 border-b border-slate-50 text-xs font-bold text-slate-500 whitespace-nowrap">
+                                                        {formatValue(timestampVal)}
+                                                    </td>
+                                                    <td className="px-6 py-5 border-b border-slate-50 text-sm font-bold text-slate-800 truncate max-w-[200px]" title={founderNameVal}>
+                                                        {founderNameVal}
+                                                    </td>
+                                                    <td className="px-6 py-5 border-b border-slate-50 text-sm font-bold text-[#1a27c9] truncate max-w-[200px]" title={companyNameVal}>
+                                                        {companyNameVal}
+                                                    </td>
+                                                    <td className="px-6 py-5 border-b border-slate-50 text-sm font-bold text-slate-600 truncate max-w-[220px]" title={founderEmailVal}>
+                                                        {founderEmailVal}
+                                                    </td>
+                                                    <td className="px-6 py-5 border-b border-slate-50 text-right space-x-2 whitespace-nowrap">
+                                                        {sub.status === 'screening' && (
+                                                            <>
+                                                                <button onClick={() => handleStatusUpdate(sub.submission_id, 'interview')} className="px-4 py-2 rounded-xl bg-purple-50 text-purple-600 text-[10px] font-black uppercase tracking-widest hover:bg-purple-600 hover:text-white transition-premium">Interview</button>
+                                                                <button onClick={() => handleStatusUpdate(sub.submission_id, 'holding', { additional_data: { ...sub.additional_data, origin_stage: 'screening' } })} className="px-4 py-2 rounded-xl bg-amber-50 text-amber-600 text-[10px] font-black uppercase tracking-widest hover:bg-amber-600 hover:text-white transition-premium">Hold</button>
+                                                                <button onClick={() => handleStatusUpdate(sub.submission_id, 'rejected')} className="px-4 py-2 rounded-xl bg-rose-50 text-rose-600 text-[10px] font-black uppercase tracking-widest hover:bg-rose-600 hover:text-white transition-premium">Reject</button>
+                                                            </>
+                                                        )}
+                                                        {sub.status === 'interview' && (() => {
+                                                            const iStatus = emailStatusMap[sub.submission_id]?.interview;
+                                                            return (
+                                                            <>
+                                                                <div className="inline-flex flex-col items-end gap-1">
+                                                                    <button onClick={() => handleSendEmail(sub)} disabled={sendingEmail === sub.submission_id || bulkEmailLoading} className="px-4 py-2 rounded-xl bg-purple-50 text-purple-600 text-[10px] font-black uppercase tracking-widest hover:bg-purple-600 hover:text-white transition-premium disabled:opacity-50 inline-flex items-center gap-1">
+                                                                        {sendingEmail === sub.submission_id ? <Loader2 size={12} className="animate-spin" /> : <Mail size={12} />} Send Email
+                                                                    </button>
+                                                                    {iStatus && (
+                                                                        <span className={`text-[9px] font-black px-2 py-0.5 rounded-full ${
+                                                                            iStatus.status === 'sent' ? 'bg-emerald-100 text-emerald-700' :
+                                                                            iStatus.status === 'failed' ? 'bg-rose-100 text-rose-700' :
+                                                                            'bg-slate-100 text-slate-500'
+                                                                        }`}>
+                                                                            {iStatus.status === 'sent' ? `✓ Sent (${iStatus.count})` :
+                                                                             iStatus.status === 'failed' ? '✗ Failed' : '⟳ Sending...'}
+                                                                        </span>
+                                                                    )}
+                                                                </div>
+                                                                <button onClick={() => handleStatusUpdate(sub.submission_id, 'approved')} className="px-4 py-2 rounded-xl bg-emerald-50 text-emerald-600 text-[10px] font-black uppercase tracking-widest hover:bg-emerald-600 hover:text-white transition-premium">Approve</button>
+                                                                <button onClick={() => handleStatusUpdate(sub.submission_id, 'rejected')} className="px-4 py-2 rounded-xl bg-rose-50 text-rose-600 text-[10px] font-black uppercase tracking-widest hover:bg-rose-600 hover:text-white transition-premium">Reject</button>
+                                                                <button onClick={() => handleStatusUpdate(sub.submission_id, 'holding', { additional_data: { ...sub.additional_data, origin_stage: 'interview' } })} className="px-4 py-2 rounded-xl bg-amber-50 text-amber-600 text-[10px] font-black uppercase tracking-widest hover:bg-amber-600 hover:text-white transition-premium">Hold</button>
+                                                            </>
+                                                            );
+                                                        })()}
+                                                        {(sub.status === 'approved' || sub.status === 'displayed') && (() => {
+                                                            const aStatus = emailStatusMap[sub.submission_id]?.acceptance;
+                                                            return (
+                                                            <div className="flex items-center gap-2 justify-end">
+                                                                <div className="inline-flex flex-col items-end gap-1">
+                                                                    <button onClick={() => handleSendAcceptanceEmail(sub)} disabled={sendingAcceptanceEmail === sub.submission_id || bulkEmailLoading} className="px-4 py-2 rounded-xl bg-emerald-50 text-emerald-600 text-[10px] font-black uppercase tracking-widest hover:bg-emerald-600 hover:text-white transition-premium disabled:opacity-50 inline-flex items-center gap-1">
+                                                                        {sendingAcceptanceEmail === sub.submission_id ? <Loader2 size={12} className="animate-spin" /> : <Mail size={12} />} Send Acceptance
+                                                                    </button>
+                                                                    {aStatus && (
+                                                                        <span className={`text-[9px] font-black px-2 py-0.5 rounded-full ${
+                                                                            aStatus.status === 'sent' ? 'bg-emerald-100 text-emerald-700' :
+                                                                            aStatus.status === 'failed' ? 'bg-rose-100 text-rose-700' :
+                                                                            'bg-slate-100 text-slate-500'
+                                                                        }`}>
+                                                                            {aStatus.status === 'sent' ? `✓ Sent (${aStatus.count})` :
+                                                                             aStatus.status === 'failed' ? '✗ Failed' : '⟳ Sending...'}
+                                                                        </span>
+                                                                    )}
+                                                                </div>
+                                                                {sub.status === 'approved' && (
+                                                                    <button onClick={() => handleStatusUpdate(sub.submission_id, 'displayed')} className="px-4 py-2 rounded-xl bg-blue-50 text-blue-600 text-[10px] font-black uppercase tracking-widest hover:bg-blue-600 hover:text-white transition-premium">Display</button>
+                                                                )}
+                                                                {sub.status === 'displayed' && (
+                                                                    <span className="px-4 py-2 rounded-xl bg-emerald-100 text-emerald-700 text-[10px] font-black uppercase tracking-widest border border-emerald-200">Displayed</span>
+                                                                )}
+                                                                <button onClick={() => handleStatusUpdate(sub.submission_id, 'rejected')} className="px-4 py-2 rounded-xl bg-rose-50 text-rose-600 text-[10px] font-black uppercase tracking-widest hover:bg-rose-600 hover:text-white transition-premium">Reject</button>
+                                                            </div>
+                                                            );
+                                                        })()}
+                                                        {sub.status === 'holding' && (
+                                                            <button onClick={() => { const origin = sub.additional_data?.origin_stage || 'screening'; handleStatusUpdate(sub.submission_id, origin); }} className="px-4 py-2 rounded-xl bg-slate-100 text-slate-600 text-[10px] font-black uppercase tracking-widest hover:bg-slate-600 hover:text-white transition-premium">
+                                                                {sub.additional_data?.origin_stage === 'interview' ? 'Back to Interview' : 'Back to Screening'}
                                                             </button>
-                                                            <button onClick={() => handleStatusUpdate(sub.submission_id, 'screening')} className="px-4 py-2 rounded-xl bg-slate-100 text-slate-600 text-[10px] font-black uppercase tracking-widest hover:bg-slate-600 hover:text-white transition-premium">Move back to Screening</button>
-                                                        </div>
-                                                    )}
-                                                </td>
-                                            </tr>
-                                        ))
+                                                        )}
+                                                        {sub.status === 'rejected' && (() => {
+                                                            const rStatus = emailStatusMap[sub.submission_id]?.rejection;
+                                                            return (
+                                                            <div className="flex items-center gap-2 justify-end">
+                                                                <div className="inline-flex flex-col items-end gap-1">
+                                                                    <button onClick={() => handleSendRejectionEmail(sub)} disabled={sendingRejectionEmail === sub.submission_id || bulkEmailLoading} className="px-4 py-2 rounded-xl bg-rose-50 text-rose-600 text-[10px] font-black uppercase tracking-widest hover:bg-rose-600 hover:text-white transition-premium disabled:opacity-50 inline-flex items-center gap-1">
+                                                                        {sendingRejectionEmail === sub.submission_id ? <Loader2 size={12} className="animate-spin" /> : <Mail size={12} />} Send Rejection
+                                                                    </button>
+                                                                    {rStatus && (
+                                                                        <span className={`text-[9px] font-black px-2 py-0.5 rounded-full ${
+                                                                            rStatus.status === 'sent' ? 'bg-emerald-100 text-emerald-700' :
+                                                                            rStatus.status === 'failed' ? 'bg-rose-100 text-rose-700' :
+                                                                            'bg-slate-100 text-slate-500'
+                                                                        }`}>
+                                                                            {rStatus.status === 'sent' ? `✓ Sent (${rStatus.count})` :
+                                                                             rStatus.status === 'failed' ? '✗ Failed' : '⟳ Sending...'}
+                                                                        </span>
+                                                                    )}
+                                                                </div>
+                                                                <button onClick={() => handleStatusUpdate(sub.submission_id, 'screening')} className="px-4 py-2 rounded-xl bg-slate-100 text-slate-600 text-[10px] font-black uppercase tracking-widest hover:bg-slate-600 hover:text-white transition-premium">Move back to Screening</button>
+                                                            </div>
+                                                            );
+                                                        })()}
+                                                    </td>
+                                                </tr>
+                                            );
+                                        })
                                     )}
                                 </tbody>
                             </table>

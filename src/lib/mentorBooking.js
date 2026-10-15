@@ -1,12 +1,24 @@
 import { supabase } from './supabase';
 import { notifyGoogleAppsScript } from './api';
 
-// Fetch event details
+// Fetch event details for mentor booking
 export const getEvent = async (eventId) => {
     const { data, error } = await supabase
         .from('events')
-        .select('event_name, admin_email, interview_admin_emails, interview_cc_emails')
+        .select('event_name, admin_email, mentor_admin_emails, mentor_cc_emails, mentor_email_template_subject, mentor_email_template_body')
         .eq('event_id', eventId)
+        .single();
+    if (error) throw error;
+    return data;
+};
+
+// Update mentor notification settings on event
+export const updateMentorNotificationSettings = async (eventId, updates) => {
+    const { data, error } = await supabase
+        .from('events')
+        .update(updates)
+        .eq('event_id', eventId)
+        .select()
         .single();
     if (error) throw error;
     return data;
@@ -107,6 +119,29 @@ export const deleteMentor = async (id) => {
     return true;
 };
 
+// Advance Notice Window Presets (in minutes)
+export const ADVANCE_NOTICE_OPTIONS = [
+    { value: 0, label: '0 min (Immediate - متاح فوراً)' },
+    { value: 30, label: '30 minutes (30 دقيقة)' },
+    { value: 60, label: '1 hour (ساعة واحدة)' },
+    { value: 120, label: '2 hours (ساعتان)' },
+    { value: 360, label: '6 hours (6 ساعات)' },
+    { value: 720, label: '12 hours (12 ساعة)' },
+    { value: 1440, label: '24 hours (24 ساعة - افتراضي)' },
+    { value: 2880, label: '48 hours (48 ساعة / يومان)' },
+];
+
+/**
+ * Checks whether a slot is within the mentor's advance notice cutoff window.
+ * Returns true if the remaining time until start_time is LESS than required notice.
+ */
+export const isSlotWithinNoticeWindow = (slotStartTime, advanceNoticeMinutes = 1440) => {
+    if (!slotStartTime) return false;
+    const startTime = new Date(slotStartTime).getTime();
+    const noticeMs = (advanceNoticeMinutes ?? 1440) * 60 * 1000;
+    return startTime - Date.now() < noticeMs;
+};
+
 // ------------------------------
 // Slots CRUD
 // ------------------------------
@@ -142,7 +177,14 @@ export const getAvailableSlots = async (eventId, mentorId = null) => {
     
     const { data, error } = await query;
     if (error) throw error;
-    return data;
+
+    // Filter out slots that fall inside each mentor's advance notice window
+    const now = Date.now();
+    return (data || []).filter(slot => {
+        const noticeMins = slot.mentors?.advance_notice_minutes ?? 1440;
+        const cutoff = now + (noticeMins * 60 * 1000);
+        return new Date(slot.start_time).getTime() >= cutoff;
+    });
 };
 
 export const createSlot = async (slotData) => {
@@ -203,6 +245,12 @@ export const createBooking = async (bookingData) => {
     
     if (slotError) throw slotError;
     if (!slot.is_available) throw new Error('Slot is no longer available');
+
+    // Check if slot falls within advance notice window
+    const noticeMins = slot.mentors?.advance_notice_minutes ?? 1440;
+    if (isSlotWithinNoticeWindow(slot.start_time, noticeMins)) {
+        throw new Error('This slot is no longer available as it falls within the required advance notice period.');
+    }
 
     // Create booking with start_time, end_time, mentor_name, mentor_email
     const { data: booking, error: bookingError } = await supabase

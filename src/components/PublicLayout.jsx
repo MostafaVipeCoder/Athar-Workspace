@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { NavLink, Outlet, useParams, useSearchParams } from 'react-router-dom';
-import { Calendar, Users, Briefcase, BookOpen } from 'lucide-react';
+import { Calendar, Users, Briefcase, BookOpen, Heart } from 'lucide-react';
 import { translations } from '../lib/translations';
 import { getEvent } from '../lib/api';
 
@@ -29,7 +29,10 @@ export default function PublicLayout() {
 
     const t = translations.PublicLayout[lang];
     const queryStr = searchParams.toString() ? `?${searchParams.toString()}` : '';
-    const isAgendaOnly = searchParams.get('mode') === 'agenda_only';
+    const tabsParam = searchParams.get('tabs');
+    const selectedTabs = tabsParam ? tabsParam.split(',').map(item => item.trim().toLowerCase()).filter(Boolean) : null;
+
+    const isAgendaOnly = searchParams.get('mode') === 'agenda_only' || (selectedTabs && selectedTabs.length === 1 && selectedTabs.includes('agenda'));
     const isAgendaExperts = searchParams.get('mode') === 'agenda_experts';
 
     const customExpertsLabel = lang === 'ar'
@@ -37,13 +40,30 @@ export default function PublicLayout() {
         : event?.header_settings?.customExpertsLabel;
 
     const allNavItems = [
-        { id: 'agenda', path: `/agenda/${eventId}${queryStr}`, label: t.agenda, icon: <Calendar size={20} /> },
-        { id: 'experts', path: `/view/${eventId}/experts${queryStr}`, label: customExpertsLabel || t.experts, icon: <Users size={20} /> },
-        { id: 'companies', path: `/view/${eventId}/startups${queryStr}`, label: t.companies, icon: <Briefcase size={20} /> },
-        { id: 'library', path: `/view/${eventId}/library${queryStr}`, label: t.library, icon: <BookOpen size={20} /> },
+        { id: 'agenda',     path: `/agenda/${eventId}${queryStr}`,           label: t.agenda,                                  icon: <Calendar size={20} /> },
+        { id: 'experts',    path: `/view/${eventId}/experts${queryStr}`,     label: customExpertsLabel || t.experts,           icon: <Users size={20} /> },
+        { id: 'companies',  path: `/view/${eventId}/startups${queryStr}`,   label: t.companies,                               icon: <Briefcase size={20} /> },
+        { id: 'library',    path: `/view/${eventId}/library${queryStr}`,    label: t.library,                                 icon: <BookOpen size={20} /> },
+        { 
+            id: 'join-athar', 
+            path: `/view/${eventId}/join-athar${queryStr}`, 
+            label: t.joinAthar || 'Join Athar',               
+            icon: (
+                <span className="relative inline-flex items-center justify-center">
+                    <Heart size={20} />
+                    <span className="absolute -top-0.5 -right-0.5 flex h-2 w-2">
+                        <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75" />
+                        <span className="relative inline-flex rounded-full h-2 w-2 bg-red-500" />
+                    </span>
+                </span>
+            )
+        },
     ];
 
     const navItems = allNavItems.filter(item => {
+        if (selectedTabs && selectedTabs.length > 0) {
+            return selectedTabs.includes(item.id);
+        }
         if (isAgendaExperts && item.id === 'companies') return false;
         return true;
     });

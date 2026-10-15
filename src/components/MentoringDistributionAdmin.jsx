@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import {
     ArrowLeft, Settings, Users, Calendar, Link2, Play, RefreshCw,
@@ -6,17 +6,22 @@ import {
     Eye, Grid3X3, Zap, Clock, Sun, Coffee, Trash2, Save, Loader2,
     AlertCircle, CheckCircle2, Info, ToggleLeft, ToggleRight,
     UserCheck, UserX, ShieldCheck, ShieldAlert, Sparkles, Plus, Search, X,
-    Database, CheckCircle, SlidersHorizontal
+    Database, CheckCircle, SlidersHorizontal, Lock, Unlock, ArrowRightLeft,
+    Volume2, VolumeX, Pause, RotateCcw, CheckSquare, Square
 } from 'lucide-react';
 import {
     getDistributionConfig,
     saveDistributionConfig,
     getDistributionSessions,
     clearDistributionSessions,
+    clearDistributionSessionsForDays,
     saveDistributionSessions,
     generateDistribution,
     generateDistributionFlexible,
+    generateDistributionWithFinalizedDays,
     validateDistribution,
+    validateSessionMove,
+    isMentorAvailableInSlot,
     calcSlotsPerDay,
     calculateSlotTime,
     updateSession,
@@ -29,6 +34,7 @@ import {
     calculateDaySlotTimes,
     DEFAULT_PER_DAY_CONFIG,
 } from '../lib/mentoringDistribution';
+import { useMentoringTimer } from '../lib/useMentoringTimer';
 import { supabase } from '../lib/supabase';
 import { getGoogleDriveFallbackUrls } from '../lib/utils';
 
@@ -72,6 +78,7 @@ export default function MentoringDistributionAdmin() {
     const [generating, setGenerating] = useState(false);
     const [saving, setSaving] = useState(false);
     const [bannerDismissed, setBannerDismissed] = useState(false);
+    const [activeMatrixDay, setActiveMatrixDay] = useState(0);
 
     // Config state
     const [config, setConfig] = useState({
@@ -83,6 +90,8 @@ export default function MentoringDistributionAdmin() {
         break_slots: [],
         unique_pairing: true,
         mentor_availability: {},
+        finalized_days: [],
+        timer_state: {},
         is_published: false,
     });
 
@@ -94,6 +103,8 @@ export default function MentoringDistributionAdmin() {
     const [copiedLink, setCopiedLink] = useState(null);
     const [mentorSearch, setMentorSearch] = useState('');
     const [editingSession, setEditingSession] = useState(null);
+    const [reassignModal, setReassignModal] = useState({ isOpen: false, sourceSession: null });
+    const [expandedMentorTiming, setExpandedMentorTiming] = useState({});
 
     // Break slot editing
     const [newBreak, setNewBreak] = useState({ after_slot: '', duration_minutes: 15 });
@@ -138,6 +149,8 @@ export default function MentoringDistributionAdmin() {
                     break_slots: cfg.break_slots || [],
                     unique_pairing: cfg.unique_pairing ?? true,
                     mentor_availability: cfg.mentor_availability || {},
+                    finalized_days: cfg.finalized_days || [],
+                    timer_state: cfg.timer_state || {},
                     is_published: cfg.is_published || false,
                 });
                 setGlobalStartTime(cfg.start_time?.slice(0, 5) || '09:00');
@@ -226,6 +239,25 @@ export default function MentoringDistributionAdmin() {
 
     useEffect(() => { loadAll(); }, [loadAll]);
 
+    // ── Synchronized Timer Hook for Matrix / Live Remote Control ─────────────
+    const activeMatrixEffectiveConfig = useMemo(() => (
+        resolveDayEffectiveConfig(config, dayConfigs, activeMatrixDay)
+    ), [config, dayConfigs, activeMatrixDay]);
+
+    const activeMatrixSlotTimes = useMemo(() => (
+        activeMatrixEffectiveConfig ? calculateDaySlotTimes(activeMatrixEffectiveConfig) : []
+    ), [activeMatrixEffectiveConfig]);
+
+    const activeMatrixSlotsCount = activeMatrixSlotTimes.length;
+    const defaultMatrixSlotSeconds = (activeMatrixEffectiveConfig?.slot_duration_minutes || 20) * 60;
+
+    const timer = useMentoringTimer({
+        eventId,
+        initialSeconds: defaultMatrixSlotSeconds,
+        dayIndex: activeMatrixDay,
+        slotIndex: 0,
+    });
+
     // ── Save Config ──────────────────────────────────────────
     const handleSaveConfig = async () => {
         setSaving(true);
@@ -236,6 +268,176 @@ export default function MentoringDistributionAdmin() {
             alert(`❌ Save failed: ${err.message}`);
         } finally {
             setSaving(false);
+        }
+    };
+
+    // ── Day Finalization Helpers ──────────────────────────────
+    const handleToggleDayFinalization = async (dayIndex) => {
+        const currentFinalized = config.finalized_days || [];
+        const isFinalized = currentFinalized.includes(dayIndex);
+        const updated = isFinalized
+            ? currentFinalized.filter(d => d !== dayIndex)
+            : [...currentFinalized, dayIndex].sort((a, b) => a - b);
+
+        const newConfig = { ...config, finalized_days: updated };
+        setConfig(newConfig);
+        try {
+            await saveDistributionConfig(eventId, newConfig);
+        } catch (err) {
+            console.error('Error saving finalized day state:', err);
+        }
+    };
+
+    // ── Partial Regeneration (Unfinalized Days Only) ──────────
+    const handleRegenerateUnfinalizedDays = async () => {
+        if (!mentors.length) return alert('⚠️ No mentors available!');
+        if (!companies.length) return alert('⚠️ No startups available!');
+
+        const finalized = config.finalized_days || [];
+        const unfinalizedDays = Array.from({ length: config.num_days }, (_, i) => i).filter(d => !finalized.includes(d));
+
+        if (unfinalizedDays.length === 0) {
+            return alert('⚠️ All days are currently finalized (locked)! Please unlock at least one day to regenerate.');
+        }
+
+        const confirmed = window.confirm(
+            `Regenerate unfinalized days?\n\n` +
+            `🔒 Finalized Days (Preserved): ${finalized.map(d => `Day ${d + 1}`).join(', ') || 'None'}\n` +
+            `⚡ Days to be Recalculated: ${unfinalizedDays.map(d => `Day ${d + 1}`).join(', ')}\n\n` +
+            `Historical meetings from finalized days will be preserved to prevent duplicate pairings.\n` +
+            `Do you want to proceed?`
+        );
+        if (!confirmed) return;
+
+        setGenerating(true);
+        try {
+            await saveDistributionConfig(eventId, config);
+
+            const newAllSessions = generateDistributionWithFinalizedDays(
+                { ...config, event_id: eventId },
+                dayConfigs,
+                mentors,
+                companies,
+                sessions
+            );
+
+            // Clear sessions only for unfinalized days
+            await clearDistributionSessionsForDays(eventId, unfinalizedDays);
+            
+            // Save generated unfinalized sessions
+            const sessionsToSave = newAllSessions.filter(s => unfinalizedDays.includes(s.day_index));
+            await saveDistributionSessions(sessionsToSave, eventId);
+
+            setSessions(newAllSessions);
+            const newConflicts = validateDistribution(newAllSessions, config.unique_pairing);
+            setConflicts(newConflicts);
+
+            if (newConflicts.length) {
+                alert(`⚠️ Regenerated ${unfinalizedDays.length} day(s) with ${newConflicts.length} notice(s). Finalized days remained intact.`);
+            } else {
+                alert(`✅ Successfully regenerated ${unfinalizedDays.length} unfinalized day(s) with zero duplicate pairings!`);
+            }
+        } catch (err) {
+            alert(`❌ Partial generation failed: ${err.message}`);
+        } finally {
+            setGenerating(false);
+        }
+    };
+
+    // ── Manual Session Drag & Drop / Swap Reassignment ────────
+    const handleManualMoveSession = async (sourceSession, targetDay, targetSlot, targetMentorId) => {
+        if (!sourceSession) return;
+        const isFinalized = (config.finalized_days || []).includes(targetDay);
+        if (isFinalized) {
+            alert('⚠️ This day is finalized (locked). Please unlock the day first to modify its sessions.');
+            return;
+        }
+
+        const validation = validateSessionMove(
+            sessions,
+            sourceSession,
+            targetDay,
+            targetSlot,
+            targetMentorId,
+            config.unique_pairing
+        );
+
+        if (!validation.valid) {
+            const proceed = window.confirm(`⚠️ Move validation warning:\n${validation.error}\n\nDo you want to proceed anyway?`);
+            if (!proceed) return;
+        }
+
+        try {
+            const targetSession = sessions.find(s => 
+                s.day_index === targetDay && 
+                s.slot_index === targetSlot && 
+                s.mentor_id === targetMentorId
+            );
+
+            let updatedSessions = [...sessions];
+
+            if (targetSession) {
+                // Swap startups
+                const sourceCompId = sourceSession.company_id;
+                const sourceCompName = sourceSession.company_name;
+                const targetCompId = targetSession.company_id;
+                const targetCompName = targetSession.company_name;
+
+                if (sourceSession.id) {
+                    await updateSession(sourceSession.id, {
+                        company_id: targetCompId,
+                        company_name: targetCompName,
+                        is_manual_override: true,
+                    });
+                }
+                if (targetSession.id) {
+                    await updateSession(targetSession.id, {
+                        company_id: sourceCompId,
+                        company_name: sourceCompName,
+                        is_manual_override: true,
+                    });
+                }
+
+                updatedSessions = updatedSessions.map(s => {
+                    if (s.id === sourceSession.id || (s.day_index === sourceSession.day_index && s.slot_index === sourceSession.slot_index && s.mentor_id === sourceSession.mentor_id)) {
+                        return { ...s, company_id: targetCompId, company_name: targetCompName, is_manual_override: true };
+                    }
+                    if (s.id === targetSession.id || (s.day_index === targetSession.day_index && s.slot_index === targetSession.slot_index && s.mentor_id === targetSession.mentor_id)) {
+                        return { ...s, company_id: sourceCompId, company_name: sourceCompName, is_manual_override: true };
+                    }
+                    return s;
+                });
+            } else {
+                // Move to empty slot
+                if (sourceSession.id) {
+                    await updateSession(sourceSession.id, {
+                        day_index: targetDay,
+                        slot_index: targetSlot,
+                        mentor_id: targetMentorId,
+                        mentor_name: mentors.find(m => m.id === targetMentorId)?.name || '',
+                        is_manual_override: true,
+                    });
+                }
+                updatedSessions = updatedSessions.map(s => {
+                    if (s.id === sourceSession.id) {
+                        return {
+                            ...s,
+                            day_index: targetDay,
+                            slot_index: targetSlot,
+                            mentor_id: targetMentorId,
+                            mentor_name: mentors.find(m => m.id === targetMentorId)?.name || '',
+                            is_manual_override: true,
+                        };
+                    }
+                    return s;
+                });
+            }
+
+            setSessions(updatedSessions);
+            const newConflicts = validateDistribution(updatedSessions, config.unique_pairing);
+            setConflicts(newConflicts);
+        } catch (err) {
+            alert(`❌ Failed to update session: ${err.message}`);
         }
     };
 
@@ -250,6 +452,22 @@ export default function MentoringDistributionAdmin() {
         }));
     };
 
+    const handleMentorCustomTimingChange = (mentorId, field, value) => {
+        const current = config.mentor_availability[mentorId];
+        let obj = {};
+        if (typeof current === 'object' && current !== null && !Array.isArray(current)) {
+            obj = { ...current };
+        } else if (Array.isArray(current)) {
+            obj = { available_days: current };
+        } else if (typeof current === 'string') {
+            if (current === 'all') obj = { available_days: Array.from({ length: config.num_days }, (_, i) => i) };
+            else if (current.startsWith('day_')) obj = { available_days: [parseInt(current.replace('day_', ''), 10)] };
+            else if (current === 'excluded') obj = { available_days: [] };
+        }
+        obj[field] = value;
+        handleMentorAvailabilityChange(mentorId, obj);
+    };
+
     const handleToggleMentorDay = (mentorId, dayIdx) => {
         const currentAvail = config.mentor_availability[mentorId];
         let currentDays = [];
@@ -262,6 +480,8 @@ export default function MentoringDistributionAdmin() {
             currentDays = [parseInt(currentAvail.replace('day_', ''), 10)];
         } else if (currentAvail === 'excluded' || currentAvail === 'none') {
             currentDays = [];
+        } else if (typeof currentAvail === 'object' && currentAvail.available_days) {
+            currentDays = [...currentAvail.available_days];
         }
 
         let updatedDays = [];
@@ -271,11 +491,14 @@ export default function MentoringDistributionAdmin() {
             updatedDays = [...currentDays, dayIdx].sort((a, b) => a - b);
         }
 
-        let finalVal = updatedDays;
-        if (updatedDays.length === config.num_days) finalVal = 'all';
-        else if (updatedDays.length === 0) finalVal = 'excluded';
-
-        handleMentorAvailabilityChange(mentorId, finalVal);
+        if (typeof currentAvail === 'object' && currentAvail !== null && !Array.isArray(currentAvail)) {
+            handleMentorAvailabilityChange(mentorId, { ...currentAvail, available_days: updatedDays });
+        } else {
+            let finalVal = updatedDays;
+            if (updatedDays.length === config.num_days) finalVal = 'all';
+            else if (updatedDays.length === 0) finalVal = 'excluded';
+            handleMentorAvailabilityChange(mentorId, finalVal);
+        }
     };
 
     const handleRemoveMentor = async (mentorId, mentorName) => {
@@ -303,7 +526,7 @@ export default function MentoringDistributionAdmin() {
         }
     };
 
-    // ── Generate Distribution ────────────────────────────────
+    // ── Generate Full Distribution ───────────────────────────
     const handleGenerate = async () => {
         if (!mentors.length) return alert('⚠️ No mentors available! Please add mentors first.');
         if (!companies.length) return alert('⚠️ No startups available! Please add startups first.');
@@ -315,8 +538,13 @@ export default function MentoringDistributionAdmin() {
 
         if (!activeMentorsCount) return alert('⚠️ All mentors are marked as Not Available/Excluded!');
 
+        const finalizedCount = (config.finalized_days || []).length;
+        const finalizedMsg = finalizedCount > 0
+            ? `\n\n⚠️ NOTE: You have ${finalizedCount} finalized day(s). Full generation will reset ALL days. To preserve finalized days, use "Regenerate Unfinalized Days".`
+            : '';
+
         const confirmed = window.confirm(
-            `Generating schedule will overwrite current sessions.\n\n` +
+            `Generating schedule will overwrite current sessions for ALL days.${finalizedMsg}\n\n` +
             `Mentors: ${mentors.length} (${activeMentorsCount} active) | Startups: ${companies.length}\n` +
             `Event Days: ${config.num_days} | Slots/Day (Global): ${slotsPerDay}\n` +
             `Unique Pairing: ${config.unique_pairing ? 'Enabled (No Repeat)' : 'Disabled'}\n` +
@@ -526,7 +754,7 @@ export default function MentoringDistributionAdmin() {
 
             {/* ── Premium Header ─────────────────────────────────── */}
             <div className="relative z-50 bg-background/70 backdrop-blur-xl border-b border-border/50 sticky top-0 shadow-sm animate-in fade-in duration-500">
-                <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+                <div className="max-w-[1600px] mx-auto px-4 sm:px-6 lg:px-8">
                     <div className="flex items-center justify-between h-16">
                         <div className="flex items-center gap-3.5">
                             <Link
@@ -551,8 +779,8 @@ export default function MentoringDistributionAdmin() {
                             </div>
                         </div>
 
-                        {/* Publish toggle & Generate button */}
-                        <div className="flex items-center gap-2 sm:gap-3">
+                        {/* Publish toggle & Generate buttons */}
+                        <div className="flex items-center gap-2 sm:gap-3 flex-wrap">
                             <span className="text-xs font-bold text-muted-foreground hidden sm:inline">Status</span>
                             <button
                                 onClick={handleTogglePublish}
@@ -567,13 +795,26 @@ export default function MentoringDistributionAdmin() {
                                 {config.is_published ? 'Published' : 'Draft'}
                             </button>
 
+                            {sessions.length > 0 && (
+                                <button
+                                    onClick={handleRegenerateUnfinalizedDays}
+                                    disabled={generating}
+                                    className="flex items-center gap-1.5 px-3 py-2 sm:px-4 sm:py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs sm:text-sm font-bold transition-all duration-300 disabled:opacity-50 shadow-md shadow-emerald-600/20 hover:-translate-y-0.5 active:scale-95 cursor-pointer"
+                                    title="إعادة توزيع الأيام غير المثبتة فقط مع الحفاظ على الأيام المثبتة"
+                                >
+                                    {generating ? <Loader2 size={16} className="animate-spin" /> : <RefreshCw size={16} />}
+                                    <span>توزيع غير المثبتة</span>
+                                </button>
+                            )}
+
                             <button
                                 onClick={handleGenerate}
                                 disabled={generating}
                                 className="flex items-center gap-2 px-3.5 py-2 sm:px-5 sm:py-2.5 bg-gradient-to-r from-athar-blue to-athar-black hover:opacity-95 text-white rounded-xl text-xs sm:text-sm font-bold transition-all duration-300 disabled:opacity-50 shadow-lg shadow-athar-blue/20 hover:-translate-y-0.5 active:scale-95 cursor-pointer"
+                                title="توليد الجدول لجميع الأيام بالكامل"
                             >
                                 {generating ? <Loader2 size={16} className="animate-spin" /> : <Zap size={16} />}
-                                <span>{generating ? 'Generating...' : 'Generate Schedule'}</span>
+                                <span>{generating ? 'Generating...' : 'توليد بالكامل'}</span>
                             </button>
                         </div>
                     </div>
@@ -630,7 +871,8 @@ export default function MentoringDistributionAdmin() {
             <div className="relative z-40 border-b border-border/50 bg-background/80 backdrop-blur-md sticky top-16 shadow-xs">
                 <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
                     <div className="flex gap-1 overflow-x-auto">
-                        <TabButton active={activeTab === 'config'} onClick={() => setActiveTab('config')} icon={<Settings size={16} />} label="Settings" badge={criticalConflicts.length} />
+                        <TabButton active={activeTab === 'config'} onClick={() => setActiveTab('config')} icon={<Settings size={16} />} label="Settings & Days" badge={criticalConflicts.length} />
+                        <TabButton active={activeTab === 'matrix'} onClick={() => setActiveTab('matrix')} icon={<Grid3X3 size={16} />} label="Matrix & Live Remote" />
                         <TabButton active={activeTab === 'participants'} onClick={() => setActiveTab('participants')} icon={<Users size={16} />} label={`Participants (${mentors.length} Mentors / ${companies.length} Startups)`} />
                         <TabButton active={activeTab === 'links'} onClick={() => setActiveTab('links')} icon={<Link2 size={16} />} label="Public Links" />
                     </div>
@@ -1031,7 +1273,27 @@ export default function MentoringDistributionAdmin() {
                                                             </p>
                                                         </div>
                                                     </div>
-                                                    <div className="flex items-center gap-2">
+                                                    <div className="flex items-center gap-2 flex-wrap">
+                                                        {/* Finalization Toggle */}
+                                                        {(() => {
+                                                            const isFinalized = (config.finalized_days || []).includes(dayIndex);
+                                                            return (
+                                                                <button
+                                                                    type="button"
+                                                                    onClick={() => handleToggleDayFinalization(dayIndex)}
+                                                                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-[10px] font-black uppercase tracking-wider border transition-all cursor-pointer ${
+                                                                        isFinalized
+                                                                            ? 'bg-amber-500/10 border-amber-500/30 text-amber-600 hover:bg-amber-500/20'
+                                                                            : 'bg-slate-100 border-slate-200 text-slate-500 hover:bg-slate-200'
+                                                                    }`}
+                                                                    title={isFinalized ? "انقر لإلغاء تثبيت هذا اليوم" : "انقر لتثبيت هذا اليوم ومنع تعديله أو إعادة توزيعه"}
+                                                                >
+                                                                    {isFinalized ? <Lock size={12} className="text-amber-600" /> : <Unlock size={12} className="text-slate-400" />}
+                                                                    {isFinalized ? '🔒 Finalized (مثبت)' : '🔓 Draft (قابل للتعديل)'}
+                                                                </button>
+                                                            );
+                                                        })()}
+
                                                         {hasOverride && !isDirty && (
                                                             <span className="px-3 py-1.5 rounded-full bg-emerald-50 text-emerald-600 text-[10px] font-black uppercase tracking-widest border border-emerald-200">
                                                                 Custom
@@ -1418,6 +1680,326 @@ export default function MentoringDistributionAdmin() {
                     </div>
                 )}
 
+                {/* ═══ MATRIX & LIVE REMOTE TAB ════════════════════ */}
+                {activeTab === 'matrix' && (
+                    <div className="space-y-6">
+                        {/* Remote Live Timer Control Bar */}
+                        <div className="bg-slate-900 text-white rounded-2xl p-5 shadow-lg border border-slate-800 flex flex-wrap items-center justify-between gap-4">
+                            <div className="space-y-1">
+                                <div className="flex items-center gap-2">
+                                    <span className="flex h-3 w-3 relative">
+                                        <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                                        <span className="relative inline-flex rounded-full h-3 w-3 bg-emerald-500"></span>
+                                    </span>
+                                    <h3 className="text-sm font-black uppercase tracking-wider text-slate-100 flex items-center gap-2">
+                                        <Clock size={16} className="text-athar-blue" />
+                                        Synchronized Timer Control (التحكم في التايمر المركزي)
+                                    </h3>
+                                </div>
+                                <p className="text-xs text-slate-400 font-semibold">
+                                    يتم مزامنة أي تعديل في الوقت أو الإيقاف تلقائياً عبر شاشات العرض المباشر (TV Live View & Matrix View)
+                                </p>
+                            </div>
+
+                            <div className="flex items-center gap-4 flex-wrap">
+                                <div className="flex items-center gap-2.5 bg-slate-800 px-4 py-2 rounded-xl border border-slate-700 font-mono text-base font-extrabold tabular-nums">
+                                    <Clock size={16} className="text-athar-blue" />
+                                    <span className={`${timer.isAlertMode ? 'text-rose-400 animate-pulse font-black' : timer.secondsLeft && timer.secondsLeft <= 60 ? 'text-rose-400' : 'text-emerald-400'}`}>
+                                        {timer.secondsLeft !== null ? `${String(Math.floor(timer.secondsLeft / 60)).padStart(2, '0')}:${String(timer.secondsLeft % 60).padStart(2, '0')}` : '--:--'}
+                                    </span>
+                                    {timer.isPaused && (
+                                        <span className="text-[10px] px-2 py-0.5 bg-amber-500/20 text-amber-300 rounded-md font-bold uppercase tracking-wider">
+                                            Paused
+                                        </span>
+                                    )}
+                                </div>
+
+                                <div className="flex items-center gap-1.5">
+                                    <button
+                                        onClick={() => timer.adjustTime(-60)}
+                                        title="تخفيض دقيقة (-1m)"
+                                        className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-bold rounded-xl border border-slate-700 transition-all active:scale-95 cursor-pointer"
+                                    >
+                                        -1m
+                                    </button>
+                                    <button
+                                        onClick={() => timer.adjustTime(60)}
+                                        title="زيادة دقيقة (+1m)"
+                                        className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-bold rounded-xl border border-slate-700 transition-all active:scale-95 cursor-pointer"
+                                    >
+                                        +1m
+                                    </button>
+                                    <button
+                                        onClick={timer.togglePause}
+                                        title={timer.isPaused ? "استئناف (Resume)" : "إيقاف مؤقت (Pause)"}
+                                        className={`px-4 py-1.5 text-xs font-bold rounded-xl transition-all active:scale-95 flex items-center gap-1.5 cursor-pointer ${
+                                            timer.isPaused ? 'bg-emerald-600 hover:bg-emerald-700 text-white shadow-md shadow-emerald-900/30' : 'bg-amber-600 hover:bg-amber-700 text-white shadow-md shadow-amber-900/30'
+                                        }`}
+                                    >
+                                        {timer.isPaused ? <Play size={13} className="fill-white" /> : <Pause size={13} className="fill-white" />}
+                                        {timer.isPaused ? 'استئناف' : 'إيقاف مؤقت'}
+                                    </button>
+                                    <button
+                                        onClick={() => timer.resetTimer(defaultMatrixSlotSeconds)}
+                                        title="إعادة ضبط الوقت (Reset)"
+                                        className="p-2 bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white rounded-xl border border-slate-700 transition-all active:scale-95 cursor-pointer"
+                                    >
+                                        <RotateCcw size={15} />
+                                    </button>
+                                    <button
+                                        onClick={timer.toggleMute}
+                                        title={timer.isMuted ? "تفعيل صوت التنبيه" : "كتم صوت التنبيه"}
+                                        className={`p-2 rounded-xl border transition-all active:scale-95 cursor-pointer ${
+                                            timer.isMuted ? 'bg-rose-900/40 border-rose-700 text-rose-400' : 'bg-slate-800 border-slate-700 text-slate-300 hover:text-white'
+                                        }`}
+                                    >
+                                        {timer.isMuted ? <VolumeX size={15} /> : <Volume2 size={15} />}
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+
+                        {/* Matrix Days Selector */}
+                        <div className="flex items-center justify-between gap-4 border-b border-border/60 bg-card p-4 rounded-2xl shadow-xs flex-wrap">
+                            <div className="flex items-center gap-2 overflow-x-auto">
+                                {Array.from({ length: config.num_days }).map((_, dIdx) => {
+                                    const isFinalized = (config.finalized_days || []).includes(dIdx);
+                                    return (
+                                        <button
+                                            key={dIdx}
+                                            onClick={() => setActiveMatrixDay(dIdx)}
+                                            className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-extrabold transition-all cursor-pointer ${
+                                                activeMatrixDay === dIdx
+                                                    ? 'bg-gradient-to-r from-athar-blue to-athar-black text-white shadow-md'
+                                                    : 'bg-background text-muted-foreground hover:text-foreground border border-border/60'
+                                            }`}
+                                        >
+                                            <span>Day {dIdx + 1}</span>
+                                            {isFinalized ? (
+                                                <span className="px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-300 text-[9px] font-black uppercase tracking-wider flex items-center gap-1">
+                                                    <Lock size={9} /> Locked
+                                                </span>
+                                            ) : (
+                                                <span className="px-1.5 py-0.5 rounded bg-slate-500/20 text-slate-400 text-[9px] font-black uppercase tracking-wider">
+                                                    Draft
+                                                </span>
+                                            )}
+                                        </button>
+                                    );
+                                })}
+                            </div>
+
+                            <div className="flex items-center gap-2">
+                                <a
+                                    href={matrixLink}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold bg-secondary text-secondary-foreground hover:bg-secondary/80 transition-all cursor-pointer"
+                                >
+                                    <ExternalLink size={13} /> Full View
+                                </a>
+                            </div>
+                        </div>
+
+                        {/* Interactive Matrix Grid (Drag & Drop / Swap Reassignment) */}
+                        {sessions.length === 0 ? (
+                            <div className="bg-card border border-border/60 rounded-2xl p-12 text-center shadow-md">
+                                <Grid3X3 size={48} className="text-muted-foreground mx-auto mb-3 opacity-40" />
+                                <h3 className="text-base font-bold text-foreground">No Generated Schedule</h3>
+                                <p className="text-xs text-muted-foreground mt-1 max-w-md mx-auto">
+                                    Click "Generate Schedule" above to create sessions across mentors and startups.
+                                </p>
+                            </div>
+                        ) : (
+                            <div className="bg-card border border-border/60 rounded-2xl overflow-hidden shadow-md">
+                                <div className="p-4 border-b border-border/60 bg-gradient-to-r from-athar-blue/5 to-transparent flex items-center justify-between flex-wrap gap-2">
+                                    <div>
+                                        <h3 className="text-sm font-black text-foreground uppercase tracking-wide">
+                                            Day {activeMatrixDay + 1} Interactive Sessions Grid
+                                        </h3>
+                                        <p className="text-xs text-muted-foreground font-semibold">
+                                            Drag & drop or click any startup card to move/swap between mentors in that slot.
+                                        </p>
+                                    </div>
+                                    {(config.finalized_days || []).includes(activeMatrixDay) && (
+                                        <div className="flex items-center gap-1.5 px-3 py-1 bg-amber-500/10 border border-amber-500/20 rounded-full text-amber-600 text-xs font-bold">
+                                            <Lock size={12} /> Day is Finalized (Locked from editing)
+                                        </div>
+                                    )}
+                                </div>
+
+                                <div className="overflow-x-auto">
+                                    <table className="w-full text-left border-collapse min-w-[800px]">
+                                        <thead>
+                                            <tr className="border-b border-border/60 bg-muted/30">
+                                                <th className="p-3.5 text-[11px] font-black uppercase tracking-wider text-muted-foreground w-28 sticky left-0 bg-muted/90 backdrop-blur-sm z-20">
+                                                    Slot / Time
+                                                </th>
+                                                {mentors.map(m => (
+                                                    <th key={m.id} className="p-3.5 text-xs font-extrabold text-foreground border-l border-border/40 min-w-[160px]">
+                                                        <div className="flex items-center gap-2">
+                                                            {m.photo_url ? (
+                                                                <img src={getGoogleDriveFallbackUrls(m.photo_url)[0]} alt={m.name} className="w-6 h-6 rounded-full object-cover" />
+                                                            ) : (
+                                                                <div className="w-6 h-6 rounded-full bg-athar-blue/10 text-athar-blue font-bold flex items-center justify-center text-[10px]">
+                                                                    {m.name.charAt(0)}
+                                                                </div>
+                                                            )}
+                                                            <span className="truncate">{m.name}</span>
+                                                        </div>
+                                                    </th>
+                                                ))}
+                                            </tr>
+                                        </thead>
+                                        <tbody className="divide-y divide-border/40 text-xs font-semibold">
+                                            {activeMatrixSlotTimes.map((st, slotIdx) => (
+                                                <tr key={slotIdx} className="hover:bg-muted/10 transition-colors">
+                                                    <td className="p-3 text-[11px] font-black text-foreground/80 sticky left-0 bg-background/95 backdrop-blur-sm border-r border-border/60 z-10 whitespace-nowrap">
+                                                        #{slotIdx + 1}
+                                                        <span className="block text-[10px] text-muted-foreground font-normal">
+                                                            {st.start_time} - {st.end_time}
+                                                        </span>
+                                                    </td>
+                                                    {mentors.map(m => {
+                                                        const sess = sessions.find(s => 
+                                                            s.day_index === activeMatrixDay && 
+                                                            s.slot_index === slotIdx && 
+                                                            s.mentor_id === m.id
+                                                        );
+                                                        const isFinalized = (config.finalized_days || []).includes(activeMatrixDay);
+
+                                                        return (
+                                                            <td 
+                                                                key={m.id} 
+                                                                onDragOver={(e) => {
+                                                                    if (!isFinalized) e.preventDefault();
+                                                                }}
+                                                                onDrop={(e) => {
+                                                                    if (isFinalized) return;
+                                                                    e.preventDefault();
+                                                                    const raw = e.dataTransfer.getData('text/plain');
+                                                                    if (raw) {
+                                                                        try {
+                                                                            const sourceSess = JSON.parse(raw);
+                                                                            handleManualMoveSession(sourceSess, activeMatrixDay, slotIdx, m.id);
+                                                                        } catch(err) {
+                                                                            console.warn('Drop error:', err);
+                                                                        }
+                                                                    }
+                                                                }}
+                                                                className="p-2 border-l border-border/40 align-top"
+                                                            >
+                                                                {sess?.is_break ? (
+                                                                    <div className="p-2.5 rounded-xl bg-amber-500/10 text-amber-600 text-center font-bold text-[11px] border border-amber-500/20">
+                                                                        ☕ Break
+                                                                    </div>
+                                                                ) : sess?.company_name ? (
+                                                                    <div
+                                                                        draggable={!isFinalized}
+                                                                        onDragStart={(e) => {
+                                                                            e.dataTransfer.setData('text/plain', JSON.stringify(sess));
+                                                                        }}
+                                                                        onClick={() => {
+                                                                            if (!isFinalized) setReassignModal({ isOpen: true, sourceSession: sess });
+                                                                        }}
+                                                                        className={`p-2.5 rounded-xl border transition-all ${
+                                                                            sess.has_conflict
+                                                                                ? 'bg-rose-500/10 border-rose-500/30 text-rose-600'
+                                                                                : sess.is_manual_override
+                                                                                ? 'bg-athar-blue/10 border-athar-blue/30 text-athar-blue'
+                                                                                : 'bg-background border-border/60 text-foreground hover:border-athar-blue/50'
+                                                                        } ${!isFinalized ? 'cursor-grab active:cursor-grabbing hover:shadow-sm' : ''}`}
+                                                                    >
+                                                                        <div className="flex items-center justify-between gap-1">
+                                                                            <span className="font-bold truncate">{sess.company_name}</span>
+                                                                            {!isFinalized && <ArrowRightLeft size={11} className="text-muted-foreground shrink-0 opacity-60" />}
+                                                                        </div>
+                                                                        {sess.is_manual_override && (
+                                                                            <span className="text-[9px] font-bold text-athar-blue uppercase tracking-wider block mt-0.5">
+                                                                                ✏️ Manual
+                                                                            </span>
+                                                                        )}
+                                                                    </div>
+                                                                ) : (
+                                                                    <div className="p-2 text-center text-muted-foreground/40 text-[11px] italic">
+                                                                        Empty
+                                                                    </div>
+                                                                )}
+                                                            </td>
+                                                        );
+                                                    })}
+                                                </tr>
+                                            ))}
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        )}
+
+                        {/* Quick Reassign Modal */}
+                        {reassignModal.isOpen && reassignModal.sourceSession && (
+                            <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
+                                <div className="bg-card border border-border/60 rounded-3xl p-6 max-w-md w-full shadow-2xl space-y-4 animate-in fade-in zoom-in duration-200">
+                                    <div className="flex items-center justify-between">
+                                        <h3 className="text-base font-black text-foreground flex items-center gap-2">
+                                            <ArrowRightLeft className="text-athar-blue" size={18} />
+                                            Reassign / Swap Startup
+                                        </h3>
+                                        <button
+                                            onClick={() => setReassignModal({ isOpen: false, sourceSession: null })}
+                                            className="p-1 rounded-lg hover:bg-muted text-muted-foreground cursor-pointer"
+                                        >
+                                            <X size={16} />
+                                        </button>
+                                    </div>
+
+                                    <div className="bg-muted/40 p-3.5 rounded-xl border border-border/40 space-y-1 text-xs">
+                                        <p className="text-muted-foreground font-bold">Selected Startup:</p>
+                                        <p className="font-black text-sm text-foreground">{reassignModal.sourceSession.company_name}</p>
+                                        <p className="text-muted-foreground text-[11px]">
+                                            Current: Mentor {reassignModal.sourceSession.mentor_name} · Slot #{reassignModal.sourceSession.slot_index + 1}
+                                        </p>
+                                    </div>
+
+                                    <div className="space-y-2">
+                                        <label className="block text-xs font-extrabold uppercase text-muted-foreground">
+                                            Swap/Move to Mentor in Slot #{reassignModal.sourceSession.slot_index + 1}:
+                                        </label>
+                                        <div className="max-h-56 overflow-y-auto space-y-1.5 custom-scrollbar pr-1">
+                                            {mentors.filter(m => m.id !== reassignModal.sourceSession.mentor_id).map(m => {
+                                                const targetSess = sessions.find(s => 
+                                                    s.day_index === reassignModal.sourceSession.day_index && 
+                                                    s.slot_index === reassignModal.sourceSession.slot_index && 
+                                                    s.mentor_id === m.id
+                                                );
+                                                return (
+                                                    <button
+                                                        key={m.id}
+                                                        onClick={async () => {
+                                                            const src = reassignModal.sourceSession;
+                                                            setReassignModal({ isOpen: false, sourceSession: null });
+                                                            await handleManualMoveSession(src, src.day_index, src.slot_index, m.id);
+                                                        }}
+                                                        className="w-full p-2.5 rounded-xl border border-border/60 hover:border-athar-blue hover:bg-athar-blue/5 flex items-center justify-between text-left transition-all cursor-pointer"
+                                                    >
+                                                        <div>
+                                                            <p className="font-bold text-xs text-foreground">{m.name}</p>
+                                                            <p className="text-[10px] text-muted-foreground">
+                                                                {targetSess?.company_name ? `Current: ${targetSess.company_name} (Will Swap)` : 'Empty Slot'}
+                                                            </p>
+                                                        </div>
+                                                        <ArrowRightLeft size={13} className="text-athar-blue shrink-0" />
+                                                    </button>
+                                                );
+                                            })}
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        )}
+                    </div>
+                )}
+
                 {/* ═══ PARTICIPANTS TAB ═════════════════════════════ */}
                 {activeTab === 'participants' && (
                     <div className="space-y-8">
@@ -1464,87 +2046,150 @@ export default function MentoringDistributionAdmin() {
                                     {filteredMentors.map((m) => {
                                         const avail = config.mentor_availability[m.id];
                                         const isExcluded = avail === 'excluded' || avail === 'none';
+                                        const isCustomObj = typeof avail === 'object' && avail !== null && !Array.isArray(avail);
+                                        const isTimingExpanded = !!expandedMentorTiming[m.id];
 
                                         return (
-                                            <div key={m.id} className="p-4 sm:p-6 flex flex-col sm:flex-row sm:items-center justify-between gap-4 hover:bg-athar-blue/[0.02] transition-colors">
-                                                {/* Mentor info */}
-                                                <div className="flex items-center gap-4">
-                                                    {m.photo_url ? (
-                                                        <img src={getGoogleDriveFallbackUrls(m.photo_url)[0]} alt={m.name} className="w-12 h-12 rounded-full object-cover border border-border/60 shadow-xs" />
-                                                    ) : (
-                                                        <div className="w-12 h-12 rounded-full bg-athar-blue/10 text-athar-blue font-extrabold flex items-center justify-center text-base border border-athar-blue/20 shadow-xs">
-                                                            {m.name.charAt(0)}
+                                            <div key={m.id} className="p-4 sm:p-6 space-y-4 hover:bg-athar-blue/[0.02] transition-colors">
+                                                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                                                    {/* Mentor info */}
+                                                    <div className="flex items-center gap-4">
+                                                        {m.photo_url ? (
+                                                            <img src={getGoogleDriveFallbackUrls(m.photo_url)[0]} alt={m.name} className="w-12 h-12 rounded-full object-cover border border-border/60 shadow-xs" />
+                                                        ) : (
+                                                            <div className="w-12 h-12 rounded-full bg-athar-blue/10 text-athar-blue font-extrabold flex items-center justify-center text-base border border-athar-blue/20 shadow-xs">
+                                                                {m.name.charAt(0)}
+                                                            </div>
+                                                        )}
+                                                        <div>
+                                                            <h4 className="text-sm font-bold text-foreground flex items-center gap-2">
+                                                                {m.name}
+                                                                {isExcluded && (
+                                                                    <span className="px-2 py-0.5 text-[10px] font-extrabold bg-rose-500/10 text-rose-500 rounded-full border border-rose-500/20">
+                                                                        Excluded
+                                                                    </span>
+                                                                )}
+                                                            </h4>
+                                                            {m.title && <p className="text-xs text-muted-foreground mt-0.5">{m.title}</p>}
                                                         </div>
-                                                    )}
-                                                    <div>
-                                                        <h4 className="text-sm font-bold text-foreground flex items-center gap-2">
-                                                            {m.name}
-                                                            {isExcluded && (
-                                                                <span className="px-2 py-0.5 text-[10px] font-extrabold bg-rose-500/10 text-rose-500 rounded-full border border-rose-500/20">
-                                                                    Excluded
-                                                                </span>
-                                                            )}
-                                                        </h4>
-                                                        {m.title && <p className="text-xs text-muted-foreground mt-0.5">{m.title}</p>}
+                                                    </div>
+
+                                                    {/* Availability Controls */}
+                                                    <div className="flex items-center gap-3 flex-wrap">
+                                                        <span className="text-xs font-bold text-muted-foreground mr-1">Availability:</span>
+                                                        
+                                                        {/* Day selection buttons */}
+                                                        <div className="flex items-center gap-1.5 bg-background border border-border/60 rounded-xl p-1 shadow-xs">
+                                                            {Array.from({ length: config.num_days }).map((_, dayIdx) => {
+                                                                const isAvail = isMentorAvailableOnDay(m.id, dayIdx, config.mentor_availability);
+                                                                return (
+                                                                    <button
+                                                                        key={dayIdx}
+                                                                        onClick={() => handleToggleMentorDay(m.id, dayIdx)}
+                                                                        className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                                                                            isAvail
+                                                                                ? 'bg-emerald-500 text-white shadow-sm'
+                                                                                : 'bg-muted text-muted-foreground/50 hover:bg-muted/80'
+                                                                        }`}
+                                                                        title={`Toggle availability for Day ${dayIdx + 1}`}
+                                                                    >
+                                                                        Day {dayIdx + 1}
+                                                                    </button>
+                                                                );
+                                                            })}
+                                                        </div>
+
+                                                        {/* Quick Presets */}
+                                                        <button
+                                                            onClick={() => handleMentorAvailabilityChange(m.id, 'all')}
+                                                            className={`px-2.5 py-1.5 rounded-lg text-xs font-bold border transition-all cursor-pointer ${
+                                                                avail === undefined || avail === 'all'
+                                                                    ? 'bg-athar-blue/10 text-athar-blue border-athar-blue/30 font-extrabold'
+                                                                    : 'bg-background border-border/60 text-muted-foreground hover:text-foreground'
+                                                            }`}
+                                                        >
+                                                            All Days
+                                                        </button>
+                                                        <button
+                                                            onClick={() => handleMentorAvailabilityChange(m.id, 'excluded')}
+                                                            className={`px-2.5 py-1.5 rounded-lg text-xs font-bold border transition-all cursor-pointer ${
+                                                                isExcluded
+                                                                    ? 'bg-rose-500/10 text-rose-500 border-rose-500/30'
+                                                                    : 'bg-background border-border/60 text-muted-foreground hover:text-foreground'
+                                                            }`}
+                                                        >
+                                                            Exclude
+                                                        </button>
+
+                                                        {/* Custom timing toggle */}
+                                                        <button
+                                                            onClick={() => setExpandedMentorTiming(p => ({ ...p, [m.id]: !p[m.id] }))}
+                                                            className={`flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-bold border transition-all cursor-pointer ${
+                                                                isCustomObj && (avail.start_time || avail.end_time || avail.max_slots)
+                                                                    ? 'bg-amber-500/10 text-amber-600 border-amber-500/30'
+                                                                    : 'bg-background border-border/60 text-muted-foreground hover:text-foreground'
+                                                            }`}
+                                                            title="تخصيص أوقات وسلوتات المينتور"
+                                                        >
+                                                            <SlidersHorizontal size={13} />
+                                                            <span>تخصيص الوقت</span>
+                                                        </button>
+
+                                                        {/* Remove Button */}
+                                                        <button
+                                                            onClick={() => handleRemoveMentor(m.id, m.name)}
+                                                            className="p-2 text-muted-foreground hover:text-rose-500 rounded-lg hover:bg-rose-500/10 transition-colors ml-1 cursor-pointer"
+                                                            title="Remove mentor from event"
+                                                        >
+                                                            <Trash2 size={16} />
+                                                        </button>
                                                     </div>
                                                 </div>
 
-                                                {/* Availability Controls */}
-                                                <div className="flex items-center gap-3 flex-wrap">
-                                                    <span className="text-xs font-bold text-muted-foreground mr-1">Availability:</span>
-                                                    
-                                                    {/* Day selection buttons */}
-                                                    <div className="flex items-center gap-1.5 bg-background border border-border/60 rounded-xl p-1 shadow-xs">
-                                                        {Array.from({ length: config.num_days }).map((_, dayIdx) => {
-                                                            const isAvail = isMentorAvailableOnDay(m.id, dayIdx, config.mentor_availability);
-                                                            return (
-                                                                <button
-                                                                    key={dayIdx}
-                                                                    onClick={() => handleToggleMentorDay(m.id, dayIdx)}
-                                                                    className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
-                                                                        isAvail
-                                                                            ? 'bg-emerald-500 text-white shadow-sm'
-                                                                            : 'bg-muted text-muted-foreground/50 hover:bg-muted/80'
-                                                                    }`}
-                                                                    title={`Toggle availability for Day ${dayIdx + 1}`}
-                                                                >
-                                                                    Day {dayIdx + 1}
-                                                                </button>
-                                                            );
-                                                        })}
+                                                {/* Expandable Custom Timing & Slots Panel */}
+                                                {isTimingExpanded && (
+                                                    <div className="p-4 bg-muted/40 rounded-xl border border-border/60 grid grid-cols-1 sm:grid-cols-3 gap-4 animate-in fade-in duration-200">
+                                                        <div>
+                                                            <label className="block text-[10px] font-extrabold uppercase text-muted-foreground mb-1">
+                                                                Custom Start Time (وقت البدء)
+                                                            </label>
+                                                            <input
+                                                                type="time"
+                                                                value={isCustomObj ? (avail.start_time || '') : ''}
+                                                                onChange={(e) => handleMentorCustomTimingChange(m.id, 'start_time', e.target.value || null)}
+                                                                className="w-full px-3 py-2 bg-background border border-border/60 rounded-lg text-xs font-bold"
+                                                            />
+                                                        </div>
+                                                        <div>
+                                                            <label className="block text-[10px] font-extrabold uppercase text-muted-foreground mb-1">
+                                                                Custom End Time (وقت الانتهاء)
+                                                            </label>
+                                                            <input
+                                                                type="time"
+                                                                value={isCustomObj ? (avail.end_time || '') : ''}
+                                                                onChange={(e) => handleMentorCustomTimingChange(m.id, 'end_time', e.target.value || null)}
+                                                                className="w-full px-3 py-2 bg-background border border-border/60 rounded-lg text-xs font-bold"
+                                                            />
+                                                        </div>
+                                                        <div>
+                                                            <label className="block text-[10px] font-extrabold uppercase text-muted-foreground mb-1">
+                                                                Max Slots Limit (أقصى عدد جلسات)
+                                                            </label>
+                                                            <input
+                                                                type="number"
+                                                                min="1"
+                                                                max="30"
+                                                                placeholder="All slots (افتراضي)"
+                                                                value={isCustomObj ? (avail.max_slots ?? '') : ''}
+                                                                onChange={(e) => {
+                                                                    const val = e.target.value === '' ? null : parseInt(e.target.value, 10);
+                                                                    handleMentorCustomTimingChange(m.id, 'max_slots', val);
+                                                                }}
+                                                                className="w-full px-3 py-2 bg-background border border-border/60 rounded-lg text-xs font-bold"
+                                                            />
+                                                        </div>
                                                     </div>
-
-                                                    {/* Quick Presets */}
-                                                    <button
-                                                        onClick={() => handleMentorAvailabilityChange(m.id, 'all')}
-                                                        className={`px-2.5 py-1.5 rounded-lg text-xs font-bold border transition-all cursor-pointer ${
-                                                            avail === undefined || avail === 'all'
-                                                                ? 'bg-athar-blue/10 text-athar-blue border-athar-blue/30 font-extrabold'
-                                                                : 'bg-background border-border/60 text-muted-foreground hover:text-foreground'
-                                                        }`}
-                                                    >
-                                                        All Days
-                                                    </button>
-                                                    <button
-                                                        onClick={() => handleMentorAvailabilityChange(m.id, 'excluded')}
-                                                        className={`px-2.5 py-1.5 rounded-lg text-xs font-bold border transition-all cursor-pointer ${
-                                                            isExcluded
-                                                                ? 'bg-rose-500/10 text-rose-500 border-rose-500/30'
-                                                                : 'bg-background border-border/60 text-muted-foreground hover:text-foreground'
-                                                        }`}
-                                                    >
-                                                        Exclude
-                                                    </button>
-
-                                                    {/* Remove Button */}
-                                                    <button
-                                                        onClick={() => handleRemoveMentor(m.id, m.name)}
-                                                        className="p-2 text-muted-foreground hover:text-rose-500 rounded-lg hover:bg-rose-500/10 transition-colors ml-2 cursor-pointer"
-                                                        title="Remove mentor from event"
-                                                    >
-                                                        <Trash2 size={16} />
-                                                    </button>
-                                                </div>
+                                                )}
                                             </div>
                                         );
                                     })}

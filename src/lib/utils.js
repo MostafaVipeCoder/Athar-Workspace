@@ -1,3 +1,18 @@
+/**
+ * Returns the correct public base URL for the app, including the sub-path.
+ * Uses VITE_BASE_PATH env variable (e.g. "/EventsOperations").
+ * Falls back to "/EventsOperations" to match production deployment.
+ *
+ * Usage:
+ *   const url = `${getAppBaseUrl()}/#/forms/${eventId}/${formId}`;
+ *   // → https://athareg.com/EventsOperations/#/forms/...
+ */
+export const getAppBaseUrl = () => {
+    const basePath = import.meta.env.VITE_BASE_PATH ?? '/EventsOperations';
+    // Remove trailing slash if present, so we can always append "/#/..."
+    return `${window.location.origin}${basePath.replace(/\/$/, '')}`;
+};
+
 export const formatDate = (dateString, options = {}) => {
     if (!dateString) return '';
     const date = new Date(dateString);

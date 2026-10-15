@@ -64,7 +64,12 @@ select v49_test.val('C01 every alumni RPC exists (25)', $q$select count(*)::text
   'public.get_alumni_company(uuid)', 'public.get_alumni_founder(uuid,boolean)', 'public.save_alumni_company(uuid,jsonb,timestamptz)', 'public.save_alumni_founder(uuid,jsonb)',
   'public.set_companies_alumni(uuid[],boolean)', 'public.export_alumni_rows(jsonb,integer,text,date)', 'public.get_alumni_analytics(jsonb,integer)',
   'public.list_public_alumni_directory(jsonb,integer,integer)', 'public.create_alumni_invitation(uuid,text,text,text)', 'public.revoke_alumni_invitation(uuid)',
-  'public.list_alumni_invitations(text,integer,integer)'] ) f where to_regprocedure(f) is not null$q$, '25');
+  'public.list_alumni_invitations(text,integer,integer)'] ) f
+  -- m60 replaced four signatures (concurrency token / reason): either generation counts
+  where to_regprocedure(f) is not null or to_regprocedure(case f when 'public.save_my_founder_profile(jsonb)' then 'public.save_my_founder_profile(jsonb,timestamptz)'
+    when 'public.upsert_company_snapshot(uuid,integer,jsonb)' then 'public.upsert_company_snapshot(uuid,integer,jsonb,timestamptz,text)'
+    when 'public.save_alumni_company(uuid,jsonb,timestamptz)' then 'public.save_alumni_company(uuid,jsonb,timestamptz,text)'
+    when 'public.save_alumni_founder(uuid,jsonb)' then 'public.save_alumni_founder(uuid,jsonb,timestamptz,text)' end) is not null$q$, '25');
 select v49_test.val('C02 anon executes ONLY the vocabulary and the public directory', $q$select string_agg(p.proname, ',' order by p.proname) from pg_proc p where p.pronamespace = 'public'::regnamespace
   and has_function_privilege('anon', p.oid, 'EXECUTE') and (p.proname in ('list_alumni_lookups', 'list_public_alumni_directory', 'preview_national_id', 'get_my_alumni_profile', 'save_my_founder_profile', 'export_alumni_rows',
   'get_alumni_analytics', 'list_alumni_directory', 'get_alumni_company', 'get_alumni_founder', 'save_alumni_company', 'save_alumni_founder', 'upsert_company_snapshot', 'create_alumni_invitation'))$q$, 'list_alumni_lookups,list_public_alumni_directory');

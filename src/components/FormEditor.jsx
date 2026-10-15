@@ -2,41 +2,55 @@ import { useState, useEffect } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import {
     ArrowLeft, Plus, Save, Trash2, GripVertical,
-    Type, FileText, List, Upload, AlertCircle, CheckCircle, Loader, ExternalLink,
-    Link2, Copy, CheckCheck, EyeOff, Settings, Users, Building2, ClipboardList,
-    ToggleLeft, ToggleRight, ChevronRight, X, BarChart3
+    Type, FileText, List, Upload, AlertCircle, Loader, ExternalLink,
+    Settings, Users, Building2, ClipboardList,
+    ChevronRight, X, BarChart3,
+    MousePointerClick, Layers, CopyPlus, Sparkles, Image, Hash, Mail, Phone, Globe,
+    BookmarkPlus
 } from 'lucide-react';
-import SubmissionAnalytics from './SubmissionAnalytics';
 import {
     getEventForms, createEventForm, deleteEventForm, updateEventForm,
-    getFormConfigById, saveFormConfigById, getEvent, updateEvent, uploadImage
+    getFormConfigById, saveFormConfigById, duplicateEventForm,
+    getFormSections, saveFormSections
 } from '../lib/api';
-import { getGoogleDriveDirectLink } from '../lib/utils';
+
+// Subcomponents for the Engagement Hub
+import SourceTrackingToolbar from './forms/SourceTrackingToolbar';
+import FormResponsesTab from './forms/FormResponsesTab';
+import FormAnalyticsTab from './forms/FormAnalyticsTab';
+import FormClicksAnalyticsTab from './forms/FormClicksAnalyticsTab';
+import FormIntegrationsTab from './forms/FormIntegrationsTab';
+import FormSettingsTab from './forms/FormSettingsTab';
+import GlobalFormsAnalytics from './forms/GlobalFormsAnalytics';
+import CoverLibraryModal from './forms/CoverLibraryModal';
+import ImportFromLibraryModal from './forms/ImportFromLibraryModal';
+import SaveToLibraryModal from './forms/SaveToLibraryModal';
+import QuestionsBuilder from './forms/QuestionsBuilder';
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 
 const MODULE_META = {
+    selection_process: {
+        label: 'Engagement & Application Form',
+        icon: Sparkles,
+        color: 'indigo',
+        badge: 'bg-indigo-100 text-indigo-700 border-indigo-200',
+        dot: 'bg-indigo-500',
+    },
     company: {
-        label: 'Company List',
+        label: 'Company List Form',
         icon: Building2,
         color: 'blue',
         badge: 'bg-blue-100 text-blue-700 border-blue-200',
         dot: 'bg-blue-500',
     },
     expert: {
-        label: 'Expert List',
+        label: 'Expert / Mentor Form',
         icon: Users,
         color: 'purple',
         badge: 'bg-purple-100 text-purple-700 border-purple-200',
         dot: 'bg-purple-500',
-    },
-    selection_process: {
-        label: 'Selection Process',
-        icon: ClipboardList,
-        color: 'amber',
-        badge: 'bg-amber-100 text-amber-700 border-amber-200',
-        dot: 'bg-amber-500',
-    },
+    }
 };
 
 const isCoreField = (fieldName) =>
@@ -49,7 +63,10 @@ const getIconForType = (type) => {
         case 'select': return <List size={14} />;
         case 'multiselect': return <List size={14} />;
         case 'file': return <Upload size={14} />;
-        case 'hidden': return <EyeOff size={14} />;
+        case 'email': return <Mail size={14} />;
+        case 'number': return <Hash size={14} />;
+        case 'tel': return <Phone size={14} />;
+        case 'url': return <Globe size={14} />;
         default: return <Type size={14} />;
     }
 };
@@ -58,20 +75,20 @@ const getIconForType = (type) => {
 
 const CreateFormModal = ({ onClose, onCreate, loading }) => {
     const [formName, setFormName] = useState('');
-    const [targetModule, setTargetModule] = useState('');
+    const [targetModule, setTargetModule] = useState('selection_process');
 
     const handleSubmit = () => {
-        if (!formName.trim() || !targetModule) return;
+        if (!formName.trim()) return;
         onCreate(formName.trim(), targetModule);
     };
 
     return (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm">
-            <div className="bg-white rounded-3xl shadow-2xl border border-slate-200 w-full max-w-md p-6 sm:p-8 animate-in fade-in zoom-in-95 max-h-[90vh] overflow-y-auto flex flex-col">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in" dir="ltr">
+            <div className="bg-white rounded-3xl shadow-2xl border border-slate-200 w-full max-w-md p-6 sm:p-8 flex flex-col text-left">
                 <div className="flex items-center justify-between mb-6">
                     <div>
                         <h2 className="text-xl font-black text-slate-900">Create New Form</h2>
-                        <p className="text-xs text-slate-400 mt-0.5">Configure where submissions will be sent</p>
+                        <p className="text-xs text-slate-400 mt-0.5">Build a standalone form and route its submissions.</p>
                     </div>
                     <button onClick={onClose} className="p-2 rounded-xl hover:bg-slate-100 text-slate-400 transition-colors">
                         <X size={20} />
@@ -79,52 +96,284 @@ const CreateFormModal = ({ onClose, onCreate, loading }) => {
                 </div>
 
                 <div className="space-y-5">
-                    {/* Form Name */}
                     <div>
                         <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Form Name</label>
                         <input
                             type="text"
                             value={formName}
                             onChange={(e) => setFormName(e.target.value)}
-                            placeholder="e.g. Startup Applications, Speaker Registration"
-                            className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl font-medium text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all"
+                            placeholder="e.g. Program Application, Mentorship Booking, Event Registration"
+                            className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl font-medium text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all text-xs"
                             autoFocus
                             onKeyDown={(e) => e.key === 'Enter' && handleSubmit()}
                         />
                     </div>
 
-                    {/* Target Module */}
-                    <div>
-                        <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-3">Send submissions to</label>
-                        <div className="space-y-2">
-                            {Object.entries(MODULE_META).map(([key, meta]) => {
-                                const Icon = meta.icon;
+                    <div className="flex justify-end gap-3 pt-3">
+                        <button
+                            type="button"
+                            onClick={onClose}
+                            className="px-5 py-2.5 rounded-xl text-xs font-bold text-slate-600 hover:bg-slate-100"
+                        >
+                            Cancel
+                        </button>
+                        <button
+                            type="button"
+                            disabled={!formName.trim() || loading}
+                            onClick={handleSubmit}
+                            className="px-6 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-black transition-all shadow-md disabled:opacity-50 flex items-center gap-2"
+                        >
+                            {loading ? <Loader size={14} className="animate-spin" /> : <Plus size={14} />}
+                            Create Form
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    );
+};
+
+// ─── Main FormEditor Engagement Hub Screen ────────────────────────────────────
+
+export default function FormEditor() {
+    const params = useParams();
+    const eventId = params.eventId || params.id;
+    const [forms, setForms] = useState([]);
+    const [fieldCounts, setFieldCounts] = useState({});
+    const [loading, setLoading] = useState(true);
+    const [error, setError] = useState(null);
+    const [showCreateModal, setShowCreateModal] = useState(false);
+    const [creating, setCreating] = useState(false);
+    const [duplicatingId, setDuplicatingId] = useState(null);
+    const [showCoverLibraryModal, setShowCoverLibraryModal] = useState(false);
+    const [showImportFromLibraryModal, setShowImportFromLibraryModal] = useState(false);
+    const [showSaveToLibraryModal, setShowSaveToLibraryModal] = useState(false);
+    const [libraryToast, setLibraryToast] = useState(null);
+
+    // Navigation & editing states
+    const [editingForm, setEditingForm] = useState(null);
+    const [activeMainTab, setActiveMainTab] = useState('forms'); // 'forms' | 'global_analytics'
+    const [activeFormTab, setActiveFormTab] = useState('questions'); 
+    // Unified 6 tabs: 'questions' | 'settings' | 'responses' | 'response_analytics' | 'clicks_analytics' | 'integrations'
+
+    // Form fields & sections state when editing a form
+    const [formFields, setFormFields] = useState([]);
+    const [sections, setSections] = useState([]);
+    const [fieldsLoading, setFieldsLoading] = useState(false);
+    const [fieldsSaving, setFieldsSaving] = useState(false);
+    const [fieldsSuccess, setFieldsSuccess] = useState(false);
+
+    useEffect(() => {
+        loadForms();
+    }, [eventId]);
+
+    useEffect(() => {
+        if (editingForm) {
+            loadFormFields(editingForm.form_id);
+        }
+    }, [editingForm?.form_id]);
+
+    const loadForms = async () => {
+        try {
+            setLoading(true);
+            setError(null);
+            const data = await getEventForms(eventId);
+            setForms(data || []);
+
+            // Load question counts in parallel
+            const counts = await Promise.all(
+                (data || []).map(f => getFormConfigById(f.form_id).then(fields => ({ id: f.form_id, count: fields.length })))
+            );
+            const countsMap = {};
+            counts.forEach(({ id, count }) => { countsMap[id] = count; });
+            setFieldCounts(countsMap);
+        } catch (err) {
+            console.error('Failed to load forms:', err);
+            setError('Failed to load forms. Please try refreshing.');
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    const loadFormFields = async (formId) => {
+        try {
+            setFieldsLoading(true);
+            const [fields, secs] = await Promise.all([
+                getFormConfigById(formId),
+                getFormSections(formId)
+            ]);
+            setFormFields(fields || []);
+            setSections(secs || []);
+        } catch (err) {
+            console.error('Failed to load form fields and sections:', err);
+        } finally {
+            setFieldsLoading(false);
+        }
+    };
+
+    const handleCreateForm = async (formName, targetModule) => {
+        try {
+            setCreating(true);
+            const newForm = await createEventForm(eventId, formName, targetModule);
+            setShowCreateModal(false);
+            await loadForms();
+            setEditingForm(newForm);
+            setActiveFormTab('questions');
+        } catch (err) {
+            console.error('Create form failed:', err);
+        } finally {
+            setCreating(false);
+        }
+    };
+
+    const handleDuplicate = async (e, form) => {
+        e.stopPropagation();
+        try {
+            setDuplicatingId(form.form_id);
+            const cloned = await duplicateEventForm(form.form_id);
+            await loadForms();
+            setEditingForm(cloned);
+            setActiveFormTab('questions');
+        } catch (err) {
+            console.error('Duplicate form failed:', err);
+            alert('Failed to duplicate form. Please try again.');
+        } finally {
+            setDuplicatingId(null);
+        }
+    };
+
+    const handleDeleteForm = async (e, form) => {
+        e.stopPropagation();
+        if (!window.confirm(`Are you sure you want to delete form "${form.form_name}"?`)) return;
+        try {
+            await deleteEventForm(form.form_id);
+            if (editingForm?.form_id === form.form_id) {
+                setEditingForm(null);
+            }
+            await loadForms();
+        } catch (err) {
+            console.error('Delete form failed:', err);
+        }
+    };
+
+    const handleToggleActive = async (e, form) => {
+        e.stopPropagation();
+        try {
+            const updated = await updateEventForm(form.form_id, { is_active: !form.is_active });
+            setForms(prev => prev.map(f => f.form_id === form.form_id ? { ...f, is_active: updated.is_active } : f));
+            if (editingForm?.form_id === form.form_id) {
+                setEditingForm(prev => ({ ...prev, is_active: updated.is_active }));
+            }
+        } catch (err) {
+            console.error('Toggle form status failed:', err);
+        }
+    };
+
+    const handleSaveQuestions = async () => {
+        if (!editingForm) return;
+        try {
+            setFieldsSaving(true);
+            setFieldsSuccess(false);
+            const ordered = formFields.map((f, i) => ({ ...f, display_order: i }));
+            await Promise.all([
+                saveFormConfigById(editingForm.form_id, eventId, editingForm.target_module, ordered),
+                saveFormSections(editingForm.form_id, sections)
+            ]);
+            setFieldsSuccess(true);
+            setTimeout(() => setFieldsSuccess(false), 3000);
+            setFieldCounts(prev => ({ ...prev, [editingForm.form_id]: ordered.length }));
+        } catch (err) {
+            console.error('Save questions failed:', err);
+            alert('Failed to save questions.');
+        } finally {
+            setFieldsSaving(false);
+        }
+    };
+
+    // ─── Render: Single Form Management (Unified 6 Tabs) ─────────────────────────
+
+    if (editingForm) {
+        return (
+            <div className="min-h-screen bg-slate-50/70 pb-20 font-manrope text-left" dir="ltr">
+                {/* Sticky Header */}
+                <div className="bg-white border-b border-slate-200 sticky top-0 z-20 shadow-xs">
+                    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+                        <div className="flex items-center justify-between py-4">
+                            <div className="flex items-center gap-3">
+                                <button
+                                    onClick={() => setEditingForm(null)}
+                                    className="p-2.5 rounded-2xl bg-slate-50 text-slate-500 hover:bg-slate-100 transition-colors flex items-center gap-1.5 text-xs font-bold"
+                                >
+                                    <ArrowLeft size={16} />
+                                    <span>Back to Forms</span>
+                                </button>
+
+                                <div>
+                                    <h1 className="text-lg font-black text-slate-900 truncate" dir="auto">{editingForm.form_name}</h1>
+                                    <p className="text-[11px] font-bold text-slate-400">
+                                        {formFields.length} questions configured
+                                    </p>
+                                </div>
+                            </div>
+
+                            <div className="flex items-center gap-2">
+                                <button
+                                    type="button"
+                                    onClick={() => setShowSaveToLibraryModal(true)}
+                                    className="flex items-center gap-1.5 px-3.5 py-2 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 rounded-xl text-xs font-bold transition-all border border-indigo-200"
+                                    title="Save as template in Central Library"
+                                >
+                                    <BookmarkPlus size={14} />
+                                    <span>Save to Library</span>
+                                </button>
+
+                                <button
+                                    type="button"
+                                    onClick={(e) => handleDuplicate(e, editingForm)}
+                                    disabled={duplicatingId === editingForm.form_id}
+                                    className="flex items-center gap-1.5 px-3.5 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-bold transition-all"
+                                >
+                                    {duplicatingId === editingForm.form_id ? <Loader size={14} className="animate-spin" /> : <CopyPlus size={14} />}
+                                    Duplicate
+                                </button>
+
+                                <a
+                                    href={`#/forms/${eventId}/${editingForm.form_id}`}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="flex items-center gap-1.5 px-4 py-2 bg-blue-50 text-blue-600 hover:bg-blue-100 rounded-xl text-xs font-bold transition-all"
+                                >
+                                    <ExternalLink size={14} />
+                                    Preview Form
+                                </a>
+                            </div>
+                        </div>
+
+                        {/* Unified 6 Tabs */}
+                        <div className="flex items-center gap-1 overflow-x-auto no-scrollbar border-t border-slate-100 pt-1">
+                            {[
+                                { key: 'questions', label: 'Questions', icon: Type },
+                                { key: 'settings', label: 'Settings & Cover', icon: Settings },
+                                { key: 'responses', label: 'Responses', icon: ClipboardList },
+                                { key: 'response_analytics', label: 'Response Analytics', icon: BarChart3 },
+                                { key: 'clicks_analytics', label: 'Clicks & Sources', icon: MousePointerClick },
+                                { key: 'integrations', label: 'Integrations', icon: Layers }
+                            ].map((tab) => {
+                                const Icon = tab.icon;
+                                const isActive = activeFormTab === tab.key;
                                 return (
                                     <button
-                                        key={key}
+                                        key={tab.key}
                                         type="button"
-                                        onClick={() => setTargetModule(key)}
-                                        className={`w-full flex items-center gap-4 p-4 rounded-2xl border-2 text-left transition-all ${targetModule === key
-                                                ? `border-${meta.color}-500 bg-${meta.color}-50`
-                                                : 'border-slate-200 hover:border-slate-300 bg-white'
-                                            }`}
+                                        onClick={() => setActiveFormTab(tab.key)}
+                                        className={`flex items-center gap-2 px-4 py-3 border-b-2 text-xs font-bold whitespace-nowrap transition-all ${
+                                            isActive
+                                                ? 'border-blue-600 text-blue-600'
+                                                : 'border-transparent text-slate-500 hover:text-slate-800'
+                                        }`}
                                     >
-                                        <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${targetModule === key ? `bg-${meta.color}-100` : 'bg-slate-100'
-                                            }`}>
-                                            <Icon size={20} className={targetModule === key ? `text-${meta.color}-600` : 'text-slate-400'} />
-                                        </div>
-                                        <div className="flex-1">
-                                            <p className="font-bold text-slate-800 text-sm">{meta.label}</p>
-                                            <p className="text-xs text-slate-500 mt-0.5">
-                                                {key === 'company' && 'Starts with Company Name, Logo, Industry, Location'}
-                                                {key === 'expert' && 'Starts with Name, Photo, Title, Company, Bio'}
-                                                {key === 'selection_process' && 'Empty form — you add all questions manually'}
-                                            </p>
-                                        </div>
-                                        <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center ${targetModule === key ? `border-${meta.color}-500` : 'border-slate-300'
-                                            }`}>
-                                            {targetModule === key && <div className={`w-2.5 h-2.5 rounded-full bg-${meta.color}-500`} />}
-                                        </div>
+                                        <Icon size={15} />
+                                        {tab.label}
                                     </button>
                                 );
                             })}
@@ -132,741 +381,344 @@ const CreateFormModal = ({ onClose, onCreate, loading }) => {
                     </div>
                 </div>
 
-                <div className="flex gap-3 mt-8">
-                    <button onClick={onClose} className="flex-1 py-3 border-2 border-slate-200 rounded-xl font-bold text-slate-600 hover:bg-slate-50 transition-all">
-                        Cancel
-                    </button>
-                    <button
-                        onClick={handleSubmit}
-                        disabled={!formName.trim() || !targetModule || loading}
-                        className="flex-1 py-3 bg-[#0d0e0e] text-white rounded-xl font-bold hover:bg-[#1a27c9] transition-all disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                {/* Main Content Area */}
+                <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-6">
+                    {/* Source Tracking Toolbar */}
+                    <SourceTrackingToolbar
+                        form={editingForm}
+                        eventId={eventId}
+                        onFormUpdate={(updated) => setEditingForm(updated)}
+                    />
+
+                    {/* Tab Views */}
+                    {activeFormTab === 'questions' && (
+                        <QuestionsBuilder
+                            form={editingForm}
+                            fields={formFields}
+                            setFields={setFormFields}
+                            sections={sections}
+                            setSections={setSections}
+                            saving={fieldsSaving}
+                            onSave={handleSaveQuestions}
+                            success={fieldsSuccess}
+                            error={error}
+                        />
+                    )}
+
+                    {activeFormTab === 'settings' && (
+                        <FormSettingsTab
+                            form={editingForm}
+                            eventId={eventId}
+                            fields={formFields}
+                            onFormUpdate={(updated) => {
+                                setEditingForm(updated);
+                                setForms(prev => prev.map(f => f.form_id === updated.form_id ? updated : f));
+                            }}
+                        />
+                    )}
+
+                    {activeFormTab === 'responses' && (
+                        <FormResponsesTab
+                            form={editingForm}
+                            fields={formFields}
+                        />
+                    )}
+
+                    {activeFormTab === 'response_analytics' && (
+                        <FormAnalyticsTab
+                            form={editingForm}
+                            fields={formFields}
+                        />
+                    )}
+
+                    {activeFormTab === 'clicks_analytics' && (
+                        <FormClicksAnalyticsTab
+                            form={editingForm}
+                        />
+                    )}
+
+                    {activeFormTab === 'integrations' && (
+                        <FormIntegrationsTab
+                            form={editingForm}
+                            onFormUpdate={(updated) => setEditingForm(updated)}
+                        />
+                    )}
+                </div>
+
+                {/* Save to Central Library Modal */}
+                {showSaveToLibraryModal && (
+                    <SaveToLibraryModal
+                        form={editingForm}
+                        eventId={eventId}
+                        isOpen={showSaveToLibraryModal}
+                        onClose={() => setShowSaveToLibraryModal(false)}
+                        onSuccess={(saved) => {
+                            setShowSaveToLibraryModal(false);
+                            setLibraryToast(`✅ تم حفظ الفورم "‎${saved?.form_name || editingForm.form_name}" في المكتبة بنجاح`);
+                            setTimeout(() => setLibraryToast(null), 4000);
+                        }}
+                    />
+                )}
+
+                {/* Library Save Toast */}
+                {libraryToast && (
+                    <div
+                        className="fixed bottom-6 right-6 z-[100] bg-slate-900/95 text-white px-5 py-3.5 rounded-2xl shadow-2xl flex items-center gap-3 text-sm font-bold animate-in fade-in slide-in-from-bottom-3 backdrop-blur-sm border border-slate-700/50"
+                        dir="rtl"
                     >
-                        {loading ? <Loader size={16} className="animate-spin" /> : <Plus size={16} />}
-                        {loading ? 'Creating...' : 'Create Form'}
-                    </button>
-                </div>
-            </div>
-        </div>
-    );
-};
-
-// ─── Form Card (Dashboard) ────────────────────────────────────────────────────
-
-const FormCard = ({ form, fieldCount, onEdit, onDelete, onToggle, eventId }) => {
-    const meta = MODULE_META[form.target_module] || MODULE_META.company;
-    const Icon = meta.icon;
-    const registrationUrl = `${window.location.origin}${window.location.pathname}#/events/${eventId}/register/form/${form.form_id}`;
-
-    const [copied, setCopied] = useState(false);
-    const copyLink = () => {
-        navigator.clipboard.writeText(registrationUrl).then(() => {
-            setCopied(true);
-            setTimeout(() => setCopied(false), 2000);
-        });
-    };
-
-    return (
-        <div className="bg-white rounded-3xl border border-slate-200 shadow-sm hover:shadow-md transition-all overflow-hidden group">
-            {/* Card Header */}
-            <div className="p-6 pb-4">
-                <div className="flex items-start justify-between gap-4">
-                    <div className="flex items-center gap-4">
-                        <div className={`w-12 h-12 rounded-2xl flex items-center justify-center bg-${meta.color}-100`}>
-                            <Icon size={22} className={`text-${meta.color}-600`} />
-                        </div>
-                        <div>
-                            <h3 className="font-black text-slate-900 text-lg leading-tight">{form.form_name}</h3>
-                            <span className={`inline-flex items-center gap-1.5 mt-1 px-2.5 py-0.5 rounded-full text-xs font-bold border ${meta.badge}`}>
-                                <span className={`w-1.5 h-1.5 rounded-full ${meta.dot}`} />
-                                {meta.label}
-                            </span>
-                        </div>
-                    </div>
-                    <button
-                        onClick={() => onToggle(form)}
-                        className="text-slate-400 hover:text-slate-700 transition-colors mt-1"
-                        title={form.is_active ? 'Deactivate form' : 'Activate form'}
-                    >
-                        {form.is_active
-                            ? <ToggleRight size={28} className="text-green-500" />
-                            : <ToggleLeft size={28} />
-                        }
-                    </button>
-                </div>
-            </div>
-
-            {/* Stats */}
-            <div className="px-6 py-3 bg-slate-50 border-t border-b border-slate-100 flex items-center gap-6">
-                <div className="text-center">
-                    <p className="text-2xl font-black text-slate-800">{fieldCount}</p>
-                    <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Questions</p>
-                </div>
-                <div className="h-8 w-px bg-slate-200" />
-                <div className="flex items-center gap-1.5">
-                    <div className={`w-2 h-2 rounded-full ${form.is_active ? 'bg-green-500' : 'bg-slate-300'}`} />
-                    <span className="text-xs font-bold text-slate-500">{form.is_active ? 'Active — accepting submissions' : 'Inactive'}</span>
-                </div>
-            </div>
-
-            {/* Actions */}
-            <div className="p-4 flex items-center gap-2">
-                {/* Copy Link */}
-                <button
-                    onClick={copyLink}
-                    className={`flex items-center gap-2 px-3 py-2 rounded-xl text-xs font-bold transition-all ${copied ? 'bg-green-500 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-                        }`}
-                    title="Copy public form link"
-                >
-                    {copied ? <CheckCheck size={14} /> : <Copy size={14} />}
-                    {copied ? 'Copied!' : 'Copy Link'}
-                </button>
-
-                {/* Preview */}
-                <a
-                    href={`#/events/${eventId}/register/form/${form.form_id}`}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="flex items-center gap-2 px-3 py-2 rounded-xl text-xs font-bold bg-slate-100 text-slate-600 hover:bg-slate-200 transition-all"
-                >
-                    <ExternalLink size={14} />
-                    Preview
-                </a>
-
-                <div className="flex-1" />
-
-                {/* Delete */}
-                <button
-                    onClick={() => onDelete(form)}
-                    className="p-2 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-xl transition-all"
-                    title="Delete form"
-                >
-                    <Trash2 size={16} />
-                </button>
-
-                {/* Edit */}
-                <button
-                    onClick={() => onEdit(form)}
-                    className="flex items-center gap-2 px-4 py-2 bg-[#0d0e0e] text-white rounded-xl text-xs font-bold hover:bg-[#1a27c9] transition-all"
-                >
-                    <Settings size={14} />
-                    Edit Questions
-                    <ChevronRight size={14} />
-                </button>
-            </div>
-        </div>
-    );
-};
-
-// ─── Field Editor Screen ──────────────────────────────────────────────────────
-
-const FieldEditorScreen = ({ form, eventId, onBack }) => {
-    const [fields, setFields] = useState([]);
-    const [loading, setLoading] = useState(true);
-    const [saving, setSaving] = useState(false);
-    const [error, setError] = useState(null);
-    const [success, setSuccess] = useState(false);
-    const [copiedIndex, setCopiedIndex] = useState(null);
-    const [trackingValues, setTrackingValues] = useState({});
-
-    useEffect(() => { loadFields(); }, [form.form_id]);
-
-    const loadFields = async () => {
-        try {
-            setLoading(true);
-            const data = await getFormConfigById(form.form_id);
-            setFields(data);
-        } catch (err) {
-            setError('Failed to load form fields.');
-        } finally {
-            setLoading(false);
-        }
-    };
-
-    const handleAddField = () => {
-        setFields([...fields, {
-            field_name: `custom_${Date.now()}`,
-            field_label: 'New Question',
-            field_type: 'text',
-            is_required: false,
-            show_in_card: false,
-            display_order: fields.length,
-            placeholder: '',
-            help_text: '',
-            is_custom: true
-        }]);
-    };
-
-    const handleRemoveField = (index) => {
-        if (isCoreField(fields[index].field_name)) { alert("Cannot remove core fields."); return; }
-        setFields(fields.filter((_, i) => i !== index));
-    };
-
-    const handleFieldChange = (index, key, value) => {
-        const updated = [...fields];
-        updated[index] = { ...updated[index], [key]: value };
-        setFields(updated);
-    };
-
-    const handleOptionChange = (index, value) => {
-        const options = value.split(',').map(o => o.trim()).filter(Boolean);
-        const updated = [...fields];
-        updated[index] = { ...updated[index], field_options: options };
-        setFields(updated);
-    };
-
-    const handleSave = async () => {
-        try {
-            setSaving(true); setError(null); setSuccess(false);
-            const ordered = fields.map((f, i) => ({ ...f, display_order: i }));
-            await saveFormConfigById(form.form_id, eventId, form.target_module, ordered);
-            setSuccess(true);
-            setTimeout(() => setSuccess(false), 3000);
-        } catch (err) {
-            setError('Failed to save changes.');
-        } finally {
-            setSaving(false);
-        }
-    };
-
-    const getBaseFormUrl = () =>
-        `${window.location.origin}${window.location.pathname}#/events/${eventId}/register/form/${form.form_id}`;
-
-    const buildTrackingUrl = (field, channelValue) => {
-        const base = getBaseFormUrl();
-        return channelValue ? `${base}?${field.field_name}=${encodeURIComponent(channelValue)}` : base;
-    };
-
-    const handleCopyLink = (index, field) => {
-        navigator.clipboard.writeText(buildTrackingUrl(field, trackingValues[index] || '')).then(() => {
-            setCopiedIndex(index);
-            setTimeout(() => setCopiedIndex(null), 2000);
-        });
-    };
-
-    const meta = MODULE_META[form.target_module] || MODULE_META.company;
-    const Icon = meta.icon;
-
-    return (
-        <div className="min-h-screen bg-gray-200 pb-20 font-manrope">
-            {/* Header */}
-            <div className="bg-white border-b border-slate-200 sticky top-0 z-10 shadow-sm">
-                <div className="max-w-[1600px] mx-auto px-4 sm:px-6 lg:px-8">
-                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 py-4 sm:h-20">
-                        <div className="flex items-center gap-3">
-                            <button onClick={onBack} className="p-2.5 sm:p-3 rounded-2xl bg-slate-50 text-slate-400 hover:text-blue-600 hover:bg-blue-50 transition-all group tap-target shrink-0">
-                                <ArrowLeft size={20} className="group-hover:-translate-x-1 transition-transform" />
-                            </button>
-                            <div className="flex items-center gap-3 min-w-0">
-                                <div className={`w-9 h-9 rounded-xl flex items-center justify-center bg-${meta.color}-100 shrink-0`}>
-                                    <Icon size={18} className={`text-${meta.color}-600`} />
-                                </div>
-                                <div className="min-w-0">
-                                    <h1 className="text-base sm:text-xl font-black text-slate-900 truncate">{form.form_name}</h1>
-                                    <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">
-                                        {meta.label} · {fields.length} Questions
-                                    </p>
-                                </div>
-                            </div>
-                        </div>
-                        <div className="flex items-center gap-2 sm:gap-3 flex-wrap">
-                            <a href={`#/events/${eventId}/register/form/${form.form_id}`} target="_blank" rel="noopener noreferrer"
-                                className="flex items-center gap-2 px-3 sm:px-4 py-2 bg-slate-50 border border-slate-200 rounded-xl hover:bg-blue-600 hover:text-white hover:border-blue-600 transition-all text-slate-600 text-xs font-bold tap-target">
-                                <ExternalLink size={15} />
-                                <span className="hidden xs:inline">Preview Form</span>
-                            </a>
-                            <button onClick={handleSave} disabled={saving}
-                                className="flex items-center gap-2 px-4 sm:px-6 py-2.5 sm:py-3 bg-[#0d0e0e] text-white rounded-xl font-bold hover:bg-[#1a27c9] transition-all shadow-lg disabled:opacity-50 tap-target">
-                                {saving ? <Loader size={16} className="animate-spin" /> : <Save size={16} />}
-                                {saving ? 'Saving...' : 'Save'}
-                            </button>
-                        </div>
-                    </div>
-                </div>
-            </div>
-
-            <div className="max-w-[800px] mx-auto px-4 sm:px-6 lg:px-8 py-8">
-                {success && (
-                    <div className="mb-6 p-4 bg-green-100 text-green-700 rounded-2xl flex items-center gap-3 border border-green-200">
-                        <CheckCircle size={18} /><span className="font-bold">Saved successfully!</span>
-                    </div>
-                )}
-                {error && (
-                    <div className="mb-6 p-4 bg-red-100 text-red-700 rounded-2xl flex items-center gap-3 border border-red-200">
-                        <AlertCircle size={18} /><span className="font-bold">{error}</span>
-                    </div>
-                )}
-
-                {loading ? (
-                    <div className="text-center py-20">
-                        <Loader className="w-10 h-10 text-slate-300 animate-spin mx-auto mb-4" />
-                        <p className="text-slate-500 font-medium">Loading questions...</p>
-                    </div>
-                ) : (
-                    <div className="space-y-5">
-                        {fields.map((field, index) => (
-                            <div key={index} className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm hover:shadow-md transition-shadow">
-                                {/* Field header */}
-                                <div className="flex items-center justify-between mb-5">
-                                    <div className="flex items-center gap-3">
-                                        <div className="p-2 bg-slate-50 rounded-lg text-slate-300 cursor-move hover:text-slate-500 hover:bg-slate-100 transition-colors">
-                                            <GripVertical size={18} />
-                                        </div>
-                                        <div className="flex items-center gap-2">
-                                            <span className={`px-2 py-1 rounded-md text-xs font-bold uppercase tracking-wider flex items-center gap-1 ${isCoreField(field.field_name) ? 'bg-amber-100 text-amber-700' : 'bg-blue-100 text-blue-700'}`}>
-                                                {getIconForType(field.field_type)} {field.field_type}
-                                            </span>
-                                            {isCoreField(field.field_name) && (
-                                                <span className="px-2 py-1 bg-slate-100 text-slate-500 text-xs font-bold uppercase tracking-wider rounded-md">Core</span>
-                                            )}
-                                        </div>
-                                    </div>
-                                    {!isCoreField(field.field_name) && (
-                                        <button onClick={() => handleRemoveField(index)} className="p-2 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-xl transition-all">
-                                            <Trash2 size={18} />
-                                        </button>
-                                    )}
-                                </div>
-
-                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                    {/* Question Label */}
-                                    <div className="md:col-span-2">
-                                        <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Question Label</label>
-                                        <input type="text" value={field.field_label}
-                                            onChange={(e) => handleFieldChange(index, 'field_label', e.target.value)}
-                                            className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl font-bold text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all"
-                                            placeholder="e.g. What is your T-Shirt size?" />
-                                    </div>
-
-                                    {/* Input Type */}
-                                    {!isCoreField(field.field_name) && (
-                                        <div>
-                                            <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Input Type</label>
-                                            <select value={field.field_type}
-                                                onChange={(e) => handleFieldChange(index, 'field_type', e.target.value)}
-                                                className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl font-medium text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all">
-                                                <option value="text">Short Text</option>
-                                                <option value="textarea">Long Text / Paragraph</option>
-                                                <option value="select">Dropdown Selection</option>
-                                                <option value="multiselect">Multiple Selection</option>
-                                                <option value="file">File Upload</option>
-                                                <option value="number">Number</option>
-                                                <option value="date">Date</option>
-                                                <option value="email">Email</option>
-                                                <option value="url">URL / Link</option>
-                                                <option value="hidden">🔒 Hidden Field (Tracking)</option>
-                                            </select>
-                                        </div>
-                                    )}
-
-                                    {/* Field Key */}
-                                    {!isCoreField(field.field_name) && (
-                                        <div>
-                                            <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Field Key (URL Param)</label>
-                                            <input type="text" value={field.field_name}
-                                                onChange={(e) => {
-                                                    const sanitized = e.target.value.toLowerCase().replace(/\s+/g, '_').replace(/[^a-z0-9_]/g, '');
-                                                    handleFieldChange(index, 'field_name', sanitized);
-                                                }}
-                                                className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl font-mono text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all"
-                                                placeholder="e.g. source, channel" />
-                                            <p className="text-[10px] text-slate-400 mt-1">e.g. <code className="bg-slate-100 px-1 rounded">?{field.field_name}=facebook</code></p>
-                                        </div>
-                                    )}
-
-                                    {/* Placeholder */}
-                                    <div>
-                                        <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Placeholder</label>
-                                        <input type="text" value={field.placeholder || ''}
-                                            onChange={(e) => handleFieldChange(index, 'placeholder', e.target.value)}
-                                            className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all"
-                                            placeholder="e.g. Enter your answer..." />
-                                    </div>
-
-                                    {/* Options for select/multiselect */}
-                                    {(field.field_type === 'select' || field.field_type === 'multiselect') && (
-                                        <div className="md:col-span-2">
-                                            <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Options (comma separated)</label>
-                                            <textarea
-                                                value={Array.isArray(field.field_options) ? field.field_options.join(', ') : field.field_options || ''}
-                                                onChange={(e) => handleOptionChange(index, e.target.value)}
-                                                className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all min-h-[70px]"
-                                                placeholder="e.g. Small, Medium, Large, X-Large" />
-                                        </div>
-                                    )}
-
-                                    {/* Required Toggle */}
-                                    <div className="md:col-span-2">
-                                        <label className="flex items-center gap-3 cursor-pointer group w-fit">
-                                            <div className="relative">
-                                                <input type="checkbox" checked={field.is_required}
-                                                    onChange={(e) => handleFieldChange(index, 'is_required', e.target.checked)}
-                                                    className="peer sr-only" />
-                                                <div className="w-11 h-6 bg-slate-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600" />
-                                            </div>
-                                            <span className="text-sm font-semibold text-slate-600 group-hover:text-slate-800 select-none">Required Field</span>
-                                        </label>
-                                    </div>
-                                </div>
-
-                                {/* Tracking Link Generator for hidden fields */}
-                                {field.field_type === 'hidden' && (
-                                    <div className="mt-5 pt-5 border-t border-dashed border-slate-200">
-                                        <p className="text-xs font-black text-slate-500 uppercase tracking-wider mb-3 flex items-center gap-2">
-                                            <Link2 size={12} /> Tracking Link Generator
-                                        </p>
-                                        <div className="flex gap-2">
-                                            <input type="text"
-                                                value={trackingValues[index] || ''}
-                                                onChange={(e) => setTrackingValues(prev => ({ ...prev, [index]: e.target.value }))}
-                                                placeholder="e.g. Facebook, WhatsApp, Instagram"
-                                                className="flex-1 px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-purple-500/20 focus:border-purple-400 transition-all" />
-                                            <button type="button" onClick={() => handleCopyLink(index, field)}
-                                                className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-bold transition-all ${copiedIndex === index ? 'bg-green-500 text-white' : 'bg-purple-600 text-white hover:bg-purple-700'}`}>
-                                                {copiedIndex === index ? <CheckCheck size={14} /> : <Copy size={14} />}
-                                                {copiedIndex === index ? 'Copied!' : 'Copy Link'}
-                                            </button>
-                                        </div>
-                                        {trackingValues[index] && (
-                                            <p className="text-[10px] text-slate-400 mt-2 font-mono break-all">
-                                                {buildTrackingUrl(field, trackingValues[index])}
-                                            </p>
-                                        )}
-                                    </div>
-                                )}
-                            </div>
-                        ))}
-
-                        {/* Add Question Button */}
-                        <button onClick={handleAddField}
-                            className="w-full py-6 border-2 border-dashed border-slate-300 rounded-3xl text-slate-400 hover:text-blue-600 hover:border-blue-400 hover:bg-blue-50/50 transition-all flex flex-col items-center gap-2 group">
-                            <div className="w-12 h-12 bg-slate-100 rounded-full flex items-center justify-center group-hover:bg-blue-100 transition-colors">
-                                <Plus className="w-6 h-6" />
-                            </div>
-                            <span className="font-bold text-lg">Add New Question</span>
-                        </button>
+                        <span>{libraryToast}</span>
                     </div>
                 )}
             </div>
-        </div>
-    );
-};
-
-// ─── Forms Dashboard Screen ───────────────────────────────────────────────────
-
-export default function FormEditor() {
-    const { eventId } = useParams();
-    const [forms, setForms] = useState([]);
-    const [fieldCounts, setFieldCounts] = useState({});
-    const [loading, setLoading] = useState(true);
-    const [error, setError] = useState(null);
-    const [showCreateModal, setShowCreateModal] = useState(false);
-    const [creating, setCreating] = useState(false);
-    const [editingForm, setEditingForm] = useState(null);
-    const [activeTab, setActiveTab] = useState('forms'); // 'forms' | 'analytics'
-
-    // Form Cover state
-    const [formCoverUrl, setFormCoverUrl] = useState('');
-    const [isUploadingFormCover, setIsUploadingFormCover] = useState(false);
-    const [formCoverSaved, setFormCoverSaved] = useState(false);
-
-    useEffect(() => { loadForms(); }, [eventId]);
-
-    useEffect(() => {
-        getEvent(eventId).then(data => {
-            if (data?.form_cover_image_url) setFormCoverUrl(data.form_cover_image_url);
-        }).catch(console.error);
-    }, [eventId]);
-
-    const handleFormCoverUpload = async (e) => {
-        const file = e.target.files[0];
-        if (!file) return;
-        try {
-            setIsUploadingFormCover(true);
-            const publicUrl = await uploadImage(file, 'visuals');
-            setFormCoverUrl(publicUrl);
-            await updateEvent(eventId, { form_cover_image_url: publicUrl });
-            setFormCoverSaved(true);
-            setTimeout(() => setFormCoverSaved(false), 3000);
-        } catch (err) {
-            console.error('Form cover upload failed:', err);
-            alert('فشل رفع الصورة. حاول مرة تانية.');
-        } finally {
-            setIsUploadingFormCover(false);
-        }
-    };
-
-    const handleRemoveFormCover = async () => {
-        try {
-            setFormCoverUrl('');
-            await updateEvent(eventId, { form_cover_image_url: '' });
-        } catch (err) {
-            console.error('Remove form cover failed:', err);
-        }
-    };
-
-    const loadForms = async () => {
-        try {
-            setLoading(true);
-            setError(null);
-            const data = await getEventForms(eventId);
-            setForms(data);
-            // Load field counts for each form in parallel
-            const counts = await Promise.all(
-                data.map(f => getFormConfigById(f.form_id).then(fields => ({ id: f.form_id, count: fields.length })))
-            );
-            const countsMap = {};
-            counts.forEach(({ id, count }) => { countsMap[id] = count; });
-            setFieldCounts(countsMap);
-        } catch (err) {
-            setError('Failed to load forms.');
-        } finally {
-            setLoading(false);
-        }
-    };
-
-    const handleCreate = async (formName, targetModule) => {
-        try {
-            setCreating(true);
-            await createEventForm(eventId, formName, targetModule);
-            setShowCreateModal(false);
-            await loadForms();
-        } catch (err) {
-            console.error(err);
-        } finally {
-            setCreating(false);
-        }
-    };
-
-    const handleDelete = async (form) => {
-        if (!window.confirm(`Delete "${form.form_name}"? This will remove all its questions.`)) return;
-        try {
-            await deleteEventForm(form.form_id);
-            await loadForms();
-        } catch (err) {
-            console.error(err);
-        }
-    };
-
-    const handleToggle = async (form) => {
-        try {
-            await updateEventForm(form.form_id, { is_active: !form.is_active });
-            await loadForms();
-        } catch (err) {
-            console.error(err);
-        }
-    };
-
-    // Switch to field editor for a specific form
-    if (editingForm) {
-        return (
-            <FieldEditorScreen
-                form={editingForm}
-                eventId={eventId}
-                onBack={() => { setEditingForm(null); loadForms(); }}
-            />
         );
     }
 
+    // ─── Render: Dashboard Overview Screen (Forms List + Global Project Analytics) ─
+
     return (
-        <div className="min-h-screen bg-gray-200 pb-20 font-manrope">
-            {/* Header */}
-            <div className="bg-white border-b border-slate-200 sticky top-0 z-10 shadow-sm">
+        <div className="min-h-screen bg-slate-50/70 pb-20 font-manrope text-left" dir="ltr">
+            {/* Top Navigation */}
+            <div className="bg-white border-b border-slate-200 sticky top-0 z-10 shadow-xs">
                 <div className="max-w-[1600px] mx-auto px-4 sm:px-6 lg:px-8">
-                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 py-4 sm:h-20">
-                        <div className="flex items-center gap-4">
-                            <Link to={`/event/${eventId}`} className="p-2.5 sm:p-3 rounded-2xl bg-slate-50 text-slate-400 hover:text-blue-600 hover:bg-blue-50 transition-all group tap-target shrink-0">
-                                <ArrowLeft size={20} className="group-hover:-translate-x-1 transition-transform" />
+                    <div className="flex items-center justify-between py-5">
+                        <div className="flex items-center gap-3">
+                            <Link
+                                to={`/events/${eventId}`}
+                                className="p-2.5 rounded-2xl bg-slate-50 text-slate-500 hover:bg-slate-100 transition-colors"
+                            >
+                                <ArrowLeft size={18} />
                             </Link>
                             <div>
-                                <h1 className="text-xl sm:text-2xl font-black text-slate-900 tracking-tight">Form Builder</h1>
-                                <p className="text-xs font-bold text-slate-400 uppercase tracking-widest mt-0.5">
-                                    {forms.length} Form{forms.length !== 1 ? 's' : ''} · Manage Registration Forms
-                                </p>
+                                <h1 className="text-xl font-black text-slate-900">Form Builder & Engagement Hub</h1>
+                                <p className="text-xs text-slate-500 mt-0.5">Manage custom forms, visitor tracking, and multi-channel response routing.</p>
                             </div>
                         </div>
 
-                        {/* Tab Switcher */}
-                        <div className="flex items-center gap-1.5 bg-slate-100 p-1 rounded-xl self-start sm:self-auto">
+                        <div className="flex items-center gap-2">
                             <button
-                                onClick={() => setActiveTab('forms')}
-                                className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-bold transition-all ${
-                                    activeTab === 'forms'
-                                        ? 'bg-white text-[#0d0e0e] shadow-sm'
-                                        : 'text-slate-500 hover:text-slate-700'
-                                }`}
+                                type="button"
+                                onClick={() => setShowImportFromLibraryModal(true)}
+                                className="flex items-center gap-2 px-4 py-2.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 rounded-xl text-xs font-bold transition-all shadow-xs"
                             >
-                                <ClipboardList size={15} />
-                                <span>Forms</span>
+                                <Layers size={15} />
+                                Import from Library
                             </button>
-                            <button
-                                onClick={() => setActiveTab('analytics')}
-                                className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-bold transition-all ${
-                                    activeTab === 'analytics'
-                                        ? 'bg-white text-[#1a27c9] shadow-sm'
-                                        : 'text-slate-500 hover:text-slate-700'
-                                }`}
-                            >
-                                <BarChart3 size={15} />
-                                <span>Analytics</span>
-                            </button>
-                        </div>
 
-                        {activeTab === 'forms' && (
                             <button
+                                type="button"
+                                onClick={() => setShowCoverLibraryModal(true)}
+                                className="flex items-center gap-2 px-4 py-2.5 bg-slate-50 hover:bg-slate-100 text-slate-700 rounded-xl text-xs font-bold transition-all"
+                            >
+                                <Image size={15} />
+                                Cover Library
+                            </button>
+
+                            <button
+                                type="button"
                                 onClick={() => setShowCreateModal(true)}
-                                className="flex items-center gap-2 px-4 sm:px-6 py-3 bg-[#0d0e0e] text-white rounded-xl font-bold hover:bg-[#1a27c9] transition-all shadow-lg hover:shadow-xl hover:-translate-y-0.5 tap-target self-start sm:self-auto"
+                                className="flex items-center gap-2 px-5 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-black transition-all shadow-md"
                             >
-                                <Plus size={18} />
-                                <span>Create New Form</span>
+                                <Plus size={16} />
+                                New Form
                             </button>
-                        )}
+                        </div>
+                    </div>
+
+                    {/* Main Nav Tabs */}
+                    <div className="flex items-center gap-4 border-t border-slate-100 pt-2">
+                        <button
+                            type="button"
+                            onClick={() => setActiveMainTab('forms')}
+                            className={`pb-3 text-xs font-bold border-b-2 transition-all ${
+                                activeMainTab === 'forms' ? 'border-blue-600 text-blue-600' : 'border-transparent text-slate-500 hover:text-slate-800'
+                            }`}
+                        >
+                            Forms Directory ({forms.length})
+                        </button>
+                        <button
+                            type="button"
+                            onClick={() => setActiveMainTab('global_analytics')}
+                            className={`pb-3 text-xs font-bold border-b-2 transition-all flex items-center gap-1.5 ${
+                                activeMainTab === 'global_analytics' ? 'border-blue-600 text-blue-600' : 'border-transparent text-slate-500 hover:text-slate-800'
+                            }`}
+                        >
+                            <BarChart3 size={14} />
+                            Project Engagement Analytics
+                        </button>
                     </div>
                 </div>
             </div>
 
-            {/* ── Analytics Tab ── */}
-            {activeTab === 'analytics' ? (
-                <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-                    {/* Info Banner */}
-                    <div className="bg-indigo-600 rounded-3xl p-8 mb-8 text-white relative overflow-hidden shadow-2xl shadow-indigo-200">
-                        <div className="relative z-10 max-w-2xl">
-                            <h2 className="text-2xl sm:text-3xl font-black mb-3 tracking-tight leading-tight italic">
-                                Optimize Your Campaign Strategy with Data
-                            </h2>
-                            <p className="text-indigo-100 text-base sm:text-lg font-medium leading-relaxed">
-                                Track where your applicants are coming from in real-time. Use these insights to reallocate budget to the highest performing channels.
-                            </p>
-                        </div>
-                        <BarChart3 size={180} className="absolute -right-8 -bottom-8 text-white/10 rotate-12" />
-                    </div>
-                    <div className="bg-white rounded-[2.5rem] border border-slate-200 shadow-sm overflow-hidden p-8">
-                        <SubmissionAnalytics eventId={eventId} />
-                    </div>
-                </div>
-            ) : (
-
-            <div className="max-w-[1000px] mx-auto px-4 sm:px-6 lg:px-8 py-10">
-                {error && (
-                    <div className="mb-6 p-4 bg-red-100 text-red-700 rounded-2xl flex items-center gap-3 border border-red-200">
-                        <AlertCircle size={18} /><span className="font-bold">{error}</span>
-                    </div>
-                )}
-
-
-                {/* ── Form Cover ── */}
-                <div className="bg-white rounded-3xl border border-slate-200 shadow-sm overflow-hidden mb-8">
-                    <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100">
-                        <div className="flex items-center gap-3">
-                            <div className="bg-rose-50 p-2.5 rounded-xl text-rose-500">
-                                <Upload size={18} />
-                            </div>
-                            <div>
-                                <h3 className="text-sm sm:text-base font-black text-slate-900">Form Cover</h3>
-                                <p className="text-[10px] text-slate-400 font-bold uppercase tracking-wider hidden sm:block">صورة الكوفر في صفحات التسجيل</p>
-                            </div>
-                        </div>
-                        {formCoverSaved && (
-                            <span className="flex items-center gap-1.5 text-emerald-600 text-xs font-black animate-in fade-in duration-300">
-                                <CheckCircle size={14} /> Saved!
-                            </span>
-                        )}
-                    </div>
-                    <div className="relative group aspect-[4/1] sm:aspect-[5/1] bg-slate-50 flex items-center justify-center overflow-hidden">
-                        {formCoverUrl ? (
-                            <>
-                                <img
-                                    src={getGoogleDriveDirectLink(formCoverUrl)}
-                                    className="w-full h-full object-cover"
-                                    alt="Form cover"
-                                />
-                                <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-3">
-                                    <label className="cursor-pointer bg-white text-slate-900 px-4 py-2 rounded-xl text-xs font-bold hover:bg-slate-100 transition-colors">
-                                        Change
-                                        <input type="file" className="hidden" onChange={handleFormCoverUpload} accept="image/*" />
-                                    </label>
-                                    <button
-                                        onClick={handleRemoveFormCover}
-                                        className="bg-red-500 text-white px-4 py-2 rounded-xl text-xs font-bold hover:bg-red-600 transition-colors"
-                                    >
-                                        Remove
-                                    </button>
-                                </div>
-                            </>
-                        ) : (
-                            <label className="cursor-pointer flex flex-col items-center gap-2 group/lbl">
-                                <div className="bg-white p-3 rounded-2xl shadow-sm border border-slate-100 text-slate-300 group-hover/lbl:text-rose-500 group-hover/lbl:border-rose-200 transition-colors">
-                                    <Upload size={28} />
-                                </div>
-                                <span className="text-xs font-bold text-slate-400 group-hover/lbl:text-rose-500 transition-colors">Click to upload form cover</span>
-                                <input type="file" className="hidden" onChange={handleFormCoverUpload} accept="image/*" />
-                            </label>
-                        )}
-                        {isUploadingFormCover && (
-                            <div className="absolute inset-0 bg-white/80 flex items-center justify-center z-10">
-                                <Loader className="animate-spin text-rose-500" size={36} />
-                            </div>
-                        )}
-                    </div>
-                </div>
-
-                {loading ? (
-                    <div className="text-center py-24">
-                        <Loader className="w-10 h-10 text-slate-300 animate-spin mx-auto mb-4" />
-                        <p className="text-slate-500 font-medium">Loading forms...</p>
-                    </div>
-                ) : forms.length === 0 ? (
-                    /* Empty State */
-                    <div className="text-center py-24">
-                        <div className="w-24 h-24 bg-slate-100 rounded-3xl flex items-center justify-center mx-auto mb-6">
-                            <ClipboardList className="w-12 h-12 text-slate-300" />
-                        </div>
-                        <h2 className="text-2xl font-black text-slate-800 mb-2">No forms yet</h2>
-                        <p className="text-slate-500 mb-8 max-w-sm mx-auto">
-                            Create your first registration form and link it to a module. Each form gets its own public link.
-                        </p>
-                        <button
-                            onClick={() => setShowCreateModal(true)}
-                            className="inline-flex items-center gap-2 px-8 py-4 bg-[#0d0e0e] text-white rounded-2xl font-bold hover:bg-[#1a27c9] transition-all shadow-lg text-lg"
-                        >
-                            <Plus size={20} />
-                            Create Your First Form
-                        </button>
-                    </div>
+            {/* Dashboard Content */}
+            <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-6">
+                {activeMainTab === 'global_analytics' ? (
+                    <GlobalFormsAnalytics
+                        eventId={eventId}
+                        onSelectForm={(form) => {
+                            setEditingForm(form);
+                            setActiveFormTab('questions');
+                        }}
+                    />
                 ) : (
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
-                        {forms.map(form => (
-                            <FormCard
-                                key={form.form_id}
-                                form={form}
-                                fieldCount={fieldCounts[form.form_id] ?? 0}
-                                eventId={eventId}
-                                onEdit={setEditingForm}
-                                onDelete={handleDelete}
-                                onToggle={handleToggle}
-                            />
-                        ))}
-
-                        {/* Add form tile */}
-                        <button
-                            onClick={() => setShowCreateModal(true)}
-                            className="border-2 border-dashed border-slate-300 rounded-3xl p-8 text-slate-400 hover:text-blue-600 hover:border-blue-400 hover:bg-blue-50/50 transition-all flex flex-col items-center justify-center gap-3 min-h-[200px] group"
-                        >
-                            <div className="w-14 h-14 bg-slate-100 rounded-2xl flex items-center justify-center group-hover:bg-blue-100 transition-colors">
-                                <Plus className="w-7 h-7" />
+                    <>
+                        {loading ? (
+                            <div className="py-24 text-center text-slate-400">
+                                <Loader size={36} className="animate-spin mx-auto mb-3 text-blue-600" />
+                                <p className="text-sm font-bold text-slate-600">Loading forms...</p>
                             </div>
-                            <span className="font-bold text-base">Add Another Form</span>
-                        </button>
-                    </div>
+                        ) : forms.length === 0 ? (
+                            <div className="bg-white rounded-3xl p-16 text-center border-2 border-dashed border-slate-200">
+                                <Sparkles size={48} className="mx-auto text-blue-500 mb-4" />
+                                <h3 className="text-lg font-black text-slate-900 mb-1">No forms created yet</h3>
+                                <p className="text-xs text-slate-400 max-w-sm mx-auto mb-6">
+                                    Start by creating an interactive form to collect registrations, feedback, or applications with full source tracking.
+                                </p>
+                                <button
+                                    type="button"
+                                    onClick={() => setShowCreateModal(true)}
+                                    className="px-6 py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-2xl text-xs font-black shadow-lg shadow-blue-500/20"
+                                >
+                                    Create First Form
+                                </button>
+                            </div>
+                        ) : (
+                            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
+                                {forms.map((form) => {
+                                    const meta = MODULE_META[form.target_module] || MODULE_META.selection_process;
+                                    const Icon = meta.icon;
+                                    const qCount = fieldCounts[form.form_id] || 0;
+
+                                    return (
+                                        <div
+                                            key={form.form_id}
+                                            onClick={() => {
+                                                setEditingForm(form);
+                                                setActiveFormTab('questions');
+                                            }}
+                                            className="bg-white rounded-3xl p-6 border border-slate-200 shadow-sm hover:shadow-md hover:border-blue-400 cursor-pointer transition-all flex flex-col justify-between group space-y-5"
+                                        >
+                                            <div className="space-y-3">
+                                                <div className="flex items-center justify-between">
+                                                    <div className={`w-10 h-10 rounded-2xl flex items-center justify-center ${meta.badge}`}>
+                                                        <Icon size={18} />
+                                                    </div>
+
+                                                    <div className="flex items-center gap-1.5" onClick={e => e.stopPropagation()}>
+                                                        <button
+                                                            type="button"
+                                                            onClick={(e) => handleToggleActive(e, form)}
+                                                            className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold transition-all ${
+                                                                form.is_active ? 'bg-emerald-100 text-emerald-800' : 'bg-slate-100 text-slate-500'
+                                                            }`}
+                                                        >
+                                                            {form.is_active ? 'Active' : 'Inactive'}
+                                                        </button>
+
+                                                        <button
+                                                            type="button"
+                                                            onClick={(e) => handleDuplicate(e, form)}
+                                                            disabled={duplicatingId === form.form_id}
+                                                            className="p-1.5 rounded-lg text-slate-400 hover:text-blue-600 hover:bg-blue-50 transition-colors"
+                                                            title="Duplicate Form"
+                                                        >
+                                                            <CopyPlus size={15} />
+                                                        </button>
+
+                                                        <button
+                                                            type="button"
+                                                            onClick={(e) => handleDeleteForm(e, form)}
+                                                            className="p-1.5 rounded-lg text-slate-400 hover:text-red-600 hover:bg-red-50 transition-colors"
+                                                            title="Delete Form"
+                                                        >
+                                                            <Trash2 size={15} />
+                                                        </button>
+                                                    </div>
+                                                </div>
+
+                                                <div>
+                                                    <h3 className="text-base font-black text-slate-900 group-hover:text-blue-600 transition-colors" dir="auto">
+                                                        {form.form_name}
+                                                    </h3>
+                                                    {form.description && (
+                                                        <p className="text-xs text-slate-500 mt-1 line-clamp-2" dir="auto">
+                                                            {form.description}
+                                                        </p>
+                                                    )}
+                                                </div>
+                                            </div>
+
+                                            <div className="pt-3 border-t border-slate-100 flex items-center justify-between text-xs text-slate-500">
+                                                <span className="font-bold">{qCount} questions</span>
+                                                <span className="text-blue-600 font-bold flex items-center gap-1 group-hover:translate-x-1 transition-transform">
+                                                    Manage & Responses
+                                                    <ChevronRight size={14} />
+                                                </span>
+                                            </div>
+                                        </div>
+                                    );
+                                })}
+                            </div>
+                        )}
+                    </>
                 )}
             </div>
-            )} {/* end activeTab ternary */}
 
+            {/* Create Form Modal */}
             {showCreateModal && (
                 <CreateFormModal
                     onClose={() => setShowCreateModal(false)}
-                    onCreate={handleCreate}
+                    onCreate={handleCreateForm}
                     loading={creating}
                 />
+            )}
+
+            {/* Cover Library Modal */}
+            {showCoverLibraryModal && (
+                <CoverLibraryModal
+                    eventId={eventId}
+                    onClose={() => setShowCoverLibraryModal(false)}
+                />
+            )}
+
+            {/* Central Form Library Import Modal */}
+            {showImportFromLibraryModal && (
+                <ImportFromLibraryModal
+                    eventId={eventId}
+                    isOpen={showImportFromLibraryModal}
+                    onClose={() => setShowImportFromLibraryModal(false)}
+                    onImportSuccess={(newForm) => {
+                        loadForms();
+                        if (newForm) {
+                            setEditingForm(newForm);
+                            setActiveFormTab('questions');
+                        }
+                    }}
+                />
+            )}
+
+            {/* Save to Central Library Modal */}
+            {showSaveToLibraryModal && editingForm && (
+                <SaveToLibraryModal
+                    form={editingForm}
+                    eventId={eventId}
+                    isOpen={showSaveToLibraryModal}
+                    onClose={() => setShowSaveToLibraryModal(false)}
+                    onSuccess={(saved) => {
+                        setShowSaveToLibraryModal(false);
+                        setLibraryToast(`✅ تم حفظ الفورم "‎${saved?.form_name || editingForm.form_name}" في المكتبة بنجاح`);
+                        setTimeout(() => setLibraryToast(null), 4000);
+                    }}
+                />
+            )}
+
+            {/* Library Save Toast */}
+            {libraryToast && (
+                <div
+                    className="fixed bottom-6 right-6 z-[100] bg-slate-900/95 text-white px-5 py-3.5 rounded-2xl shadow-2xl flex items-center gap-3 text-sm font-bold animate-in fade-in slide-in-from-bottom-3 backdrop-blur-sm border border-slate-700/50"
+                    dir="rtl"
+                >
+                    <span>{libraryToast}</span>
+                </div>
             )}
         </div>
     );

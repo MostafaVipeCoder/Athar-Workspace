@@ -228,7 +228,7 @@ serve(async (req) => {
     // Fetch event details for admin/cc emails and Google Meet settings
     const { data: eventDetails, error: eventError } = await supabase
       .from("events")
-      .select("interview_admin_emails, interview_cc_emails, meeting_link_mode, shared_google_meet_link")
+      .select("interview_admin_emails, interview_cc_emails, mentor_admin_emails, mentor_cc_emails, meeting_link_mode, shared_google_meet_link")
       .eq("event_id", booking.event_id)
       .single();
 
@@ -299,23 +299,46 @@ serve(async (req) => {
     if (booking.booker_email) attendees.push(booking.booker_email);
     if (booking.mentor_email) attendees.push(booking.mentor_email);
 
-    // Add admin/cc emails
-    if (eventDetails?.interview_admin_emails) {
-      const adminEmails =
-        typeof eventDetails.interview_admin_emails === "string"
-          ? JSON.parse(eventDetails.interview_admin_emails)
-          : eventDetails.interview_admin_emails;
-      if (Array.isArray(adminEmails)) {
-        attendees.push(...adminEmails);
+    // Add admin/cc emails based on module context
+    if (requestData.is_ather_team) {
+      // Selection Process / Ather Team Module
+      if (eventDetails?.interview_admin_emails) {
+        const adminEmails =
+          typeof eventDetails.interview_admin_emails === "string"
+            ? JSON.parse(eventDetails.interview_admin_emails)
+            : eventDetails.interview_admin_emails;
+        if (Array.isArray(adminEmails)) {
+          attendees.push(...adminEmails);
+        }
       }
-    }
-    if (eventDetails?.interview_cc_emails) {
-      const ccEmails =
-        typeof eventDetails.interview_cc_emails === "string"
-          ? JSON.parse(eventDetails.interview_cc_emails)
-          : eventDetails.interview_cc_emails;
-      if (Array.isArray(ccEmails)) {
-        attendees.push(...ccEmails);
+      if (eventDetails?.interview_cc_emails) {
+        const ccEmails =
+          typeof eventDetails.interview_cc_emails === "string"
+            ? JSON.parse(eventDetails.interview_cc_emails)
+            : eventDetails.interview_cc_emails;
+        if (Array.isArray(ccEmails)) {
+          attendees.push(...ccEmails);
+        }
+      }
+    } else {
+      // Mentors Booking Module
+      if (eventDetails?.mentor_admin_emails) {
+        const mentorAdminEmails =
+          typeof eventDetails.mentor_admin_emails === "string"
+            ? JSON.parse(eventDetails.mentor_admin_emails)
+            : eventDetails.mentor_admin_emails;
+        if (Array.isArray(mentorAdminEmails)) {
+          attendees.push(...mentorAdminEmails);
+        }
+      }
+      if (eventDetails?.mentor_cc_emails) {
+        const mentorCcEmails =
+          typeof eventDetails.mentor_cc_emails === "string"
+            ? JSON.parse(eventDetails.mentor_cc_emails)
+            : eventDetails.mentor_cc_emails;
+        if (Array.isArray(mentorCcEmails)) {
+          attendees.push(...mentorCcEmails);
+        }
       }
     }
 

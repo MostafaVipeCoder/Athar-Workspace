@@ -1,0 +1,1719 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Help Someone Find Their Next Opportunity | Athar</title>
+  
+  <!-- Inter Font -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
+
+  <style>
+    /* ─── Reset & Base ─── */
+    *, *::before, *::after {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    :root {
+      --blue:           #1A27C9;
+      --blue-hover:     #111EB0;
+      --blue-light:     #EEF1FD;
+      --blue-subtle:    rgba(26, 39, 201, 0.05);
+      --yellow:         #FFE91E;
+      --yellow-glow:    rgba(255, 233, 30, 0.45);
+      --bg:             #FFFFFF;
+      --card-bg:        #FAFAFD;
+      --border:         rgba(26, 39, 201, 0.10);
+      --border-card:    rgba(26, 39, 201, 0.12);
+      --border-card-h:  rgba(26, 39, 201, 0.25);
+      --text:           #0B0E17;
+      --text-secondary: #3C4257;
+      --muted:          #5E6578;
+      --radius-xl:      28px;
+      --radius-lg:      22px;
+      --radius-md:      14px;
+      --radius-sm:      10px;
+      --shadow-card:    0 4px 20px -4px rgba(26, 39, 201, 0.06), 0 16px 36px -8px rgba(26, 39, 201, 0.04);
+      --shadow-hover:   0 12px 32px -4px rgba(26, 39, 201, 0.12), 0 24px 48px -8px rgba(26, 39, 201, 0.08);
+      --shadow-btn:     0 2px 8px rgba(26, 39, 201, 0.08);
+    }
+
+    html {
+      scroll-behavior: smooth;
+    }
+
+    body {
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      overflow-x: hidden;
+      line-height: 1.5;
+      -webkit-font-smoothing: antialiased;
+      -moz-osx-font-smoothing: grayscale;
+    }
+
+    /* ─── Navigation Header Bar ─── */
+    .nav-bar {
+      position: sticky;
+      top: 0;
+      left: 0;
+      right: 0;
+      width: 100%;
+      z-index: 1000;
+      background: rgba(255, 255, 255, 0.95);
+      backdrop-filter: blur(20px);
+      -webkit-backdrop-filter: blur(20px);
+      border-bottom: 1px solid rgba(26, 39, 201, 0.10);
+      box-shadow: 0 4px 20px -2px rgba(26, 39, 201, 0.04);
+      padding: 14px 24px;
+    }
+
+    .nav-container {
+      max-width: 1080px;
+      margin: 0 auto;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 14px;
+    }
+
+    .nav-link {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      padding: 10px 24px;
+      border-radius: var(--radius-md);
+      font-size: 0.94rem;
+      font-weight: 700;
+      color: var(--blue);
+      background: #FFFFFF;
+      border: 1.5px solid rgba(26, 39, 201, 0.25);
+      text-decoration: none;
+      transition: background 0.2s ease, border-color 0.2s ease, color 0.2s ease, transform 0.15s ease, box-shadow 0.2s ease;
+      white-space: nowrap;
+      box-shadow: 0 2px 6px rgba(26, 39, 201, 0.04);
+    }
+
+    .nav-link:hover {
+      background: var(--blue);
+      border-color: var(--blue);
+      color: #FFFFFF;
+      transform: translateY(-2px);
+      box-shadow: 0 6px 18px rgba(26, 39, 201, 0.20);
+    }
+
+    .nav-link:focus-visible {
+      outline: 3px solid var(--blue);
+      outline-offset: 2px;
+    }
+
+    .cards-section,
+    .personalize-section {
+      scroll-margin-top: 80px;
+    }
+
+    /* ═══════════════════════════════════════
+       SECTION 1 — HERO
+    ═══════════════════════════════════════ */
+    .hero {
+      position: relative;
+      min-height: 68vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      text-align: center;
+      padding: 96px 24px 64px;
+      background-color: #FFFFFF;
+      background-image: url('.user_uploaded/media_1789548800963.png');
+      background-position: center top;
+      background-size: 800px auto;
+      background-repeat: repeat;
+    }
+
+    .hero-content {
+      max-width: 860px;
+      margin: 0 auto;
+      position: relative;
+      z-index: 2;
+    }
+
+    .hero h1 {
+      font-size: clamp(2.3rem, 5.5vw, 4.4rem);
+      font-weight: 900;
+      letter-spacing: -0.04em;
+      line-height: 1.1;
+      color: var(--blue);
+      text-wrap: balance;
+    }
+
+    .hero p {
+      margin-top: 22px;
+      font-size: clamp(1.02rem, 1.8vw, 1.25rem);
+      font-weight: 500;
+      color: var(--muted);
+      letter-spacing: -0.015em;
+      line-height: 1.65;
+      max-width: 760px;
+      margin-left: auto;
+      margin-right: auto;
+      text-wrap: pretty;
+    }
+
+    /* ═══════════════════════════════════════
+       SECTION 2 — CARDS
+    ═══════════════════════════════════════ */
+    .cards-section {
+      padding: 40px 0 90px;
+      background: #FFFFFF;
+      position: relative;
+    }
+
+    /* ── Section Intro (INTRO) ── */
+    .section-intro {
+      text-align: center;
+      max-width: 800px;
+      margin: 0 auto 48px;
+      padding: 0 24px;
+    }
+
+    .intro-tag {
+      display: inline-block;
+      background: var(--blue-light);
+      color: var(--blue);
+      border: 1px solid rgba(26, 39, 201, 0.16);
+      padding: 4px 14px;
+      border-radius: 50px;
+      font-size: 0.76rem;
+      font-weight: 800;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      margin-bottom: 14px;
+    }
+
+    .section-intro h2 {
+      font-size: clamp(1.85rem, 3.8vw, 2.75rem);
+      font-weight: 800;
+      color: var(--blue);
+      letter-spacing: -0.03em;
+      line-height: 1.18;
+      margin-bottom: 14px;
+      text-wrap: balance;
+    }
+
+    .section-intro p {
+      font-size: clamp(0.96rem, 1.6vw, 1.1rem);
+      color: var(--muted);
+      line-height: 1.65;
+      text-wrap: pretty;
+    }
+
+    .cards-wrapper {
+      display: flex;
+      gap: 32px;
+      max-width: 1060px;
+      margin: 0 auto;
+      padding: 0 24px;
+      justify-content: center;
+    }
+
+    /* ── Single Card ── */
+    .card {
+      flex: 1;
+      max-width: 495px;
+      min-width: 0;
+      border-radius: var(--radius-xl);
+      border: 1px solid var(--border-card);
+      background: var(--card-bg);
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+      box-shadow: var(--shadow-card);
+      transition: transform 0.3s cubic-bezier(0.16, 1, 0.3, 1), 
+                  box-shadow 0.3s cubic-bezier(0.16, 1, 0.3, 1), 
+                  border-color 0.3s ease;
+    }
+
+    .card:hover {
+      transform: translateY(-6px);
+      box-shadow: var(--shadow-hover);
+      border-color: var(--border-card-h);
+    }
+
+    /* ── Card Image Header / Banner ── */
+    .card-img-wrap {
+      position: relative;
+      width: 100%;
+      aspect-ratio: 16/10;
+      overflow: hidden;
+      background: #EBF0FD;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .card-vector-art {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      display: block;
+      transition: transform 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+    }
+
+    .card:hover .card-vector-art {
+      transform: scale(1.03);
+    }
+
+    /* ── Card Label Badge (Top-Left) ── */
+    .card-label {
+      position: absolute;
+      top: 18px;
+      left: 18px;
+      background: rgba(26, 39, 201, 0.94);
+      backdrop-filter: blur(14px);
+      -webkit-backdrop-filter: blur(14px);
+      border: 1px solid rgba(255, 255, 255, 0.25);
+      border-radius: 50px;
+      padding: 6px 14px;
+      font-size: 0.74rem;
+      font-weight: 700;
+      letter-spacing: 0.06em;
+      color: #FFFFFF;
+      text-transform: uppercase;
+      box-shadow: 0 4px 14px rgba(26, 39, 201, 0.30);
+      z-index: 3;
+      user-select: none;
+    }
+
+    /* ── Share Button (Top-Right Glassmorphism) ── */
+    .share-btn {
+      position: absolute;
+      top: 18px;
+      right: 18px;
+      width: 48px;
+      height: 48px;
+      border-radius: 15px;
+      background: rgba(255, 255, 255, 0.82);
+      backdrop-filter: blur(20px);
+      -webkit-backdrop-filter: blur(20px);
+      border: 1px solid rgba(255, 255, 255, 0.9);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      animation: share-wiggle 2.6s ease-in-out infinite;
+      transition: transform 0.25s cubic-bezier(0.16, 1, 0.3, 1), 
+                  background 0.2s ease, 
+                  border-color 0.2s ease,
+                  box-shadow 0.2s ease;
+      box-shadow: 0 4px 16px rgba(0, 0, 0, 0.08), inset 0 1px 1px rgba(255, 255, 255, 0.8);
+      z-index: 3;
+    }
+
+    .share-btn:hover {
+      transform: scale(1.12) rotate(0deg) !important;
+      animation: none;
+      background: #FFFFFF;
+      border-color: rgba(26, 39, 201, 0.3);
+      box-shadow: 0 6px 20px rgba(26, 39, 201, 0.18);
+    }
+
+    .share-btn:focus-visible {
+      outline: 3px solid var(--blue);
+      outline-offset: 2px;
+    }
+
+    /* Yellow notification dot on share button with radar pulse */
+    .share-btn::after {
+      content: '';
+      position: absolute;
+      top: -3px;
+      right: -3px;
+      width: 14px;
+      height: 14px;
+      border-radius: 50%;
+      background: var(--yellow);
+      border: 2.5px solid #FFFFFF;
+      box-shadow: 0 2px 6px rgba(0, 0, 0, 0.22);
+    }
+
+    .share-btn svg {
+      width: 21px;
+      height: 21px;
+      stroke: var(--blue);
+      fill: none;
+      stroke-width: 2.2;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+      transition: transform 0.2s ease;
+    }
+
+    @keyframes share-wiggle {
+      0%, 100% {
+        transform: scale(1) rotate(0deg);
+        box-shadow: 0 4px 16px rgba(0, 0, 0, 0.08);
+      }
+      18% {
+        transform: scale(1.12) rotate(-8deg);
+        box-shadow: 0 0 0 6px rgba(26, 39, 201, 0.14);
+      }
+      36% {
+        transform: scale(1.08) rotate(6deg);
+        box-shadow: 0 0 0 4px rgba(26, 39, 201, 0.08);
+      }
+      54% {
+        transform: scale(1.10) rotate(-4deg);
+        box-shadow: 0 0 0 5px rgba(26, 39, 201, 0.12);
+      }
+      72% {
+        transform: scale(1.04) rotate(2deg);
+        box-shadow: 0 0 0 3px rgba(26, 39, 201, 0.06);
+      }
+    }
+
+    /* ── Card Body Text ── */
+    .card-body {
+      padding: 26px 26px 0;
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+    }
+
+    .card-body h3 {
+      font-size: 1.3rem;
+      font-weight: 800;
+      color: var(--text);
+      letter-spacing: -0.025em;
+      margin-bottom: 10px;
+      line-height: 1.3;
+    }
+
+    .card-body .card-text {
+      font-size: 0.94rem;
+      color: var(--muted);
+      line-height: 1.65;
+      flex: 1;
+    }
+
+    /* Clamp text with See More */
+    .text-clamp {
+      display: -webkit-box;
+      -webkit-line-clamp: 2;
+      -webkit-box-orient: vertical;
+      overflow: hidden;
+      transition: all 0.25s ease;
+    }
+
+    .text-clamp.expanded {
+      display: block;
+      overflow: visible;
+    }
+
+    .see-more-btn {
+      background: none;
+      border: none;
+      color: var(--blue);
+      font-size: 0.86rem;
+      font-weight: 700;
+      cursor: pointer;
+      margin-top: 10px;
+      padding: 4px 0;
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      text-align: left;
+      transition: color 0.15s ease, transform 0.15s ease;
+      align-self: flex-start;
+    }
+
+    .see-more-btn:hover {
+      color: var(--blue-hover);
+      text-decoration: underline;
+    }
+
+    .see-more-btn:focus-visible {
+      outline: 2px solid var(--blue);
+      border-radius: 4px;
+    }
+
+    /* ── Publish Button & Footer ── */
+    .card-footer {
+      padding: 22px 26px 26px;
+    }
+
+    .publish-btn {
+      width: 100%;
+      min-height: 50px;
+      padding: 14px 22px;
+      border-radius: var(--radius-md);
+      border: 1.5px solid rgba(26, 39, 201, 0.35);
+      background: #FFFFFF;
+      color: var(--blue);
+      font-size: 0.98rem;
+      font-weight: 700;
+      letter-spacing: -0.01em;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      position: relative;
+      animation: pub-subtle-pulse 3s ease-in-out infinite;
+      transition: background 0.22s ease, 
+                  border-color 0.22s ease, 
+                  color 0.22s ease, 
+                  transform 0.18s ease, 
+                  box-shadow 0.22s ease;
+      box-shadow: var(--shadow-btn);
+    }
+
+    .publish-btn:hover {
+      background: var(--blue);
+      border-color: var(--blue);
+      color: #FFFFFF;
+      animation: none;
+      transform: translateY(-2px);
+      box-shadow: 0 8px 22px rgba(26, 39, 201, 0.26);
+    }
+
+    .publish-btn:hover .publish-label .notif-dot {
+      border-color: var(--blue);
+    }
+
+    .publish-btn:focus-visible {
+      outline: 3px solid var(--blue);
+      outline-offset: 2px;
+    }
+
+    /* Label wrapper so the dot sits precisely above the first letter 'P' of Publish */
+    .publish-label {
+      position: relative;
+      display: inline-block;
+      line-height: 1;
+    }
+
+    .publish-btn .notif-dot {
+      position: absolute;
+      top: -12px;
+      left: -3px;
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      background: var(--yellow);
+      border: 2px solid #FFFFFF;
+      display: block;
+      box-shadow: 0 1px 4px rgba(0, 0, 0, 0.20);
+      transition: border-color 0.22s ease;
+    }
+
+    @keyframes pub-subtle-pulse {
+      0%, 100% {
+        box-shadow: 0 2px 8px rgba(26, 39, 201, 0.08);
+      }
+      45% {
+        box-shadow: 0 0 0 6px rgba(26, 39, 201, 0.12);
+      }
+      75% {
+        box-shadow: 0 0 0 10px rgba(26, 39, 201, 0.03);
+      }
+    }
+
+    /* ═══════════════════════════════════════
+       SECTION 3 — PERSONALIZE
+    ═══════════════════════════════════════ */
+    .personalize-section {
+      padding: 80px 0 110px;
+      background: #FFFFFF;
+      position: relative;
+    }
+
+    .personalize-inner {
+      max-width: 1080px;
+      margin: 0 auto;
+      padding: 0 24px;
+      display: flex;
+      gap: 52px;
+      align-items: stretch;
+      justify-content: space-between;
+    }
+
+    /* ── Left Column ── */
+    .personalize-left {
+      flex: 1;
+      max-width: 500px;
+      display: flex;
+      flex-direction: column;
+    }
+
+    .personalize-left h2 {
+      margin-top: -6px;
+      font-size: clamp(2.3rem, 4.8vw, 3.6rem);
+      font-weight: 900;
+      letter-spacing: -0.035em;
+      line-height: 1.05;
+      color: var(--blue);
+    }
+
+    .personalize-left p {
+      margin-top: 18px;
+      font-size: 1.05rem;
+      color: var(--muted);
+      line-height: 1.65;
+      max-width: 460px;
+      text-wrap: pretty;
+    }
+
+    /* Dot pattern — open/frameless, expands to bottom of right column, hidden on mobile */
+    .pattern-fill {
+      flex: 1;
+      width: 100%;
+      margin-top: 32px;
+      min-height: 240px;
+      background-image: radial-gradient(circle, rgba(26, 39, 201, 0.28) 1.5px, transparent 1.5px);
+      background-size: 24px 24px;
+      background-color: transparent;
+      border: none;
+    }
+
+    /* ── Right Column (Photo & Action) ── */
+    .personalize-right {
+      flex: 1;
+      max-width: 440px;
+      width: 100%;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 18px;
+    }
+
+    .photo-frame {
+      width: 100%;
+      max-width: 440px;
+      aspect-ratio: 4/5;
+      border-radius: var(--radius-xl);
+      background: linear-gradient(135deg, #EEF2FD 0%, #DDE3FB 100%);
+      border: 1.5px dashed rgba(26, 39, 201, 0.28);
+      overflow: hidden;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      box-shadow: var(--shadow-card);
+      position: relative;
+      cursor: pointer;
+      transition: border-color 0.2s ease, transform 0.2s ease;
+    }
+
+    .photo-frame:hover {
+      border-color: var(--blue);
+      transform: translateY(-2px);
+    }
+
+    .photo-frame img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      display: block;
+    }
+
+    .photo-placeholder {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 12px;
+      opacity: 0.65;
+      user-select: none;
+      transition: opacity 0.2s ease, transform 0.2s ease;
+    }
+
+    .photo-frame:hover .photo-placeholder {
+      opacity: 0.9;
+      transform: scale(1.04);
+    }
+
+    .photo-placeholder svg {
+      width: 56px;
+      height: 56px;
+      stroke: var(--blue);
+      fill: none;
+      stroke-width: 1.6;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+    }
+
+    .photo-placeholder span {
+      font-size: 0.92rem;
+      color: var(--blue);
+      font-weight: 700;
+      letter-spacing: 0.01em;
+    }
+
+    .choose-photo-btn {
+      width: 100%;
+      min-height: 50px;
+      padding: 14px 22px;
+      border-radius: var(--radius-md);
+      border: 1.5px solid rgba(26, 39, 201, 0.35);
+      background: #FFFFFF;
+      color: var(--blue);
+      font-size: 0.98rem;
+      font-weight: 700;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 10px;
+      transition: background 0.22s ease, 
+                  border-color 0.22s ease, 
+                  color 0.22s ease, 
+                  transform 0.18s ease, 
+                  box-shadow 0.22s ease;
+      box-shadow: var(--shadow-btn);
+    }
+
+    .choose-photo-btn svg {
+      width: 20px;
+      height: 20px;
+      stroke: var(--blue);
+      fill: none;
+      stroke-width: 2.2;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+      transition: stroke 0.2s ease;
+    }
+
+    .choose-photo-btn:hover {
+      background: var(--blue);
+      border-color: var(--blue);
+      color: #FFFFFF;
+      transform: translateY(-2px);
+      box-shadow: 0 8px 22px rgba(26, 39, 201, 0.26);
+    }
+
+    .choose-photo-btn:hover svg {
+      stroke: #FFFFFF;
+    }
+
+    .choose-photo-btn:focus-visible {
+      outline: 3px solid var(--blue);
+      outline-offset: 2px;
+    }
+
+    /* ── Action Buttons after Photo Upload ── */
+    .photo-actions-group {
+      display: none;
+      width: 100%;
+      max-width: 440px;
+      flex-direction: column;
+      gap: 10px;
+    }
+
+    .photo-actions-row {
+      display: flex;
+      gap: 10px;
+      width: 100%;
+    }
+
+    .action-btn {
+      flex: 1;
+      min-height: 48px;
+      padding: 12px 18px;
+      border-radius: var(--radius-md);
+      font-size: 0.95rem;
+      font-weight: 700;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      transition: background 0.2s ease, border-color 0.2s ease, color 0.2s ease, transform 0.15s ease, box-shadow 0.2s ease;
+      white-space: nowrap;
+    }
+
+    .action-btn svg {
+      width: 18px;
+      height: 18px;
+      stroke-width: 2.2;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+      fill: none;
+    }
+
+    .download-btn {
+      background: var(--blue);
+      border: 1.5px solid var(--blue);
+      color: #FFFFFF;
+      box-shadow: 0 4px 14px rgba(26, 39, 201, 0.25);
+    }
+
+    .download-btn svg {
+      stroke: #FFFFFF;
+    }
+
+    .download-btn:hover {
+      background: var(--blue-hover);
+      border-color: var(--blue-hover);
+      transform: translateY(-2px);
+      box-shadow: 0 8px 22px rgba(26, 39, 201, 0.32);
+    }
+
+    .edit-btn {
+      background: #FFFFFF;
+      border: 1.5px solid rgba(26, 39, 201, 0.35);
+      color: var(--blue);
+      box-shadow: var(--shadow-btn);
+    }
+
+    .edit-btn svg {
+      stroke: var(--blue);
+    }
+
+    .edit-btn:hover {
+      background: var(--blue-light);
+      border-color: var(--blue);
+      transform: translateY(-2px);
+    }
+
+    .change-photo-btn {
+      background: none;
+      border: none;
+      color: var(--muted);
+      font-size: 0.85rem;
+      font-weight: 600;
+      cursor: pointer;
+      padding: 4px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      transition: color 0.18s ease;
+    }
+
+    .change-photo-btn:hover {
+      color: var(--blue);
+      text-decoration: underline;
+    }
+
+    /* ═══════════════════════════════════════
+       INTERACTIVE CROP & EDIT MODAL
+    ═══════════════════════════════════════ */
+    .crop-modal {
+      display: none;
+      position: fixed;
+      inset: 0;
+      background: rgba(11, 14, 23, 0.75);
+      backdrop-filter: blur(10px);
+      -webkit-backdrop-filter: blur(10px);
+      z-index: 2000;
+      align-items: center;
+      justify-content: center;
+      padding: 16px;
+      opacity: 0;
+      transition: opacity 0.25s ease;
+    }
+
+    .crop-modal.active {
+      display: flex;
+      opacity: 1;
+    }
+
+    .crop-modal-dialog {
+      background: #FFFFFF;
+      border-radius: var(--radius-xl);
+      box-shadow: 0 24px 60px rgba(0, 0, 0, 0.25);
+      width: 100%;
+      max-width: 440px;
+      padding: 24px;
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+      animation: modal-pop 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+    }
+
+    @keyframes modal-pop {
+      from { transform: scale(0.92); opacity: 0; }
+      to   { transform: scale(1);    opacity: 1; }
+    }
+
+    .crop-modal-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    .crop-modal-header h3 {
+      font-size: 1.2rem;
+      font-weight: 800;
+      color: var(--blue);
+      letter-spacing: -0.02em;
+    }
+
+    .crop-close-btn {
+      background: none;
+      border: none;
+      color: var(--muted);
+      cursor: pointer;
+      padding: 4px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      border-radius: 50%;
+      transition: color 0.15s, background 0.15s;
+    }
+
+    .crop-close-btn:hover {
+      color: var(--text);
+      background: #F0F2F6;
+    }
+
+    /* ── Interactive Viewport ── */
+    .crop-viewport {
+      width: 100%;
+      aspect-ratio: 4/5;
+      max-height: 380px;
+      border-radius: var(--radius-lg);
+      background: #0B0E17;
+      position: relative;
+      overflow: hidden;
+      cursor: grab;
+      user-select: none;
+      touch-action: none;
+    }
+
+    .crop-viewport:active {
+      cursor: grabbing;
+    }
+
+    .crop-img-layer {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform-origin: center center;
+      pointer-events: none;
+      will-change: transform;
+    }
+
+    /* ── 3x3 Rule of Thirds Grid Overlay ── */
+    .crop-grid-overlay {
+      position: absolute;
+      inset: 0;
+      pointer-events: none;
+      border: 2px solid rgba(255, 255, 255, 0.65);
+      border-radius: var(--radius-lg);
+      box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.25);
+    }
+
+    .crop-grid-overlay::before,
+    .crop-grid-overlay::after {
+      content: '';
+      position: absolute;
+      background: rgba(255, 255, 255, 0.40);
+    }
+
+    /* Horizontal grid lines */
+    .crop-grid-overlay::before {
+      top: 33.333%;
+      bottom: 33.333%;
+      left: 0;
+      right: 0;
+      border-top: 1px dashed rgba(255, 255, 255, 0.65);
+      border-bottom: 1px dashed rgba(255, 255, 255, 0.65);
+      background: transparent;
+    }
+
+    /* Vertical grid lines */
+    .crop-grid-overlay::after {
+      left: 33.333%;
+      right: 33.333%;
+      top: 0;
+      bottom: 0;
+      border-left: 1px dashed rgba(255, 255, 255, 0.65);
+      border-right: 1px dashed rgba(255, 255, 255, 0.65);
+      background: transparent;
+    }
+
+    /* ── Zoom Controls ── */
+    .crop-controls {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    .zoom-row {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .zoom-icon-btn {
+      background: #F4F6FC;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      width: 32px;
+      height: 32px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: var(--blue);
+      cursor: pointer;
+      font-weight: 700;
+      font-size: 1.1rem;
+      line-height: 1;
+      transition: background 0.15s, border-color 0.15s;
+    }
+
+    .zoom-icon-btn:hover {
+      background: var(--blue-light);
+      border-color: var(--blue);
+    }
+
+    .zoom-slider {
+      flex: 1;
+      accent-color: var(--blue);
+      cursor: pointer;
+      height: 6px;
+    }
+
+    .crop-hint {
+      font-size: 0.8rem;
+      color: var(--muted);
+      text-align: center;
+    }
+
+    .crop-modal-actions {
+      display: flex;
+      gap: 10px;
+    }
+
+    .crop-modal-actions .action-btn {
+      flex: 1;
+    }
+
+    /* ═══════════════════════════════════════
+       MOBILE RESPONSIVENESS — (≤ 768px)
+    ═══════════════════════════════════════ */
+    @media (max-width: 768px) {
+
+      /* ── Navigation Header Bar ── */
+      .nav-bar {
+        padding: 10px 16px;
+      }
+
+      .nav-container {
+        gap: 8px;
+        width: 100%;
+        justify-content: center;
+      }
+
+      .nav-link {
+        flex: 1;
+        max-width: 170px;
+        padding: 9px 12px;
+        font-size: 0.85rem;
+        text-align: center;
+      }
+
+      /* ── Hero: Compact on mobile with pattern clearly tiled & fluid single-line text ── */
+      .hero {
+        min-height: 42vh;
+        padding: 48px 12px 34px;
+        background-color: #FFFFFF;
+        background-image: url('.user_uploaded/media_1789548800963.png');
+        background-position: center top;
+        background-size: 300px auto;
+        background-repeat: repeat;
+      }
+
+      .hero-content {
+        width: 100%;
+        max-width: 100%;
+        padding: 0 4px;
+      }
+
+      .hero h1 {
+        white-space: normal;
+        font-size: clamp(2rem, 7.8vw, 2.9rem);
+        letter-spacing: -0.035em;
+        line-height: 1.15;
+        text-wrap: balance;
+      }
+
+      .hero p {
+        white-space: normal;
+        margin-top: 14px;
+        font-size: clamp(0.95rem, 3.8vw, 1.1rem);
+        max-width: 100%;
+        line-height: 1.6;
+        letter-spacing: -0.01em;
+        text-wrap: pretty;
+      }
+
+      /* ── Section Intro on mobile ── */
+      .section-intro {
+        margin: 0 auto 28px;
+        padding: 0 20px;
+        text-align: left;
+      }
+
+      .section-intro h2 {
+        font-size: clamp(1.6rem, 7vw, 2.1rem);
+      }
+
+      .section-intro p {
+        font-size: 0.95rem;
+      }
+
+      /* ── Section 2: Horizontal scroll carousel with peek ── */
+      .cards-section {
+        padding: 24px 0 54px;
+        overflow: hidden;
+      }
+
+      .cards-wrapper {
+        display: flex;
+        flex-direction: row;
+        flex-wrap: nowrap;
+        justify-content: flex-start;
+        align-items: stretch;
+        overflow-x: auto;
+        scroll-snap-type: x mandatory;
+        -webkit-overflow-scrolling: touch;
+        gap: 16px;
+        padding: 6px 20px 24px;
+        margin: 0;
+        width: 100%;
+        max-width: 100%;
+        scrollbar-width: none;
+        scroll-padding-left: 20px;
+      }
+
+      .cards-wrapper::-webkit-scrollbar {
+        display: none;
+      }
+
+      .cards-wrapper::after {
+        content: '';
+        flex: 0 0 4px;
+      }
+
+      .card {
+        flex: 0 0 82vw;
+        max-width: 320px;
+        min-width: 275px;
+        scroll-snap-align: start;
+        border-radius: var(--radius-lg);
+      }
+
+      .card-img-wrap {
+        aspect-ratio: 16/11;
+      }
+
+      .card-body {
+        padding: 20px 20px 0;
+      }
+
+      .card-footer {
+        padding: 16px 20px 20px;
+      }
+
+      /* ── Section 3: Headline & text first, photo below ── */
+      .personalize-section {
+        padding: 40px 0 70px;
+      }
+
+      .personalize-inner {
+        flex-direction: column;
+        padding: 0 20px;
+        gap: 28px;
+        align-items: center;
+      }
+
+      .personalize-left {
+        max-width: 100%;
+        width: 100%;
+      }
+
+      .personalize-left h2 {
+        margin-top: 0;
+        font-size: clamp(2rem, 8.5vw, 2.75rem);
+        line-height: 1.1;
+      }
+
+      .personalize-left p {
+        margin-top: 12px;
+        font-size: 1rem;
+        max-width: 100%;
+      }
+
+      /* Hide dot pattern container on mobile */
+      .pattern-fill {
+        display: none;
+      }
+
+      .personalize-right {
+        width: 100%;
+        max-width: 350px;
+        margin: 0 auto;
+      }
+
+      .photo-frame,
+      .choose-photo-btn {
+        width: 100%;
+        max-width: 100%;
+      }
+    }
+
+    /* Smallest Mobile Devices (≤ 360px) */
+    @media (max-width: 360px) {
+      .hero {
+        padding: 40px 10px 28px;
+        background-size: 260px auto;
+      }
+      .card {
+        flex: 0 0 88vw;
+      }
+      .personalize-left h2 {
+        font-size: 1.85rem;
+        line-height: 1.1;
+      }
+    }
+  </style>
+</head>
+<body>
+
+  <!-- ─── NAVIGATION BAR ─── -->
+  <nav class="nav-bar" aria-label="Main Navigation">
+    <div class="nav-container">
+      <a href="#opportunities" class="nav-link">Opportunities</a>
+      <a href="#your-picture" class="nav-link">Your Picture</a>
+    </div>
+  </nav>
+
+  <!-- ═══════════════════════
+       SECTION 1 — HERO
+  ═══════════════════════ -->
+  <header class="hero">
+    <div class="hero-content">
+      <h1>Help Someone Find Their Next Opportunity.</h1>
+      <p>You know the difference between building alone and getting the right support in the hard journey of building a startup. Now, help someone in your network discover the right opportunity through Athar.</p>
+    </div>
+  </header>
+
+  <!-- ═══════════════════════
+       SECTION 2 — CARDS & INTRO
+  ═══════════════════════ -->
+  <main>
+    <section id="opportunities" class="cards-section" aria-label="Opportunities and Waiting List">
+      
+      <!-- Section Intro -->
+      <div class="section-intro">
+        <h2>Two ways to pass the opportunity on.</h2>
+        <p>Whether you know someone who’s ready for an opportunity now or a founder who could be a great fit for Athar in the future, you can help them get connected.<br>Choose the option that fits them best below.</p>
+      </div>
+
+      <div class="cards-wrapper">
+
+        <!-- Card 1: Upcoming Program -->
+        <article class="card">
+          <div class="card-img-wrap">
+            <!-- Bespoke Vector Art: Innovation / Upcoming Program -->
+            <svg class="card-vector-art" viewBox="0 0 400 250" fill="none" xmlns="http://www.w3.org/2000/svg">
+              <rect width="400" height="250" fill="#E8F1FC"/>
+              <!-- Tech Concentric Circles -->
+              <circle cx="200" cy="125" r="95" stroke="#1A27C9" stroke-width="1.5" stroke-dasharray="6 6" stroke-opacity="0.25"/>
+              <circle cx="200" cy="125" r="65" fill="rgba(26, 39, 201, 0.05)"/>
+              
+              <!-- Innovation Glow Diamond Backing -->
+              <rect x="160" y="85" width="80" height="80" rx="18" transform="rotate(45 200 125)" fill="#FFFFFF" stroke="#1A27C9" stroke-width="2.5" filter="drop-shadow(0 10px 20px rgba(26,39,201,0.14))"/>
+
+              <!-- Bolt & Green Tech Leaf Fusion Graphic -->
+              <path d="M205 98 L188 126 H203 L195 152 L216 120 H201 L205 98 Z" fill="#1A27C9"/>
+
+              <!-- Tech Circuit Orbits -->
+              <circle cx="115" cy="100" r="16" fill="#FFE91E" stroke="#FFFFFF" stroke-width="2" filter="drop-shadow(0 4px 8px rgba(0,0,0,0.08))"/>
+              <path d="M115 95 V105 M110 100 H120" stroke="#1A27C9" stroke-width="2" stroke-linecap="round"/>
+
+              <circle cx="285" cy="155" r="18" fill="#FFFFFF" stroke="#1A27C9" stroke-width="2" filter="drop-shadow(0 4px 10px rgba(26,39,201,0.1))"/>
+              <!-- Mini Leaf / Prize Node in Right Orbit -->
+              <path d="M285 147 C290 151 292 157 285 163 C278 157 280 151 285 147 Z" fill="#FFE91E" stroke="#1A27C9" stroke-width="1.5"/>
+            </svg>
+
+            <span class="card-label">Upcoming Program</span>
+            <button class="share-btn" title="Share Upcoming Program" aria-label="Share Upcoming Program">
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <circle cx="18" cy="5"  r="3"/>
+                <circle cx="6"  cy="12" r="3"/>
+                <circle cx="18" cy="19" r="3"/>
+                <line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/>
+                <line x1="15.41" y1="6.51" x2="8.59"  y2="10.49"/>
+              </svg>
+            </button>
+          </div>
+
+          <div class="card-body">
+            <h3>Do you know a founder needs support?</h3>
+            <p class="card-text">
+              <span class="text-clamp" id="up-text">
+                Share the program with a founder in your network who’s building a startup, developing an idea or looking for the right support to grow.
+              </span>
+            </p>
+            <button class="see-more-btn" onclick="toggleText('up-text', this)" aria-expanded="false" aria-controls="up-text">See More</button>
+          </div>
+
+          <div class="card-footer">
+            <button class="publish-btn" aria-label="Share the upcoming program">
+              <span class="publish-label">
+                <span class="notif-dot" aria-hidden="true"></span>
+                Share the upcoming program
+              </span>
+            </button>
+          </div>
+        </article>
+
+        <!-- Card 2: Wait List -->
+        <article class="card">
+          <div class="card-img-wrap">
+            <!-- Bespoke Vector Art: Waiting List Ecosystem -->
+            <svg class="card-vector-art" viewBox="0 0 400 250" fill="none" xmlns="http://www.w3.org/2000/svg">
+              <rect width="400" height="250" fill="#EEF2FD"/>
+              <!-- Background Grid Accent -->
+              <circle cx="200" cy="125" r="90" fill="rgba(26, 39, 201, 0.04)"/>
+              <circle cx="200" cy="125" r="55" fill="rgba(26, 39, 201, 0.06)"/>
+              
+              <!-- Connection Lines -->
+              <path d="M120 150 L200 95 L280 145" stroke="#1A27C9" stroke-width="2" stroke-dasharray="4 4" stroke-opacity="0.35"/>
+              <path d="M200 95 L200 165" stroke="#1A27C9" stroke-width="2" stroke-opacity="0.25"/>
+
+              <!-- Central Hub Document / List -->
+              <rect x="160" y="70" width="80" height="96" rx="12" fill="#FFFFFF" stroke="#1A27C9" stroke-width="2.5" filter="drop-shadow(0 8px 16px rgba(26,39,201,0.12))"/>
+              
+              <!-- Document Lines -->
+              <rect x="175" y="90" width="50" height="5" rx="2.5" fill="#1A27C9"/>
+              <rect x="175" y="103" width="36" height="4" rx="2" fill="#1A27C9" fill-opacity="0.35"/>
+              <rect x="175" y="115" width="44" height="4" rx="2" fill="#1A27C9" fill-opacity="0.35"/>
+              <rect x="175" y="127" width="28" height="4" rx="2" fill="#1A27C9" fill-opacity="0.35"/>
+
+              <!-- Floating Yellow Star/Spark Badge -->
+              <circle cx="225" cy="74" r="14" fill="#FFE91E" stroke="#FFFFFF" stroke-width="2"/>
+              <path d="M225 69 L226.5 72.5 L230 74 L226.5 75.5 L225 79 L223.5 75.5 L220 74 L223.5 72.5 Z" fill="#1A27C9"/>
+
+              <!-- Left Node -->
+              <circle cx="120" cy="150" r="20" fill="#FFFFFF" stroke="#1A27C9" stroke-width="2" filter="drop-shadow(0 4px 10px rgba(26,39,201,0.1))"/>
+              <circle cx="120" cy="150" r="7" fill="#1A27C9"/>
+
+              <!-- Right Node -->
+              <circle cx="280" cy="145" r="22" fill="#FFFFFF" stroke="#1A27C9" stroke-width="2" filter="drop-shadow(0 4px 10px rgba(26,39,201,0.1))"/>
+              <path d="M273 145 H287 M280 138 V152" stroke="#1A27C9" stroke-width="2.5" stroke-linecap="round"/>
+            </svg>
+
+            <span class="card-label">Wait List</span>
+            <button class="share-btn" title="Share Waiting List" aria-label="Share Waiting List">
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <circle cx="18" cy="5"  r="3"/>
+                <circle cx="6"  cy="12" r="3"/>
+                <circle cx="18" cy="19" r="3"/>
+                <line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/>
+                <line x1="15.41" y1="6.51" x2="8.59"  y2="10.49"/>
+              </svg>
+            </button>
+          </div>
+
+          <div class="card-body">
+            <h3>Not this opportunity? Maybe the next one.</h3>
+            <p class="card-text">
+              <span class="text-clamp" id="wl-text">
+                Know a founder in your circle who could be a great fit for Athar, but not for the current program?<br><br>
+                Share the application for the waiting list. They’ll be notified when an opportunity that fits them opens and get the chance to accelerate their growth too.
+              </span>
+            </p>
+            <button class="see-more-btn" onclick="toggleText('wl-text', this)" aria-expanded="false" aria-controls="wl-text">See More</button>
+          </div>
+
+          <div class="card-footer">
+            <button class="publish-btn" aria-label="Share the waiting list">
+              <span class="publish-label">
+                <span class="notif-dot" aria-hidden="true"></span>
+                Share the waiting list
+              </span>
+            </button>
+          </div>
+        </article>
+
+      </div>
+    </section>
+
+    <!-- ═══════════════════════
+         SECTION 3 — PERSONALIZE
+    ═══════════════════════ -->
+    <section id="your-picture" class="personalize-section" aria-label="Personalize the Moment">
+      <div class="personalize-inner">
+
+        <!-- Left: Text + Pattern (Pattern hidden on mobile) -->
+        <div class="personalize-left">
+          <h2>Personalize the<br>Moment</h2>
+          <p>Upload your photo to create your personalized design and share it on your social media.</p>
+          <div class="pattern-fill" aria-hidden="true"></div>
+        </div>
+
+        <!-- Right: Photo Frame + Action Buttons -->
+        <div class="personalize-right">
+          <div class="photo-frame" id="photo-frame" role="region" aria-label="Photo Preview Frame" title="Click to upload or change your photo">
+            <div class="photo-placeholder">
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <rect x="3" y="3" width="18" height="18" rx="4"/>
+                <circle cx="8.5" cy="8.5" r="1.5"/>
+                <path d="M21 15l-5-5L5 21"/>
+              </svg>
+              <span>Your Photo</span>
+            </div>
+          </div>
+
+          <!-- Initial Upload Button -->
+          <button class="choose-photo-btn" id="choose-photo-btn" aria-label="Choose and upload photo">
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <rect x="3" y="3" width="18" height="18" rx="4"/>
+              <circle cx="8.5" cy="8.5" r="1.5"/>
+              <path d="M21 15l-5-5L5 21"/>
+            </svg>
+            Choose Photo
+          </button>
+
+          <!-- Action Buttons Group (Revealed after photo is loaded) -->
+          <div class="photo-actions-group" id="photo-actions-group">
+            <div class="photo-actions-row">
+              <button class="action-btn download-btn" id="download-photo-btn" aria-label="Download personalized image">
+                <svg viewBox="0 0 24 24" aria-hidden="true">
+                  <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                  <polyline points="7 10 12 15 17 10"/>
+                  <line x1="12" y1="15" x2="12" y2="3"/>
+                </svg>
+                Download
+              </button>
+
+              <button class="action-btn edit-btn" id="edit-photo-btn" aria-label="Edit and crop photo">
+                <svg viewBox="0 0 24 24" aria-hidden="true">
+                  <path d="M12 20h9"/>
+                  <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/>
+                </svg>
+                Edit
+              </button>
+            </div>
+
+            <button class="change-photo-btn" id="change-photo-btn" type="button">
+              <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" fill="none" stroke-width="2">
+                <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/>
+                <circle cx="12" cy="13" r="4"/>
+              </svg>
+              Upload Different Photo
+            </button>
+          </div>
+        </div>
+
+      </div>
+    </section>
+  </main>
+
+  <!-- ═══════════════════════════════════════
+       INTERACTIVE CROP & EDIT MODAL
+  ═══════════════════════════════════════ -->
+  <div class="crop-modal" id="crop-modal" role="dialog" aria-modal="true" aria-labelledby="crop-title">
+    <div class="crop-modal-dialog">
+      <div class="crop-modal-header">
+        <h3 id="crop-title">Edit &amp; Crop Photo</h3>
+        <button class="crop-close-btn" id="crop-close-btn" aria-label="Close editor">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round">
+            <line x1="18" y1="6" x2="6" y2="18"/>
+            <line x1="6" y1="6" x2="18" y2="18"/>
+          </svg>
+        </button>
+      </div>
+
+      <!-- 4:5 Viewport with interactive draggable image and 3x3 Grid Overlay -->
+      <div class="crop-viewport" id="crop-viewport">
+        <img class="crop-img-layer" id="crop-img-layer" alt="Editing preview" draggable="false" />
+        <div class="crop-grid-overlay" aria-hidden="true"></div>
+      </div>
+
+      <!-- Zoom and Hint Controls -->
+      <div class="crop-controls">
+        <div class="zoom-row">
+          <button class="zoom-icon-btn" id="zoom-out-btn" type="button" aria-label="Zoom out">−</button>
+          <input type="range" class="zoom-slider" id="zoom-slider" min="1" max="3.5" step="0.02" value="1" aria-label="Zoom level">
+          <button class="zoom-icon-btn" id="zoom-in-btn" type="button" aria-label="Zoom in">+</button>
+        </div>
+        <p class="crop-hint">Drag photo to reposition • Use slider to zoom</p>
+      </div>
+
+      <!-- Action buttons -->
+      <div class="crop-modal-actions">
+        <button class="action-btn edit-btn" id="crop-cancel-btn" type="button">Cancel</button>
+        <button class="action-btn download-btn" id="crop-apply-btn" type="button">Apply Crop</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // ── See More / See Less Toggle ──
+    function toggleText(id, btn) {
+      const el = document.getElementById(id);
+      if (!el) return;
+      const expanded = el.classList.toggle('expanded');
+      btn.textContent = expanded ? 'See Less' : 'See More';
+      btn.setAttribute('aria-expanded', expanded ? 'true' : 'false');
+    }
+
+    // ── Global Image & Crop State ──
+    let rawImage = new Image();
+    let rawImgSrc = '';
+    let currentCroppedDataUrl = '';
+    
+    // Pan & Zoom Transform Values
+    let scale = 1;
+    let panX = 0;
+    let panY = 0;
+    let isDragging = false;
+    let dragStartX = 0;
+    let dragStartY = 0;
+
+    const frameEl         = document.getElementById('photo-frame');
+    const chooseBtn       = document.getElementById('choose-photo-btn');
+    const actionsGroup    = document.getElementById('photo-actions-group');
+    const downloadBtn     = document.getElementById('download-photo-btn');
+    const editBtn         = document.getElementById('edit-photo-btn');
+    const changeBtn       = document.getElementById('change-photo-btn');
+
+    const cropModal       = document.getElementById('crop-modal');
+    const cropViewport    = document.getElementById('crop-viewport');
+    const cropImgLayer    = document.getElementById('crop-img-layer');
+    const zoomSlider      = document.getElementById('zoom-slider');
+    const zoomInBtn       = document.getElementById('zoom-in-btn');
+    const zoomOutBtn      = document.getElementById('zoom-out-btn');
+    const cropCloseBtn    = document.getElementById('crop-close-btn');
+    const cropCancelBtn   = document.getElementById('crop-cancel-btn');
+    const cropApplyBtn    = document.getElementById('crop-apply-btn');
+
+    // ── Photo Upload Trigger ──
+    function handlePhotoUpload() {
+      const input = document.createElement('input');
+      input.type   = 'file';
+      input.accept = 'image/*';
+      input.onchange = (e) => {
+        const file = e.target.files && e.target.files[0];
+        if (!file) return;
+        const reader = new FileReader();
+        reader.onload = (ev) => {
+          rawImgSrc = ev.target.result;
+          rawImage = new Image();
+          rawImage.onload = () => {
+            // Initial auto-fit crop
+            resetTransform();
+            applyCropToPreview();
+            
+            // Switch UI buttons to Download + Edit
+            chooseBtn.style.display = 'none';
+            actionsGroup.style.display = 'flex';
+          };
+          rawImage.src = rawImgSrc;
+        };
+        reader.readAsDataURL(file);
+      };
+      input.click();
+    }
+
+    if (chooseBtn) chooseBtn.addEventListener('click', handlePhotoUpload);
+    if (changeBtn) changeBtn.addEventListener('click', handlePhotoUpload);
+    if (frameEl) {
+      frameEl.addEventListener('click', () => {
+        if (!rawImgSrc) {
+          handlePhotoUpload();
+        } else {
+          openCropModal();
+        }
+      });
+    }
+
+    // ── Download Personalized Image ──
+    if (downloadBtn) {
+      downloadBtn.addEventListener('click', () => {
+        if (!currentCroppedDataUrl) return;
+        const link = document.createElement('a');
+        link.download = 'my-personalized-moment.png';
+        link.href = currentCroppedDataUrl;
+        link.click();
+      });
+    }
+
+    // ── Modal Open / Close ──
+    function openCropModal() {
+      if (!rawImgSrc) return;
+      cropImgLayer.src = rawImgSrc;
+      cropModal.classList.add('active');
+      
+      // Auto-fit initial sizing for the crop image layer
+      cropImgLayer.onload = () => {
+        updateLayerTransform();
+      };
+      updateLayerTransform();
+    }
+
+    function closeCropModal() {
+      cropModal.classList.remove('active');
+    }
+
+    if (editBtn) editBtn.addEventListener('click', openCropModal);
+    if (cropCloseBtn) cropCloseBtn.addEventListener('click', closeCropModal);
+    if (cropCancelBtn) cropCancelBtn.addEventListener('click', closeCropModal);
+
+    // ── Transform & Pan / Zoom Math ──
+    function resetTransform() {
+      scale = 1;
+      panX = 0;
+      panY = 0;
+      if (zoomSlider) zoomSlider.value = '1';
+    }
+
+    function updateLayerTransform() {
+      if (!cropImgLayer) return;
+      cropImgLayer.style.transform = `translate(calc(-50% + ${panX}px), calc(-50% + ${panY}px)) scale(${scale})`;
+    }
+
+    // Slider Zoom
+    if (zoomSlider) {
+      zoomSlider.addEventListener('input', (e) => {
+        scale = parseFloat(e.target.value);
+        updateLayerTransform();
+      });
+    }
+
+    if (zoomInBtn) {
+      zoomInBtn.addEventListener('click', () => {
+        scale = Math.min(3.5, scale + 0.2);
+        zoomSlider.value = scale;
+        updateLayerTransform();
+      });
+    }
+
+    if (zoomOutBtn) {
+      zoomOutBtn.addEventListener('click', () => {
+        scale = Math.max(1, scale - 0.2);
+        zoomSlider.value = scale;
+        updateLayerTransform();
+      });
+    }
+
+    // Mouse Wheel Zoom
+    if (cropViewport) {
+      cropViewport.addEventListener('wheel', (e) => {
+        e.preventDefault();
+        const delta = e.deltaY * -0.0015;
+        scale = Math.min(3.5, Math.max(1, scale + delta));
+        zoomSlider.value = scale;
+        updateLayerTransform();
+      }, { passive: false });
+
+      // Mouse Drag / Pan
+      cropViewport.addEventListener('mousedown', (e) => {
+        isDragging = true;
+        dragStartX = e.clientX - panX;
+        dragStartY = e.clientY - panY;
+      });
+
+      window.addEventListener('mousemove', (e) => {
+        if (!isDragging) return;
+        panX = e.clientX - dragStartX;
+        panY = e.clientY - dragStartY;
+        updateLayerTransform();
+      });
+
+      window.addEventListener('mouseup', () => {
+        isDragging = false;
+      });
+
+      // Touch Drag / Pan
+      cropViewport.addEventListener('touchstart', (e) => {
+        if (e.touches.length === 1) {
+          isDragging = true;
+          dragStartX = e.touches[0].clientX - panX;
+          dragStartY = e.touches[0].clientY - panY;
+        }
+      }, { passive: true });
+
+      cropViewport.addEventListener('touchmove', (e) => {
+        if (!isDragging || e.touches.length !== 1) return;
+        panX = e.touches[0].clientX - dragStartX;
+        panY = e.touches[0].clientY - dragStartY;
+        updateLayerTransform();
+      }, { passive: true });
+
+      cropViewport.addEventListener('touchend', () => {
+        isDragging = false;
+      });
+    }
+
+    // ── Apply Crop & Render to High-Resolution Canvas ──
+    function applyCropToPreview() {
+      if (!rawImage.complete || !rawImage.naturalWidth) return;
+
+      const canvas = document.createElement('canvas');
+      const targetWidth = 1080;
+      const targetHeight = 1350; // 4:5 ratio
+      canvas.width = targetWidth;
+      canvas.height = targetHeight;
+      const ctx = canvas.getContext('2d');
+      ctx.imageSmoothingEnabled = true;
+      ctx.imageSmoothingQuality = 'high';
+
+      // Viewport dimensions
+      const vpWidth = cropViewport.clientWidth || 320;
+      const vpHeight = cropViewport.clientHeight || 400;
+
+      // Base scaling to cover viewport
+      const imgAspect = rawImage.naturalWidth / rawImage.naturalHeight;
+      const vpAspect = vpWidth / vpHeight;
+
+      let baseDrawW, baseDrawH;
+      if (imgAspect > vpAspect) {
+        baseDrawH = vpHeight;
+        baseDrawW = vpHeight * imgAspect;
+      } else {
+        baseDrawW = vpWidth;
+        baseDrawH = vpWidth / imgAspect;
+      }
+
+      // Applied scale and pan relative to canvas coordinate space
+      const renderScaleX = targetWidth / vpWidth;
+      const renderScaleY = targetHeight / vpHeight;
+
+      const finalDrawW = baseDrawW * scale * renderScaleX;
+      const finalDrawH = baseDrawH * scale * renderScaleY;
+
+      const drawX = (targetWidth / 2) - (finalDrawW / 2) + (panX * renderScaleX);
+      const drawY = (targetHeight / 2) - (finalDrawH / 2) + (panY * renderScaleY);
+
+      // Draw background fill
+      ctx.fillStyle = '#FFFFFF';
+      ctx.fillRect(0, 0, targetWidth, targetHeight);
+
+      // Draw image
+      ctx.drawImage(rawImage, drawX, drawY, finalDrawW, finalDrawH);
+
+      currentCroppedDataUrl = canvas.toDataURL('image/png', 0.95);
+
+      if (frameEl) {
+        frameEl.innerHTML = `<img src="${currentCroppedDataUrl}" alt="Personalized preview" />`;
+        frameEl.style.borderStyle = 'solid';
+      }
+    }
+
+    if (cropApplyBtn) {
+      cropApplyBtn.addEventListener('click', () => {
+        applyCropToPreview();
+        closeCropModal();
+      });
+    }
+  </script>
+
+</body>
+</html>

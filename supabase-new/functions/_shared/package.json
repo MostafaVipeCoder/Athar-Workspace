@@ -1,0 +1,6 @@
+{
+  "name": "athar-edge-shared",
+  "private": true,
+  "type": "module",
+  "description": "Pure, Deno-compatible logic shared by the Google edge functions (design 07). No Deno-only APIs: it is unit-tested with `node --test supabase-new/functions/_shared/tests` (Node 20+)."
+}

@@ -175,31 +175,59 @@ function createCalendarEvent(booking, eventDetails) {
     event.attendees.push({ email: booking.mentor_email });
   }
   
-  // Add admin emails from event details
-  if (eventDetails && eventDetails.interview_admin_emails) {
-    var adminEmails;
-    if (typeof eventDetails.interview_admin_emails === 'string') {
-      adminEmails = JSON.parse(eventDetails.interview_admin_emails);
-    } else {
-      adminEmails = eventDetails.interview_admin_emails;
+  // Add admin emails from event details based on module context
+  if (booking.is_ather_team) {
+    if (eventDetails && eventDetails.interview_admin_emails) {
+      var adminEmails;
+      if (typeof eventDetails.interview_admin_emails === 'string') {
+        adminEmails = JSON.parse(eventDetails.interview_admin_emails);
+      } else {
+        adminEmails = eventDetails.interview_admin_emails;
+      }
+      
+      forEachArray(adminEmails, function(email) {
+        event.attendees.push({ email: email });
+      });
     }
     
-    forEachArray(adminEmails, function(email) {
-      event.attendees.push({ email: email });
-    });
-  }
-  
-  if (eventDetails && eventDetails.interview_cc_emails) {
-    var ccEmails;
-    if (typeof eventDetails.interview_cc_emails === 'string') {
-      ccEmails = JSON.parse(eventDetails.interview_cc_emails);
-    } else {
-      ccEmails = eventDetails.interview_cc_emails;
+    if (eventDetails && eventDetails.interview_cc_emails) {
+      var ccEmails;
+      if (typeof eventDetails.interview_cc_emails === 'string') {
+        ccEmails = JSON.parse(eventDetails.interview_cc_emails);
+      } else {
+        ccEmails = eventDetails.interview_cc_emails;
+      }
+      
+      forEachArray(ccEmails, function(email) {
+        event.attendees.push({ email: email });
+      });
+    }
+  } else {
+    if (eventDetails && eventDetails.mentor_admin_emails) {
+      var mentorAdminEmails;
+      if (typeof eventDetails.mentor_admin_emails === 'string') {
+        mentorAdminEmails = JSON.parse(eventDetails.mentor_admin_emails);
+      } else {
+        mentorAdminEmails = eventDetails.mentor_admin_emails;
+      }
+      
+      forEachArray(mentorAdminEmails, function(email) {
+        event.attendees.push({ email: email });
+      });
     }
     
-    forEachArray(ccEmails, function(email) {
-      event.attendees.push({ email: email });
-    });
+    if (eventDetails && eventDetails.mentor_cc_emails) {
+      var mentorCcEmails;
+      if (typeof eventDetails.mentor_cc_emails === 'string') {
+        mentorCcEmails = JSON.parse(eventDetails.mentor_cc_emails);
+      } else {
+        mentorCcEmails = eventDetails.mentor_cc_emails;
+      }
+      
+      forEachArray(mentorCcEmails, function(email) {
+        event.attendees.push({ email: email });
+      });
+    }
   }
   
   try {

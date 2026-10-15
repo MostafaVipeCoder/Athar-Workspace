@@ -12,7 +12,9 @@ import {
     deleteAtherTeamSlot,
     getAtherTeamBookings,
     deleteAtherTeamBooking,
-    getEvent
+    getEvent,
+    ADVANCE_NOTICE_OPTIONS,
+    isSlotWithinNoticeWindow
 } from '../lib/atherTeamBooking';
 import { supabase } from '../lib/supabase';
 import LazyImage from './LazyImage';
@@ -30,7 +32,7 @@ export default function AtherTeamBookingAdmin({ eventId: propEventId, isEmbedded
     const [showAddSlot, setShowAddSlot] = useState(false);
     const [editingMember, setEditingMember] = useState(null);
     const [editingSlot, setEditingSlot] = useState(null);
-    const [newMember, setNewMember] = useState({ name: '', email: '', photo_url: '', bio: '' });
+    const [newMember, setNewMember] = useState({ name: '', email: '', photo_url: '', bio: '', advance_notice_minutes: 1440 });
     const [newSlot, setNewSlot] = useState({ 
         ather_team_member_id: '', 
         date: '', 
@@ -378,6 +380,19 @@ export default function AtherTeamBookingAdmin({ eventId: propEventId, isEmbedded
                                                 />
                                             </div>
                                             <div>
+                                                <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Advance Notice Window</label>
+                                                <select
+                                                    value={editingMember.advance_notice_minutes ?? 1440}
+                                                    onChange={(e) => setEditingMember({ ...editingMember, advance_notice_minutes: parseInt(e.target.value, 10) })}
+                                                    className="w-full px-6 py-4 bg-white border border-slate-100 rounded-2xl font-bold text-[#0d0e0e] focus:outline-none focus:ring-4 focus:ring-[#1a27c9]/5 focus:border-[#1a27c9] transition-premium"
+                                                >
+                                                    {ADVANCE_NOTICE_OPTIONS.map((opt) => (
+                                                        <option key={opt.value} value={opt.value}>{opt.label}</option>
+                                                    ))}
+                                                </select>
+                                                <p className="text-[10px] text-slate-400 font-bold mt-1">Minimum notice required before a booking can be made.</p>
+                                            </div>
+                                            <div>
                                                 <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Bio</label>
                                                 <textarea
                                                     value={editingMember.bio || ''}
@@ -421,6 +436,11 @@ export default function AtherTeamBookingAdmin({ eventId: propEventId, isEmbedded
                                                     <div className="flex-1 min-w-0">
                                                         <h4 className="font-black text-lg text-[#0d0e0e] uppercase leading-tight truncate mb-1">{member.name}</h4>
                                                         <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider truncate mb-2">{member.email}</p>
+                                                        <div className="flex items-center gap-2 mb-2 flex-wrap">
+                                                            <span className="px-3 py-1 rounded-lg bg-indigo-50 text-[#1a27c9] text-[10px] font-black uppercase tracking-wider">
+                                                                Notice: {ADVANCE_NOTICE_OPTIONS.find(o => o.value === (member.advance_notice_minutes ?? 1440))?.label?.split('(')[0]?.trim() || `${member.advance_notice_minutes ?? 1440}m`}
+                                                            </span>
+                                                        </div>
                                                         {member.bio && (
                                                             <p className="text-sm font-bold text-slate-500 leading-relaxed italic">{member.bio}</p>
                                                         )}
@@ -610,15 +630,24 @@ export default function AtherTeamBookingAdmin({ eventId: propEventId, isEmbedded
                                                         onChange={(e) => setEditingSlot({ ...editingSlot, is_available: e.target.checked })}
                                                         className="w-5 h-5"
                                                     />
-                                                ) : (
-                                                    <span className={`px-4 py-2 rounded-full text-[10px] font-black uppercase tracking-widest ${
-                                                        slot.is_available
-                                                            ? 'bg-emerald-100 text-emerald-700'
-                                                            : 'bg-rose-100 text-rose-700'
-                                                    }`}>
-                                                        {slot.is_available ? 'Yes' : 'No'}
-                                                    </span>
-                                                )}
+                                                ) : (() => {
+                                                    const isNoticeExpired = isSlotWithinNoticeWindow(slot.start_time, slot.ather_team_members?.advance_notice_minutes ?? 1440);
+                                                    const isEffectivelyAvailable = slot.is_available && !isNoticeExpired;
+                                                    return (
+                                                        <div className="flex flex-col gap-1 items-start">
+                                                            <span className={`px-4 py-2 rounded-full text-[10px] font-black uppercase tracking-widest ${
+                                                                isEffectivelyAvailable
+                                                                    ? 'bg-emerald-100 text-emerald-700'
+                                                                    : 'bg-rose-100 text-rose-700'
+                                                            }`}>
+                                                                {isEffectivelyAvailable ? 'Yes' : 'No'}
+                                                            </span>
+                                                            {slot.is_available && isNoticeExpired && (
+                                                                <span className="text-[9px] font-bold text-amber-600">Within notice window</span>
+                                                            )}
+                                                        </div>
+                                                    );
+                                                })()}
                                             </td>
                                             <td className="py-5 px-6">
                                                 <div className="flex gap-3">
@@ -760,6 +789,19 @@ export default function AtherTeamBookingAdmin({ eventId: propEventId, isEmbedded
                                     placeholder="https://example.com/photo.jpg"
                                     className="w-full px-6 py-4 bg-slate-50 border border-slate-100 rounded-2xl font-bold text-[#0d0e0e] focus:outline-none focus:ring-4 focus:ring-[#1a27c9]/5 focus:border-[#1a27c9] transition-premium"
                                 />
+                            </div>
+                            <div>
+                                <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-3">Advance Notice Window</label>
+                                <select
+                                    value={newMember.advance_notice_minutes ?? 1440}
+                                    onChange={(e) => setNewMember({ ...newMember, advance_notice_minutes: parseInt(e.target.value, 10) })}
+                                    className="w-full px-6 py-4 bg-slate-50 border border-slate-100 rounded-2xl font-bold text-[#0d0e0e] focus:outline-none focus:ring-4 focus:ring-[#1a27c9]/5 focus:border-[#1a27c9] transition-premium"
+                                >
+                                    {ADVANCE_NOTICE_OPTIONS.map((opt) => (
+                                        <option key={opt.value} value={opt.value}>{opt.label}</option>
+                                    ))}
+                                </select>
+                                <p className="text-[10px] text-slate-400 font-bold mt-1">Minimum notice required before a booking can be made.</p>
                             </div>
                             <div>
                                 <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-3">Bio</label>

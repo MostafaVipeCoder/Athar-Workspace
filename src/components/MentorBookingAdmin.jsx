@@ -1,6 +1,6 @@
 import React, { useMemo, useState, useEffect } from 'react';
 import { useParams, Link } from 'react-router-dom';
-import { Plus, Edit, Trash2, Calendar, Clock, Users, Copy, CheckCircle, ArrowLeft, Search, Loader2, Briefcase, X, Database, AlertTriangle, ExternalLink, Settings } from 'lucide-react';
+import { Plus, Edit, Trash2, Calendar, Clock, Users, Copy, CheckCircle, ArrowLeft, Search, Loader2, Briefcase, X, Database, AlertTriangle, ExternalLink, Settings, Mail, Save } from 'lucide-react';
 import {
     getMentors,
     createMentor,
@@ -13,26 +13,15 @@ import {
     getBookings,
     deleteBooking,
     getEvent,
-    getMentorDayConfigs,
-    saveMentorDayConfig,
-    deleteMentorDayConfig,
-    calculateDaySlotTimes,
-    buildMentorSlotsPayload,
-    detectMentorSlotConflicts,
-    generateMentorSlotsForDay,
+    updateMentorNotificationSettings,
+    ADVANCE_NOTICE_OPTIONS,
+    isSlotWithinNoticeWindow
 } from '../lib/mentorBooking';
 import { supabase } from '../lib/supabase';
-import { getMasterExperts, getEventDays } from '../lib/api';
+import { getMasterExperts } from '../lib/api';
 import { getGoogleDriveFallbackUrls } from '../lib/utils';
 import LazyImage from './LazyImage';
-
-const timeTo12Hour = (t24) => {
-    if (!t24) return '';
-    const [hh, mm] = t24.split(':').map(Number);
-    const ampm = hh >= 12 ? 'PM' : 'AM';
-    const h = ((hh + 11) % 12) + 1;
-    return `${h}:${String(mm).padStart(2, '0')} ${ampm}`;
-};
+import RichTextEditor from './RichTextEditor';
 
 // Local storage for remembering mentor emails
 const getStoredMentorEmails = () => {
@@ -52,37 +41,36 @@ const storeMentorEmail = (masterId, email) => {
     } catch {}
 };
 
-const DEFAULT_DAY_CONFIG = {
-    session_start_time: '09:00',
-    session_end_time: '17:00',
-    slot_duration_minutes: 30,
-    break_between_slots_minutes: 5,
-};
-
-const SLOT_PRESETS = [10, 15, 20, 30];
-
-const DAY_PRESETS = [
-    { label: '1 Day', value: 1 },
-    { label: '2 Days', value: 2 },
-    { label: '3 Days', value: 3 },
-];
-
 export default function MentorBookingAdmin() {
     const { eventId } = useParams();
     const [mentors, setMentors] = useState([]);
     const [slots, setSlots] = useState([]);
     const [bookings, setBookings] = useState([]);
     const [event, setEvent] = useState(null);
-    const [eventDays, setEventDays] = useState([]);
-    const [dayConfigs, setDayConfigs] = useState([]);
     const [loading, setLoading] = useState(true);
     const [activeTab, setActiveTab] = useState('mentors');
     const [adminEmail, setAdminEmail] = useState('');
+    const [mentorAdminEmails, setMentorAdminEmails] = useState([]);
+    const [mentorCcEmails, setMentorCcEmails] = useState([]);
+    const [newAdminEmail, setNewAdminEmail] = useState('');
+    const [newCcEmail, setNewCcEmail] = useState('');
+    const [mentorEmailTemplateSubject, setMentorEmailTemplateSubject] = useState('');
+    const [mentorEmailTemplateBody, setMentorEmailTemplateBody] = useState('');
+    const [savingSettings, setSavingSettings] = useState(false);
+    const [toast, setToast] = useState({ show: false, message: '', type: 'success' });
     const [showHubModal, setShowHubModal] = useState(false);
     const [showAddSlot, setShowAddSlot] = useState(false);
     const [editingMentor, setEditingMentor] = useState(null);
     const [editingSlot, setEditingSlot] = useState(null);
-    const [newSlot, setNewSlot] = useState({ mentor_id: '', start_time: '', end_time: '', meet_link: '' });
+    const [newSlot, setNewSlot] = useState({ 
+        mentor_id: '', 
+        date: '', 
+        start_time: '', 
+        slot_duration: 30, 
+        break_time: 5, 
+        num_slots: 1,
+        meet_link: ''
+    });
     const [copied, setCopied] = useState(false);
     const [selectedSlotIds, setSelectedSlotIds] = useState([]);
     const [hubExperts, setHubExperts] = useState([]);
@@ -94,21 +82,10 @@ export default function MentorBookingAdmin() {
     const [storedEmails, setStoredEmails] = useState(getStoredMentorEmails());
     const [generatingMeetLink, setGeneratingMeetLink] = useState(false);
 
-    const [dayEdits, setDayEdits] = useState({});
-    const [customSlotMinsByDay, setCustomSlotMinsByDay] = useState({});
-    const [numDays, setNumDays] = useState(1);
-    const [globalStartTime, setGlobalStartTime] = useState('09:00');
-    const [globalTotalMins, setGlobalTotalMins] = useState(300);
-    const [globalSlotMins, setGlobalSlotMins] = useState(20);
-    const [globalUseCustom, setGlobalUseCustom] = useState(false);
-    const [globalCustomMins, setGlobalCustomMins] = useState(25);
-
-    const [selectedMentorsByDay, setSelectedMentorsByDay] = useState({});
-    const [savingDay, setSavingDay] = useState(null);
-    const [generatingDay, setGeneratingDay] = useState(null);
-    const [genResultByDay, setGenResultByDay] = useState({});
-    const [overwriteModeByDay, setOverwriteModeByDay] = useState({});
-    const [configDirtyByDay, setConfigDirtyByDay] = useState({});
+    const showToast = (message, type = 'success') => {
+        setToast({ show: true, message, type });
+        setTimeout(() => setToast(prev => ({ ...prev, show: false })), 4000);
+    };
 
     const generateMeetLink = async (
         slotStart, 
@@ -158,33 +135,21 @@ export default function MentorBookingAdmin() {
     const loadData = async () => {
         try {
             setLoading(true);
-            const [mentorsData, slotsData, bookingsData, eventData, dayConfigsData, eventDaysData] = await Promise.all([
+            const [mentorsData, slotsData, bookingsData, eventData] = await Promise.all([
                 getMentors(eventId),
                 getSlots(eventId),
                 getBookings(eventId),
-                getEvent(eventId),
-                getMentorDayConfigs(eventId),
-                getEventDays(eventId)
+                getEvent(eventId)
             ]);
             setMentors(mentorsData);
             setSlots(slotsData);
             setBookings(bookingsData);
             setEvent(eventData);
-            setDayConfigs(dayConfigsData || []);
-            setEventDays(eventDaysData || []);
             setAdminEmail(eventData?.admin_email || '');
-
-            const computedNumDays = (dayConfigsData && dayConfigsData.length > 0)
-                ? Math.max(...dayConfigsData.map(d => d.day_number))
-                : (eventDaysData && eventDaysData.length > 0 ? eventDaysData.length : 1);
-            setNumDays(computedNumDays);
-
-            const newDayEdits = {};
-            for (const cfg of (dayConfigsData || [])) {
-                newDayEdits[cfg.day_number] = { ...cfg };
-            }
-            setDayEdits(newDayEdits);
-            setConfigDirtyByDay({});
+            setMentorAdminEmails(eventData?.mentor_admin_emails || []);
+            setMentorCcEmails(eventData?.mentor_cc_emails || []);
+            setMentorEmailTemplateSubject(eventData?.mentor_email_template_subject || 'New Mentor Session Booking: {{company_name}} with {{mentor_name}}');
+            setMentorEmailTemplateBody(eventData?.mentor_email_template_body || '<p>Dear Team,</p><p>A new mentor session has been booked.</p><p><strong>Company:</strong> {{company_name}}<br><strong>Mentor:</strong> {{mentor_name}}</p><p>Best regards,<br>The Athar Team</p>');
         } catch (error) {
             console.error('Error loading data:', error);
         } finally {
@@ -192,16 +157,24 @@ export default function MentorBookingAdmin() {
         }
     };
 
-    const handleSaveAdminEmail = async () => {
+    const handleSaveNotificationSettings = async () => {
         try {
-            await supabase
-                .from('events')
-                .update({ admin_email: adminEmail })
-                .eq('id', eventId);
-            setEvent(prev => prev ? { ...prev, admin_email: adminEmail } : null);
+            setSavingSettings(true);
+            const updates = {
+                admin_email: adminEmail.trim(),
+                mentor_admin_emails: mentorAdminEmails,
+                mentor_cc_emails: mentorCcEmails,
+                mentor_email_template_subject: mentorEmailTemplateSubject,
+                mentor_email_template_body: mentorEmailTemplateBody
+            };
+            await updateMentorNotificationSettings(eventId, updates);
+            setEvent(prev => prev ? { ...prev, ...updates } : null);
+            showToast('تم حفظ إعدادات إشعارات المينتورز بنجاح');
         } catch (error) {
-            console.error('Error saving admin email:', error);
-            alert('Failed to save admin email');
+            console.error('Error saving mentor notification settings:', error);
+            showToast('فشل حفظ الإعدادات: ' + error.message, 'error');
+        } finally {
+            setSavingSettings(false);
         }
     };
 
@@ -326,12 +299,52 @@ export default function MentorBookingAdmin() {
     const handleCreateSlot = async (e) => {
         e.preventDefault();
         try {
-            await createSlot({ ...newSlot, event_id: eventId, is_available: true });
-            setNewSlot({ mentor_id: '', start_time: '', end_time: '', meet_link: '' });
+            const slotsToCreate = [];
+            const { mentor_id, date, start_time, slot_duration, break_time, num_slots, meet_link } = newSlot;
+            
+            // Parse start time
+            const [hours, minutes] = start_time.split(':').map(Number);
+            let currentStartTime = new Date(date);
+            currentStartTime.setHours(hours, minutes, 0, 0);
+            
+            for (let i = 0; i < num_slots; i++) {
+                const currentEndTime = new Date(currentStartTime);
+                currentEndTime.setMinutes(currentEndTime.getMinutes() + slot_duration);
+                
+                slotsToCreate.push({
+                    mentor_id,
+                    event_id: eventId,
+                    start_time: currentStartTime.toISOString(),
+                    end_time: currentEndTime.toISOString(),
+                    is_available: true,
+                    meet_link
+                });
+                
+                // Prepare for next slot (add break time if not last slot)
+                if (i < num_slots - 1) {
+                    currentStartTime = new Date(currentEndTime);
+                    currentStartTime.setMinutes(currentStartTime.getMinutes() + break_time);
+                }
+            }
+            
+            // Create all slots
+            await Promise.all(slotsToCreate.map(slot => createSlot(slot)));
+            
+            // Reset state
+            setNewSlot({ 
+                mentor_id: '', 
+                date: '', 
+                start_time: '', 
+                slot_duration: 30, 
+                break_time: 5, 
+                num_slots: 1,
+                meet_link: ''
+            });
             setShowAddSlot(false);
+            showToast(`تم إنشاء ${slotsToCreate.length} موعد بنجاح`);
             loadData();
         } catch (error) {
-            alert('Error creating slot: ' + error.message);
+            alert('Error creating slots: ' + error.message);
         }
     };
 
@@ -417,151 +430,6 @@ export default function MentorBookingAdmin() {
     };
 
     // ------------------------------
-    // Schedule (Day-by-Day) Handlers
-    // ------------------------------
-
-    const getDayConfigOrDefault = (dayNumber) => {
-        const saved = dayConfigs.find(c => c.day_number === dayNumber);
-        const edited = dayEdits[dayNumber];
-        return {
-            day_number: dayNumber,
-            day_date: eventDays[dayNumber - 1]?.day_date || null,
-            session_start_time: DEFAULT_DAY_CONFIG.session_start_time,
-            session_end_time: DEFAULT_DAY_CONFIG.session_end_time,
-            slot_duration_minutes: DEFAULT_DAY_CONFIG.slot_duration_minutes,
-            break_between_slots_minutes: DEFAULT_DAY_CONFIG.break_between_slots_minutes,
-            ...(saved || {}),
-            ...(edited || {})
-        };
-    };
-
-    const handleDayFieldChange = (dayNumber, field, value) => {
-        setDayEdits(prev => ({
-            ...prev,
-            [dayNumber]: {
-                ...(prev[dayNumber] || getDayConfigOrDefault(dayNumber)),
-                [field]: value
-            }
-        }));
-        setConfigDirtyByDay(prev => ({ ...prev, [dayNumber]: true }));
-    };
-
-    const handleApplyGlobalToAllDays = () => {
-        const slotDur = globalUseCustom
-            ? (parseInt(globalCustomMins, 10) || 20)
-            : (parseInt(globalSlotMins, 10) || 20);
-        const newDayEdits = { ...dayEdits };
-        for (let d = 1; d <= numDays; d++) {
-            const existing = newDayEdits[d] || getDayConfigOrDefault(d);
-            newDayEdits[d] = {
-                ...existing,
-                session_start_time: globalStartTime,
-                slot_duration_minutes: slotDur,
-                break_between_slots_minutes: 5,
-            };
-        }
-        setDayEdits(newDayEdits);
-        const dirty = {};
-        for (let d = 1; d <= numDays; d++) dirty[d] = true;
-        setConfigDirtyByDay(dirty);
-    };
-
-    const handleSaveDayConfig = async (dayNumber) => {
-        try {
-            setSavingDay(dayNumber);
-            const cfg = getDayConfigOrDefault(dayNumber);
-            const saved = await saveMentorDayConfig({
-                ...cfg,
-                event_id: eventId,
-            });
-            setDayConfigs(prev => {
-                const others = prev.filter(c => c.day_number !== dayNumber);
-                return [...others, saved].sort((a, b) => a.day_number - b.day_number);
-            });
-            setDayEdits(prev => ({ ...prev, [dayNumber]: saved }));
-            setConfigDirtyByDay(prev => ({ ...prev, [dayNumber]: false }));
-            setGenResultByDay(prev => ({ ...prev, [dayNumber]: null }));
-        } catch (error) {
-            console.error('Error saving day config:', error);
-            alert('Error saving schedule: ' + (error.message || 'Unknown error'));
-        } finally {
-            setSavingDay(null);
-        }
-    };
-
-    const handleToggleMentorForDay = (dayNumber, mentorId) => {
-        setSelectedMentorsByDay(prev => {
-            const current = new Set(prev[dayNumber] || []);
-            if (current.has(mentorId)) {
-                current.delete(mentorId);
-            } else {
-                current.add(mentorId);
-            }
-            return { ...prev, [dayNumber]: [...current] };
-        });
-    };
-
-    const handleSelectAllMentorsForDay = (dayNumber) => {
-        setSelectedMentorsByDay(prev => ({
-            ...prev,
-            [dayNumber]: mentors.map(m => m.id)
-        }));
-    };
-
-    const handleClearMentorsForDay = (dayNumber) => {
-        setSelectedMentorsByDay(prev => ({
-            ...prev,
-            [dayNumber]: []
-        }));
-    };
-
-    const handleGenerateSlotsForDay = async (dayNumber) => {
-        try {
-            setGeneratingDay(dayNumber);
-            setGenResultByDay(prev => ({ ...prev, [dayNumber]: null }));
-
-            const cfg = getDayConfigOrDefault(dayNumber);
-            const mentorIds = selectedMentorsByDay[dayNumber] || [];
-            const overwriteMode = overwriteModeByDay[dayNumber] || 'skip';
-
-            const result = await generateMentorSlotsForDay({
-                config: cfg,
-                mentorIds,
-                eventId,
-                dayDate: cfg.day_date,
-                overwriteMode,
-            });
-
-            setGenResultByDay(prev => ({
-                ...prev,
-                [dayNumber]: {
-                    ok: true,
-                    created: result.created.length,
-                    skipped: result.skipped,
-                    conflicts: result.conflicts.length,
-                    perMentor: result.slotsPerMentor,
-                    ts: new Date().toLocaleTimeString(),
-                }
-            }));
-            await loadData();
-        } catch (error) {
-            console.error('Error generating slots:', error);
-            setGenResultByDay(prev => ({
-                ...prev,
-                [dayNumber]: {
-                    ok: false,
-                    error: error.message || 'Failed to generate slots',
-                    ts: new Date().toLocaleTimeString(),
-                }
-            }));
-        } finally {
-            setGeneratingDay(null);
-        }
-    };
-
-    const getEventDayMeta = (dayNumber) => {
-        return eventDays[dayNumber - 1] || null;
-    };
 
     if (loading) {
         return (
@@ -623,17 +491,6 @@ export default function MentorBookingAdmin() {
                             Bookings
                         </button>
                         <button
-                            onClick={() => setActiveTab('schedule')}
-                            className={`flex items-center gap-3 px-8 py-6 font-black text-xs uppercase tracking-widest transition-premium ${
-                                activeTab === 'schedule'
-                                    ? 'text-[#1a27c9] border-b-4 border-[#1a27c9] bg-[#1a27c9]/5'
-                                    : 'text-slate-400 hover:text-slate-600 hover:bg-slate-50'
-                            }`}
-                        >
-                            <Database size={20} />
-                            Schedule
-                        </button>
-                        <button
                             onClick={() => setActiveTab('settings')}
                             className={`flex items-center gap-3 px-8 py-6 font-black text-xs uppercase tracking-widest transition-premium ${
                                 activeTab === 'settings'
@@ -663,9 +520,8 @@ export default function MentorBookingAdmin() {
 
                         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                             {mentors.map((mentor) => (
-                                <Link
+                                <div
                                     key={mentor.id}
-                                    to={`/event/${eventId}/mentor-booking/${mentor.id}`}
                                     className="bg-slate-50 rounded-[2.5rem] border border-slate-100 p-6 hover:shadow-xl hover:bg-white transition-premium block"
                                 >
                                     {editingMentor?.id === mentor.id ? (
@@ -689,6 +545,19 @@ export default function MentorBookingAdmin() {
                                                 />
                                             </div>
                                             <div>
+                                                <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Advance Notice Window</label>
+                                                <select
+                                                    value={editingMentor.advance_notice_minutes ?? 1440}
+                                                    onChange={(e) => setEditingMentor({ ...editingMentor, advance_notice_minutes: parseInt(e.target.value, 10) })}
+                                                    className="w-full px-6 py-4 bg-white border border-slate-100 rounded-2xl font-bold text-[#0d0e0e] focus:outline-none focus:ring-4 focus:ring-[#1a27c9]/5 focus:border-[#1a27c9] transition-premium"
+                                                >
+                                                    {ADVANCE_NOTICE_OPTIONS.map((opt) => (
+                                                        <option key={opt.value} value={opt.value}>{opt.label}</option>
+                                                    ))}
+                                                </select>
+                                                <p className="text-[10px] text-slate-400 font-bold mt-1">Minimum notice required before a booking can be made.</p>
+                                            </div>
+                                            <div>
                                                 <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Bio</label>
                                                 <textarea
                                                     value={editingMentor.bio || ''}
@@ -705,7 +574,7 @@ export default function MentorBookingAdmin() {
                                                 </button>
                                                 <button
                                                     type="button"
-                                                    onClick={(e) => { e.preventDefault(); e.stopPropagation(); setEditingMentor(null); }}
+                                                    onClick={() => setEditingMentor(null)}
                                                     className="px-6 py-4 border border-slate-100 text-slate-400 rounded-2xl font-black text-xs uppercase tracking-widest hover:bg-slate-100 transition-premium"
                                                 >
                                                     Cancel
@@ -714,34 +583,45 @@ export default function MentorBookingAdmin() {
                                         </form>
                                     ) : (
                                         <>
-                                            <div className="flex items-start justify-between mb-4">
-                                                <div className="flex items-center gap-4">
-                                                    <div className="w-16 h-16 rounded-2xl overflow-hidden shadow-lg border-2 border-white shrink-0 bg-white">
-                                                        <LazyImage
-                                                            src={mentor.photo_url ? getGoogleDriveFallbackUrls(mentor.photo_url)[0] : null}
-                                                            urls={mentor.photo_url ? getGoogleDriveFallbackUrls(mentor.photo_url) : []}
-                                                            alt={mentor.name}
-                                                            objectFit="cover"
-                                                            className="w-full h-full"
-                                                            fallback={
-                                                                <div className="w-full h-full flex items-center justify-center bg-[#1a27c9]/5 text-[#1a27c9] font-black text-2xl">
-                                                                    {mentor.name.charAt(0)}
-                                                                </div>
-                                                            }
-                                                        />
-                                                    </div>
-                                                    <div className="flex-1 min-w-0">
-                                                        <h4 className="font-black text-lg text-[#0d0e0e] uppercase leading-tight truncate mb-1">{mentor.name}</h4>
-                                                        <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider truncate mb-2">{mentor.email}</p>
-                                                        {mentor.bio && (
-                                                            <p className="text-sm font-bold text-slate-500 leading-relaxed italic">{mentor.bio}</p>
-                                                        )}
+                                            <Link
+                                                to={`/event/${eventId}/mentor-booking/${mentor.id}`}
+                                                className="block group"
+                                            >
+                                                <div className="flex items-start justify-between mb-4">
+                                                    <div className="flex items-center gap-4">
+                                                        <div className="w-16 h-16 rounded-2xl overflow-hidden shadow-lg border-2 border-white shrink-0 bg-white">
+                                                            <LazyImage
+                                                                src={mentor.photo_url ? getGoogleDriveFallbackUrls(mentor.photo_url)[0] : null}
+                                                                urls={mentor.photo_url ? getGoogleDriveFallbackUrls(mentor.photo_url) : []}
+                                                                alt={mentor.name}
+                                                                objectFit="cover"
+                                                                className="w-full h-full"
+                                                                fallback={
+                                                                    <div className="w-full h-full flex items-center justify-center bg-[#1a27c9]/5 text-[#1a27c9] font-black text-2xl">
+                                                                        {mentor.name.charAt(0)}
+                                                                    </div>
+                                                                }
+                                                            />
+                                                        </div>
+                                                        <div className="flex-1 min-w-0">
+                                                            <h4 className="font-black text-lg text-[#0d0e0e] group-hover:text-[#1a27c9] uppercase leading-tight truncate mb-1 transition-colors">{mentor.name}</h4>
+                                                            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider truncate mb-2">{mentor.email}</p>
+                                                            <div className="flex items-center gap-2 mb-2 flex-wrap">
+                                                                <span className="px-3 py-1 rounded-lg bg-indigo-50 text-[#1a27c9] text-[10px] font-black uppercase tracking-wider">
+                                                                    Notice: {ADVANCE_NOTICE_OPTIONS.find(o => o.value === (mentor.advance_notice_minutes ?? 1440))?.label?.split('(')[0]?.trim() || `${mentor.advance_notice_minutes ?? 1440}m`}
+                                                                </span>
+                                                            </div>
+                                                            {mentor.bio && (
+                                                                <p className="text-sm font-bold text-slate-500 leading-relaxed italic">{mentor.bio}</p>
+                                                            )}
+                                                        </div>
                                                     </div>
                                                 </div>
-                                            </div>
+                                            </Link>
                                             <div className="flex gap-3 mt-6">
                                                 <button
-                                                    onClick={(e) => { e.preventDefault(); e.stopPropagation(); copyBookingLink(mentor.id); }}
+                                                    type="button"
+                                                    onClick={() => copyBookingLink(mentor.id)}
                                                     className="flex-1 flex items-center justify-center gap-2 bg-white border-2 border-slate-100 text-[#0d0e0e] hover:border-[#1a27c9] hover:text-[#1a27c9] hover:shadow-lg transition-premium py-4 rounded-2xl font-black text-xs uppercase tracking-widest"
                                                 >
                                                     {copied ? <CheckCircle size={14} /> : <Copy size={14} />}
@@ -751,19 +631,20 @@ export default function MentorBookingAdmin() {
                                                     href={`#/book/${mentor.id}`}
                                                     target="_blank"
                                                     rel="noopener noreferrer"
-                                                    onClick={(e) => { e.stopPropagation(); }}
                                                     className="p-4 bg-white border-2 border-slate-100 text-slate-400 hover:border-[#1a27c9] hover:text-[#1a27c9] hover:shadow-lg transition-premium rounded-2xl"
                                                 >
                                                     <ExternalLink size={18} />
                                                 </a>
                                                 <button
-                                                    onClick={(e) => { e.preventDefault(); e.stopPropagation(); setEditingMentor(mentor); }}
+                                                    type="button"
+                                                    onClick={() => setEditingMentor(mentor)}
                                                     className="p-4 bg-white border-2 border-slate-100 text-slate-400 hover:border-[#1a27c9] hover:text-[#1a27c9] hover:shadow-lg transition-premium rounded-2xl"
                                                 >
                                                     <Edit size={18} />
                                                 </button>
                                                 <button
-                                                    onClick={(e) => { e.preventDefault(); e.stopPropagation(); handleDeleteMentor(mentor.id); }}
+                                                    type="button"
+                                                    onClick={() => handleDeleteMentor(mentor.id)}
                                                     className="p-4 bg-white border-2 border-slate-100 text-slate-400 hover:border-rose-500 hover:text-rose-500 hover:shadow-lg transition-premium rounded-2xl"
                                                 >
                                                     <Trash2 size={18} />
@@ -771,7 +652,7 @@ export default function MentorBookingAdmin() {
                                             </div>
                                         </>
                                     )}
-                                </Link>
+                                </div>
                             ))}
                         </div>
                     </div>
@@ -794,7 +675,18 @@ export default function MentorBookingAdmin() {
                                 )}
                             </div>
                             <button
-                                onClick={() => setShowAddSlot(true)}
+                                onClick={() => {
+                                    setNewSlot({ 
+                                        mentor_id: '', 
+                                        date: '', 
+                                        start_time: '', 
+                                        slot_duration: 30, 
+                                        break_time: 5, 
+                                        num_slots: 1,
+                                        meet_link: ''
+                                    });
+                                    setShowAddSlot(true);
+                                }}
                                 className="flex items-center gap-3 bg-[#1a27c9] text-white px-8 py-4 rounded-2xl font-black text-xs uppercase tracking-widest hover:bg-[#0d0e0e] hover:shadow-xl hover:shadow-indigo-200 transition-premium group active:scale-95"
                             >
                                 <Plus size={18} className="group-hover:rotate-90 transition-transform duration-500" />
@@ -912,15 +804,24 @@ export default function MentorBookingAdmin() {
                                                         onChange={(e) => setEditingSlot({ ...editingSlot, is_available: e.target.checked })}
                                                         className="w-5 h-5"
                                                     />
-                                                ) : (
-                                                    <span className={`px-4 py-2 rounded-full text-[10px] font-black uppercase tracking-widest ${
-                                                        slot.is_available
-                                                            ? 'bg-emerald-100 text-emerald-700'
-                                                            : 'bg-rose-100 text-rose-700'
-                                                    }`}>
-                                                        {slot.is_available ? 'Yes' : 'No'}
-                                                    </span>
-                                                )}
+                                                ) : (() => {
+                                                    const isNoticeExpired = isSlotWithinNoticeWindow(slot.start_time, slot.mentors?.advance_notice_minutes ?? 1440);
+                                                    const isEffectivelyAvailable = slot.is_available && !isNoticeExpired;
+                                                    return (
+                                                        <div className="flex flex-col gap-1 items-start">
+                                                            <span className={`px-4 py-2 rounded-full text-[10px] font-black uppercase tracking-widest ${
+                                                                isEffectivelyAvailable
+                                                                    ? 'bg-emerald-100 text-emerald-700'
+                                                                    : 'bg-rose-100 text-rose-700'
+                                                            }`}>
+                                                                {isEffectivelyAvailable ? 'Yes' : 'No'}
+                                                            </span>
+                                                            {slot.is_available && isNoticeExpired && (
+                                                                <span className="text-[9px] font-bold text-amber-600">Within notice window</span>
+                                                            )}
+                                                        </div>
+                                                    );
+                                                })()}
                                             </td>
                                             <td className="py-5 px-6">
                                                 <div className="flex gap-3">
@@ -1013,491 +914,194 @@ export default function MentorBookingAdmin() {
                     </div>
                 )}
 
-                {/* Schedule Tab */}
-                {activeTab === 'schedule' && (
-                    <div className="space-y-6">
-                        {/* Global Defaults Panel */}
-                        <div className="bg-white rounded-3xl shadow-sm border border-slate-100 p-8">
-                            <div className="flex justify-between items-center mb-6">
-                                <h2 className="text-xl font-black text-[#0d0e0e]">Day-by-Day Schedule Settings</h2>
-                                <span className="px-4 py-2 rounded-full bg-[#1a27c9]/10 text-[#1a27c9] text-[10px] font-black uppercase tracking-widest">
-                                    Flexible Per-Day Config
-                                </span>
-                            </div>
-                            <p className="text-sm text-slate-500 font-bold mb-8 leading-relaxed">
-                                Configure mentoring session time windows and slot granularity for each day. You can set global defaults below, then fine-tune individual days.
-                            </p>
-
-                            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
-                                <div>
-                                    <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-3">Number of Days</label>
-                                    <div className="flex gap-2 flex-wrap">
-                                        {DAY_PRESETS.map(p => (
-                                            <button
-                                                key={p.value}
-                                                type="button"
-                                                onClick={() => setNumDays(p.value)}
-                                                className={`px-6 py-3 rounded-2xl font-black text-xs uppercase tracking-widest transition-premium ${
-                                                    numDays === p.value
-                                                        ? 'bg-[#1a27c9] text-white shadow-lg shadow-indigo-200'
-                                                        : 'bg-slate-50 text-slate-500 hover:bg-slate-100'
-                                                }`}
-                                            >
-                                                {p.label}
-                                            </button>
-                                        ))}
-                                        <input
-                                            type="number"
-                                            min={1}
-                                            max={31}
-                                            value={numDays}
-                                            onChange={(e) => setNumDays(Math.max(1, Math.min(31, parseInt(e.target.value, 10) || 1)))}
-                                            className="w-24 px-4 py-3 bg-slate-50 border-2 border-slate-50 focus:border-[#1a27c9]/20 rounded-2xl font-bold text-[#0d0e0e] focus:outline-none transition-all text-center"
-                                        />
-                                    </div>
-                                </div>
-
-                                <div>
-                                    <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-3">Global Session Start Time</label>
-                                    <input
-                                        type="time"
-                                        value={globalStartTime}
-                                        onChange={(e) => setGlobalStartTime(e.target.value)}
-                                        className="w-full px-6 py-4 bg-slate-50 border-2 border-slate-50 focus:border-[#1a27c9]/20 rounded-2xl font-bold text-[#0d0e0e] focus:outline-none transition-all"
-                                    />
-                                    <p className="text-[10px] text-slate-400 mt-2 font-bold">
-                                        Default: {timeTo12Hour(globalStartTime)}
-                                    </p>
-                                </div>
-
-                                <div>
-                                    <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-3">Slot Duration (Minutes)</label>
-                                    <div className="space-y-3">
-                                        <div className="flex gap-2 flex-wrap">
-                                            {SLOT_PRESETS.map(mins => (
-                                                <button
-                                                    key={mins}
-                                                    type="button"
-                                                    onClick={() => { setGlobalSlotMins(mins); setGlobalUseCustom(false); }}
-                                                    className={`px-5 py-3 rounded-2xl font-black text-xs uppercase tracking-widest transition-premium ${
-                                                        !globalUseCustom && globalSlotMins === mins
-                                                            ? 'bg-[#1a27c9] text-white shadow-md shadow-indigo-200'
-                                                            : 'bg-slate-50 text-slate-500 hover:bg-slate-100'
-                                                    }`}
-                                                >
-                                                    {mins}m
-                                                </button>
-                                            ))}
-                                            <label className={`flex items-center gap-2 px-5 py-3 rounded-2xl font-black text-xs uppercase tracking-widest cursor-pointer transition-premium ${
-                                                globalUseCustom ? 'bg-[#1a27c9] text-white shadow-md shadow-indigo-200' : 'bg-slate-50 text-slate-500 hover:bg-slate-100'
-                                            }`}>
-                                                <input
-                                                    type="checkbox"
-                                                    className="sr-only"
-                                                    checked={globalUseCustom}
-                                                    onChange={(e) => setGlobalUseCustom(e.target.checked)}
-                                                />
-                                                Custom
-                                            </label>
-                                        </div>
-                                        {globalUseCustom && (
-                                            <input
-                                                type="number"
-                                                min={5}
-                                                max={240}
-                                                step={5}
-                                                value={globalCustomMins}
-                                                onChange={(e) => setGlobalCustomMins(parseInt(e.target.value, 10) || 25)}
-                                                className="w-full px-5 py-3 bg-white border-2 border-slate-100 focus:border-[#1a27c9]/20 rounded-2xl font-bold text-[#0d0e0e] focus:outline-none transition-all"
-                                            />
-                                        )}
-                                    </div>
-                                </div>
-
-                                <div className="flex flex-col justify-end">
-                                    <button
-                                        type="button"
-                                        onClick={handleApplyGlobalToAllDays}
-                                        className="w-full flex items-center justify-center gap-3 bg-gradient-to-r from-[#1a27c9] to-indigo-600 text-white px-8 py-5 rounded-2xl font-black text-xs uppercase tracking-widest hover:shadow-2xl hover:shadow-indigo-200/60 transition-premium active:scale-95"
-                                    >
-                                        <Database size={16} />
-                                        Apply Defaults to All {numDays} Days
-                                    </button>
-                                </div>
-                            </div>
-
-                            {mentors.length === 0 && (
-                                <div className="p-6 bg-amber-50 border border-amber-200 rounded-3xl flex items-start gap-4">
-                                    <AlertTriangle size={24} className="text-amber-500 shrink-0 mt-0.5" />
-                                    <div>
-                                        <p className="font-black text-amber-700 text-xs uppercase tracking-widest mb-1">No Mentors Added Yet</p>
-                                        <p className="text-amber-600 font-bold text-sm leading-relaxed">
-                                            Add mentors from the "Mentors" tab first, then return here to assign them to schedule days and generate slots.
-                                        </p>
-                                    </div>
-                                </div>
-                            )}
-                        </div>
-
-                        {/* Day Cards */}
-                        <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
-                            {Array.from({ length: numDays }, (_, idx) => {
-                                const dayNumber = idx + 1;
-                                const cfg = getDayConfigOrDefault(dayNumber);
-                                const dayMeta = getEventDayMeta(dayNumber);
-                                const preview = calculateDaySlotTimes(cfg);
-                                const isDirty = configDirtyByDay[dayNumber];
-                                const isSaving = savingDay === dayNumber;
-                                const isGenerating = generatingDay === dayNumber;
-                                const selectedMentorIds = selectedMentorsByDay[dayNumber] || [];
-                                const genResult = genResultByDay[dayNumber];
-                                const overMode = overwriteModeByDay[dayNumber] || 'skip';
-
-                                return (
-                                    <div key={dayNumber} className="bg-white rounded-3xl shadow-sm border border-slate-100 overflow-hidden">
-                                        {/* Day Header */}
-                                        <div className="px-8 pt-8 pb-6 border-b border-slate-100 flex items-center justify-between flex-wrap gap-4">
-                                            <div className="flex items-center gap-4">
-                                                <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-[#1a27c9] to-indigo-600 text-white flex items-center justify-center font-black text-lg shadow-lg shadow-indigo-200/60">
-                                                    D{dayNumber}
-                                                </div>
-                                                <div>
-                                                    <h3 className="font-black text-lg text-[#0d0e0e] uppercase tracking-tight">
-                                                        Day {dayNumber}
-                                                        {dayMeta?.day_name && <span className="ml-3 text-sm text-slate-400 font-bold normal-case tracking-normal">({dayMeta.day_name})</span>}
-                                                    </h3>
-                                                    <p className="text-[11px] text-slate-400 font-bold uppercase tracking-wider mt-1">
-                                                        {dayMeta?.day_date ? new Date(dayMeta.day_date).toLocaleDateString(undefined, { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' }) : 'No date linked to event_days'}
-                                                    </p>
-                                                </div>
-                                            </div>
-                                            <div className="flex items-center gap-3">
-                                                {isDirty && (
-                                                    <span className="px-3 py-1.5 rounded-full bg-amber-50 text-amber-600 text-[10px] font-black uppercase tracking-widest border border-amber-200">
-                                                        Unsaved
-                                                    </span>
-                                                )}
-                                                {!isDirty && dayConfigs.some(c => c.day_number === dayNumber) && (
-                                                    <span className="px-3 py-1.5 rounded-full bg-emerald-50 text-emerald-600 text-[10px] font-black uppercase tracking-widest border border-emerald-200">
-                                                        Saved
-                                                    </span>
-                                                )}
-                                            </div>
-                                        </div>
-
-                                        {/* Config Section */}
-                                        <div className="p-8 space-y-6">
-                                            {/* Date Override */}
-                                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
-                                                <div>
-                                                    <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Date (for slot generation)</label>
-                                                    <input
-                                                        type="date"
-                                                        value={cfg.day_date || ''}
-                                                        onChange={(e) => handleDayFieldChange(dayNumber, 'day_date', e.target.value || null)}
-                                                        className="w-full px-5 py-3.5 bg-slate-50 border-2 border-slate-50 focus:border-[#1a27c9]/20 rounded-2xl font-bold text-[#0d0e0e] focus:outline-none transition-all"
-                                                    />
-                                                </div>
-                                                <div>
-                                                    <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Slot Duration (Min)</label>
-                                                    <div className="flex gap-2">
-                                                        {SLOT_PRESETS.map(mins => (
-                                                            <button
-                                                                key={mins}
-                                                                type="button"
-                                                                onClick={() => handleDayFieldChange(dayNumber, 'slot_duration_minutes', mins)}
-                                                                className={`flex-1 py-3 rounded-2xl font-black text-xs uppercase tracking-widest transition-premium ${
-                                                                    cfg.slot_duration_minutes === mins
-                                                                        ? 'bg-[#1a27c9] text-white shadow-md shadow-indigo-200'
-                                                                        : 'bg-slate-50 text-slate-500 hover:bg-slate-100'
-                                                                }`}
-                                                            >
-                                                                {mins}
-                                                            </button>
-                                                        ))}
-                                                    </div>
-                                                </div>
-                                            </div>
-
-                                            {/* Times */}
-                                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
-                                                <div>
-                                                    <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Session Start Time</label>
-                                                    <input
-                                                        type="time"
-                                                        value={cfg.session_start_time}
-                                                        onChange={(e) => handleDayFieldChange(dayNumber, 'session_start_time', e.target.value)}
-                                                        className="w-full px-5 py-3.5 bg-slate-50 border-2 border-slate-50 focus:border-[#1a27c9]/20 rounded-2xl font-bold text-[#0d0e0e] focus:outline-none transition-all"
-                                                    />
-                                                    <p className="text-[10px] text-slate-400 mt-1.5 font-bold">{timeTo12Hour(cfg.session_start_time)}</p>
-                                                </div>
-                                                <div>
-                                                    <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Session End Time</label>
-                                                    <input
-                                                        type="time"
-                                                        value={cfg.session_end_time}
-                                                        onChange={(e) => handleDayFieldChange(dayNumber, 'session_end_time', e.target.value)}
-                                                        className="w-full px-5 py-3.5 bg-slate-50 border-2 border-slate-50 focus:border-[#1a27c9]/20 rounded-2xl font-bold text-[#0d0e0e] focus:outline-none transition-all"
-                                                    />
-                                                    <p className="text-[10px] text-slate-400 mt-1.5 font-bold">{timeTo12Hour(cfg.session_end_time)}</p>
-                                                </div>
-                                            </div>
-
-                                            {/* Break + Preview */}
-                                            <div className="grid grid-cols-1 sm:grid-cols-3 gap-5 items-end">
-                                                <div>
-                                                    <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Break Between (Min)</label>
-                                                    <input
-                                                        type="number"
-                                                        min={0}
-                                                        max={60}
-                                                        step={5}
-                                                        value={cfg.break_between_slots_minutes}
-                                                        onChange={(e) => handleDayFieldChange(dayNumber, 'break_between_slots_minutes', parseInt(e.target.value, 10) || 0)}
-                                                        className="w-full px-5 py-3.5 bg-slate-50 border-2 border-slate-50 focus:border-[#1a27c9]/20 rounded-2xl font-bold text-[#0d0e0e] focus:outline-none transition-all"
-                                                    />
-                                                </div>
-                                                <div className="sm:col-span-2 bg-gradient-to-br from-slate-50 to-slate-100 rounded-2xl p-5 border border-slate-200">
-                                                    <div className="flex justify-between items-start mb-2">
-                                                        <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Live Slot Preview</span>
-                                                        <span className={`px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest ${
-                                                            preview.slotsCount > 0 ? 'bg-emerald-100 text-emerald-700' : 'bg-rose-100 text-rose-700'
-                                                        }`}>
-                                                            {preview.slotsCount} slots
-                                                        </span>
-                                                    </div>
-                                                    <div className="flex items-baseline gap-4 flex-wrap">
-                                                        <div>
-                                                            <span className="text-2xl font-black text-[#0d0e0e]">{preview.slotsCount}</span>
-                                                            <span className="text-xs text-slate-500 font-bold ml-2 uppercase tracking-wider">per mentor</span>
-                                                        </div>
-                                                        <div className="h-4 w-px bg-slate-300" />
-                                                        <div>
-                                                            <span className="text-2xl font-black text-[#1a27c9]">{preview.totalHours}</span>
-                                                            <span className="text-xs text-slate-500 font-bold ml-2 uppercase tracking-wider">hrs total</span>
-                                                        </div>
-                                                        <div className="h-4 w-px bg-slate-300" />
-                                                        <div>
-                                                            <span className="text-lg font-black text-slate-600">{preview.slotsCount > 0 ? timeTo12Hour(preview.slotTimes[0].start_time) : '--:--'}</span>
-                                                            <span className="text-xs text-slate-400 font-bold mx-2">→</span>
-                                                            <span className="text-lg font-black text-slate-600">{preview.slotsCount > 0 ? timeTo12Hour(preview.slotTimes[preview.slotsCount - 1].end_time) : '--:--'}</span>
-                                                        </div>
-                                                    </div>
-                                                </div>
-                                            </div>
-
-                                            {/* Save Config Button */}
-                                            <button
-                                                type="button"
-                                                disabled={isSaving || !isDirty}
-                                                onClick={() => handleSaveDayConfig(dayNumber)}
-                                                className="w-full flex items-center justify-center gap-3 bg-[#1a27c9] text-white px-8 py-4 rounded-2xl font-black text-xs uppercase tracking-widest hover:bg-[#0d0e0e] hover:shadow-xl hover:shadow-indigo-200 transition-premium disabled:opacity-40 disabled:cursor-not-allowed active:scale-95"
-                                            >
-                                                {isSaving ? (
-                                                    <>
-                                                        <Loader2 size={16} className="animate-spin" />
-                                                        Saving Config...
-                                                    </>
-                                                ) : (
-                                                    <>
-                                                        <CheckCircle size={16} />
-                                                        Save Day {dayNumber} Config
-                                                    </>
-                                                )}
-                                            </button>
-
-                                            <hr className="border-slate-100" />
-
-                                            {/* Mentor Selection */}
-                                            <div>
-                                                <div className="flex justify-between items-center mb-3 flex-wrap gap-3">
-                                                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">
-                                                        Assign Mentors ({selectedMentorIds.length}/{mentors.length})
-                                                    </label>
-                                                    <div className="flex gap-2">
-                                                        <button
-                                                            type="button"
-                                                            onClick={() => handleSelectAllMentorsForDay(dayNumber)}
-                                                            disabled={mentors.length === 0}
-                                                            className="px-4 py-2 text-[10px] font-black uppercase tracking-widest bg-slate-50 text-slate-500 rounded-2xl hover:bg-slate-100 transition-premium disabled:opacity-40"
-                                                        >
-                                                            Select All
-                                                        </button>
-                                                        <button
-                                                            type="button"
-                                                            onClick={() => handleClearMentorsForDay(dayNumber)}
-                                                            disabled={selectedMentorIds.length === 0}
-                                                            className="px-4 py-2 text-[10px] font-black uppercase tracking-widest bg-slate-50 text-slate-500 rounded-2xl hover:bg-slate-100 transition-premium disabled:opacity-40"
-                                                        >
-                                                            Clear
-                                                        </button>
-                                                    </div>
-                                                </div>
-                                                {mentors.length === 0 ? (
-                                                    <p className="text-sm text-slate-400 font-bold p-4 bg-slate-50 rounded-2xl italic text-center">
-                                                        Add mentors first from the Mentors tab
-                                                    </p>
-                                                ) : (
-                                                    <div className="max-h-56 overflow-y-auto custom-scrollbar space-y-2 p-2 bg-slate-50/50 rounded-2xl border border-slate-100">
-                                                        {mentors.map((mentor) => {
-                                                            const checked = selectedMentorIds.includes(mentor.id);
-                                                            return (
-                                                                <label
-                                                                    key={mentor.id}
-                                                                    className={`flex items-center gap-3 p-3 rounded-2xl cursor-pointer transition-premium border ${
-                                                                        checked ? 'bg-white border-[#1a27c9]/30 shadow-sm' : 'bg-transparent border-transparent hover:bg-white hover:border-slate-200'
-                                                                    }`}
-                                                                >
-                                                                    <input
-                                                                        type="checkbox"
-                                                                        checked={checked}
-                                                                        onChange={() => handleToggleMentorForDay(dayNumber, mentor.id)}
-                                                                        className="w-4 h-4 accent-[#1a27c9]"
-                                                                    />
-                                                                    <div className="w-9 h-9 rounded-xl overflow-hidden bg-[#1a27c9]/10 shrink-0 flex items-center justify-center text-[#1a27c9] font-black text-sm border-2 border-white shadow">
-                                                                        {mentor.photo_url ? (
-                                                                            <LazyImage
-                                                                                src={getGoogleDriveFallbackUrls(mentor.photo_url)[0]}
-                                                                                urls={getGoogleDriveFallbackUrls(mentor.photo_url)}
-                                                                                alt={mentor.name}
-                                                                                objectFit="cover"
-                                                                                className="w-full h-full"
-                                                                            />
-                                                                        ) : (
-                                                                            mentor.name.charAt(0)
-                                                                        )}
-                                                                    </div>
-                                                                    <div className="flex-1 min-w-0">
-                                                                        <p className="font-black text-sm text-[#0d0e0e] truncate">{mentor.name}</p>
-                                                                        <p className="text-[10px] text-slate-400 font-bold truncate">{mentor.email}</p>
-                                                                    </div>
-                                                                    {preview.slotsCount > 0 && checked && (
-                                                                        <span className="px-2.5 py-1 rounded-full bg-emerald-100 text-emerald-700 text-[10px] font-black uppercase tracking-widest shrink-0">
-                                                                            +{preview.slotsCount}
-                                                                        </span>
-                                                                    )}
-                                                                </label>
-                                                            );
-                                                        })}
-                                                    </div>
-                                                )}
-                                            </div>
-
-                                            {/* Overwrite Mode + Generate */}
-                                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                                                <div>
-                                                    <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Conflict Handling</label>
-                                                    <select
-                                                        value={overMode}
-                                                        onChange={(e) => setOverwriteModeByDay(prev => ({ ...prev, [dayNumber]: e.target.value }))}
-                                                        className="w-full px-5 py-3.5 bg-slate-50 border-2 border-slate-50 focus:border-[#1a27c9]/20 rounded-2xl font-bold text-[#0d0e0e] focus:outline-none transition-all"
-                                                    >
-                                                        <option value="skip">Skip Conflicting (Safe)</option>
-                                                        <option value="replace_if_conflict">Replace Only Conflicts</option>
-                                                        <option value="replace_all_for_day">Replace All Slots For Day</option>
-                                                    </select>
-                                                </div>
-                                                <button
-                                                    type="button"
-                                                    disabled={isGenerating || selectedMentorIds.length === 0 || preview.slotsCount === 0}
-                                                    onClick={() => handleGenerateSlotsForDay(dayNumber)}
-                                                    className="w-full flex items-center justify-center gap-3 bg-gradient-to-r from-emerald-500 to-teal-500 text-white px-8 py-4 rounded-2xl font-black text-xs uppercase tracking-widest hover:shadow-xl hover:shadow-emerald-200 transition-premium disabled:opacity-40 disabled:cursor-not-allowed active:scale-95"
-                                                >
-                                                    {isGenerating ? (
-                                                        <>
-                                                            <Loader2 size={16} className="animate-spin" />
-                                                            Generating Slots...
-                                                        </>
-                                                    ) : (
-                                                        <>
-                                                            <Plus size={16} />
-                                                            Generate {selectedMentorIds.length * preview.slotsCount} Slot{selectedMentorIds.length * preview.slotsCount === 1 ? '' : 's'}
-                                                        </>
-                                                    )}
-                                                </button>
-                                            </div>
-
-                                            {/* Generation Result Banner */}
-                                            {genResult && (
-                                                <div className={`rounded-2xl p-5 border ${
-                                                    genResult.ok
-                                                        ? 'bg-emerald-50 border-emerald-200'
-                                                        : 'bg-rose-50 border-rose-200'
-                                                }`}>
-                                                    {genResult.ok ? (
-                                                        <div className="flex items-start gap-3">
-                                                            <CheckCircle size={22} className="text-emerald-500 shrink-0 mt-0.5" />
-                                                            <div className="flex-1 min-w-0">
-                                                                <p className="font-black text-emerald-800 text-xs uppercase tracking-widest mb-1">
-                                                                    Slots Generated Successfully ({genResult.ts})
-                                                                </p>
-                                                                <div className="grid grid-cols-3 gap-3 mt-2">
-                                                                    <div>
-                                                                        <p className="text-2xl font-black text-emerald-700">{genResult.created}</p>
-                                                                        <p className="text-[10px] text-emerald-600 font-bold uppercase tracking-wider">Created</p>
-                                                                    </div>
-                                                                    <div>
-                                                                        <p className="text-2xl font-black text-amber-600">{genResult.skipped}</p>
-                                                                        <p className="text-[10px] text-amber-600 font-bold uppercase tracking-wider">Skipped</p>
-                                                                    </div>
-                                                                    <div>
-                                                                        <p className="text-2xl font-black text-rose-600">{genResult.conflicts}</p>
-                                                                        <p className="text-[10px] text-rose-600 font-bold uppercase tracking-wider">Conflicts</p>
-                                                                    </div>
-                                                                </div>
-                                                                <p className="text-xs text-emerald-700 font-bold mt-2">
-                                                                    {genResult.perMentor} slot{genResult.perMentor === 1 ? '' : 's'} per mentor × {selectedMentorIds.length} mentor{selectedMentorIds.length === 1 ? '' : 's'}
-                                                                </p>
-                                                            </div>
-                                                        </div>
-                                                    ) : (
-                                                        <div className="flex items-start gap-3">
-                                                            <AlertTriangle size={22} className="text-rose-500 shrink-0 mt-0.5" />
-                                                            <div>
-                                                                <p className="font-black text-rose-800 text-xs uppercase tracking-widest mb-1">Failed ({genResult.ts})</p>
-                                                                <p className="text-rose-700 font-bold text-sm leading-relaxed">{genResult.error}</p>
-                                                            </div>
-                                                        </div>
-                                                    )}
-                                                </div>
-                                            )}
-                                        </div>
-                                    </div>
-                                );
-                            })}
-                        </div>
-                    </div>
-                )}
-
                 {/* Settings Tab */}
                 {activeTab === 'settings' && (
-                    <div className="bg-white rounded-3xl shadow-sm border border-slate-100 p-8">
-                        <h2 className="text-xl font-black text-[#0d0e0e] mb-8">Notification Settings</h2>
-                        
-                        <div className="space-y-6">
-                            <div>
-                                <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-3">Admin Email</label>
-                                <p className="text-sm text-slate-500 mb-3">This email will receive a copy of all booking notifications.</p>
-                                <div className="flex gap-3">
-                                    <input
-                                        type="email"
-                                        value={adminEmail}
-                                        onChange={(e) => setAdminEmail(e.target.value)}
-                                        placeholder="admin@example.com"
-                                        className="flex-1 px-6 py-4 bg-slate-50 border border-slate-100 rounded-2xl font-bold text-[#0d0e0e] focus:outline-none focus:ring-4 focus:ring-[#1a27c9]/5 focus:border-[#1a27c9] transition-premium"
-                                    />
-                                    <button
-                                        onClick={handleSaveAdminEmail}
-                                        className="bg-[#1a27c9] text-white px-8 py-4 rounded-2xl font-black text-xs uppercase tracking-widest hover:bg-[#0d0e0e] hover:shadow-xl hover:shadow-indigo-200 transition-premium"
-                                    >
-                                        Save
-                                    </button>
+                    <div className="bg-white rounded-3xl shadow-sm border border-slate-100 p-8 space-y-8">
+                        <div>
+                            <div className="flex items-center gap-3 mb-2">
+                                <div className="w-10 h-10 bg-[#1a27c9]/10 rounded-2xl flex items-center justify-center text-[#1a27c9]">
+                                    <Mail size={20} />
+                                </div>
+                                <div>
+                                    <h2 className="text-xl font-black text-[#0d0e0e]">Mentor Booking Notification Settings</h2>
+                                    <p className="text-slate-400 font-bold tracking-widest text-xs uppercase">إعدادات إشعارات موديول المينتورز (مستقلة تماماً عن السيلكشن بروسيس)</p>
                                 </div>
                             </div>
+                        </div>
+
+                        {/* Notice Banner */}
+                        <div className="p-4 bg-indigo-50/70 border border-indigo-100 rounded-2xl flex items-start gap-3">
+                            <AlertTriangle size={18} className="text-[#1a27c9] shrink-0 mt-0.5" />
+                            <div className="text-xs text-slate-600 font-bold leading-relaxed">
+                                <span className="text-[#1a27c9] font-black">نظام الإشعارات المعزول:</span> هذه الإعدادات وقوائم المستلمين تخص حصرياً حجوزات المينتورز بوكينج ولن ترسل أي إشعارات لمسؤولي السيلكشن أو متقدمي البرامج.
+                            </div>
+                        </div>
+
+                        {/* Mentor Admin Emails */}
+                        <div className="space-y-4 pt-2">
+                            <h3 className="text-sm font-black text-[#1a27c9] uppercase tracking-[0.2em]">Mentor Admin Emails (مسؤولو المينتورنج)</h3>
+                            <p className="text-xs text-slate-500 font-medium">سيتم إرسال نسخة من كل إشعار حجز جلسة توجيه إلى هذه العناوين.</p>
+                            <div className="flex gap-2">
+                                <input
+                                    type="email"
+                                    value={newAdminEmail}
+                                    onChange={(e) => setNewAdminEmail(e.target.value)}
+                                    placeholder="mentor.admin@example.com"
+                                    className="flex-1 bg-slate-50 border border-slate-100 rounded-2xl px-4 py-3 text-sm font-bold text-slate-700 focus:outline-none focus:ring-4 focus:ring-[#1a27c9]/5 focus:border-[#1a27c9]/30 transition-all"
+                                    onKeyPress={(e) => {
+                                        if (e.key === 'Enter' && newAdminEmail.trim() && !mentorAdminEmails.includes(newAdminEmail.trim())) {
+                                            e.preventDefault();
+                                            setMentorAdminEmails(prev => [...prev, newAdminEmail.trim()]);
+                                            setNewAdminEmail('');
+                                        }
+                                    }}
+                                />
+                                <button
+                                    type="button"
+                                    onClick={() => {
+                                        if (newAdminEmail.trim() && !mentorAdminEmails.includes(newAdminEmail.trim())) {
+                                            setMentorAdminEmails(prev => [...prev, newAdminEmail.trim()]);
+                                            setNewAdminEmail('');
+                                        }
+                                    }}
+                                    className="px-5 py-3 rounded-2xl bg-[#1a27c9] text-white font-black text-sm hover:bg-[#0d0e0e] transition-all flex items-center gap-1"
+                                >
+                                    <Plus size={18} />
+                                    <span>Add</span>
+                                </button>
+                            </div>
+                            <div className="space-y-2">
+                                {mentorAdminEmails.length === 0 ? (
+                                    <p className="text-slate-400 text-xs font-bold italic py-2">لا توجد إيميلات مسؤولي مينتورنج مضافة حالياً</p>
+                                ) : (
+                                    mentorAdminEmails.map((email, index) => (
+                                        <div key={index} className="flex items-center justify-between bg-slate-50 border border-slate-100 rounded-2xl px-4 py-3">
+                                            <span className="text-sm font-bold text-slate-700">{email}</span>
+                                            <button
+                                                type="button"
+                                                onClick={() => setMentorAdminEmails(prev => prev.filter(e => e !== email))}
+                                                className="text-rose-500 hover:text-rose-700 transition-colors p-1"
+                                            >
+                                                <Trash2 size={16} />
+                                            </button>
+                                        </div>
+                                    ))
+                                )}
+                            </div>
+                        </div>
+
+                        {/* Mentor CC Emails */}
+                        <div className="space-y-4 pt-2 border-t border-slate-100">
+                            <h3 className="text-sm font-black text-[#1a27c9] uppercase tracking-[0.2em]">Mentor CC Emails (نسخة كربونية CC)</h3>
+                            <p className="text-xs text-slate-500 font-medium">عناوين البريد الإلكتروني الإضافية لاستقبال نسخة CC من إشعارات حجوزات المينتورز.</p>
+                            <div className="flex gap-2">
+                                <input
+                                    type="email"
+                                    value={newCcEmail}
+                                    onChange={(e) => setNewCcEmail(e.target.value)}
+                                    placeholder="coordinator@example.com"
+                                    className="flex-1 bg-slate-50 border border-slate-100 rounded-2xl px-4 py-3 text-sm font-bold text-slate-700 focus:outline-none focus:ring-4 focus:ring-[#1a27c9]/5 focus:border-[#1a27c9]/30 transition-all"
+                                    onKeyPress={(e) => {
+                                        if (e.key === 'Enter' && newCcEmail.trim() && !mentorCcEmails.includes(newCcEmail.trim())) {
+                                            e.preventDefault();
+                                            setMentorCcEmails(prev => [...prev, newCcEmail.trim()]);
+                                            setNewCcEmail('');
+                                        }
+                                    }}
+                                />
+                                <button
+                                    type="button"
+                                    onClick={() => {
+                                        if (newCcEmail.trim() && !mentorCcEmails.includes(newCcEmail.trim())) {
+                                            setMentorCcEmails(prev => [...prev, newCcEmail.trim()]);
+                                            setNewCcEmail('');
+                                        }
+                                    }}
+                                    className="px-5 py-3 rounded-2xl bg-[#1a27c9] text-white font-black text-sm hover:bg-[#0d0e0e] transition-all flex items-center gap-1"
+                                >
+                                    <Plus size={18} />
+                                    <span>Add</span>
+                                </button>
+                            </div>
+                            <div className="space-y-2">
+                                {mentorCcEmails.length === 0 ? (
+                                    <p className="text-slate-400 text-xs font-bold italic py-2">لا توجد إيميلات CC مضافة حالياً</p>
+                                ) : (
+                                    mentorCcEmails.map((email, index) => (
+                                        <div key={index} className="flex items-center justify-between bg-slate-50 border border-slate-100 rounded-2xl px-4 py-3">
+                                            <span className="text-sm font-bold text-slate-700">{email}</span>
+                                            <button
+                                                type="button"
+                                                onClick={() => setMentorCcEmails(prev => prev.filter(e => e !== email))}
+                                                className="text-rose-500 hover:text-rose-700 transition-colors p-1"
+                                            >
+                                                <Trash2 size={16} />
+                                            </button>
+                                        </div>
+                                    ))
+                                )}
+                            </div>
+                        </div>
+
+                        {/* Mentor Email Template */}
+                        <div className="space-y-4 pt-2 border-t border-slate-100">
+                            <h3 className="text-sm font-black text-[#1a27c9] uppercase tracking-[0.2em]">Mentor Booking Notification Template</h3>
+                            <div>
+                                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-2">Subject (عنوان الإيميل)</label>
+                                <input
+                                    type="text"
+                                    value={mentorEmailTemplateSubject}
+                                    onChange={(e) => setMentorEmailTemplateSubject(e.target.value)}
+                                    placeholder="New Mentor Session Booking: {{company_name}} with {{mentor_name}}"
+                                    className="w-full bg-slate-50 border border-slate-100 rounded-2xl px-4 py-3 text-sm font-bold text-slate-700 focus:outline-none focus:ring-4 focus:ring-[#1a27c9]/5 focus:border-[#1a27c9]/30 transition-all"
+                                />
+                            </div>
+                            <div>
+                                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-2">Body (محتوى الإيميل)</label>
+                                <RichTextEditor
+                                    value={mentorEmailTemplateBody}
+                                    onChange={setMentorEmailTemplateBody}
+                                    placeholder="Write your mentor notification email body here..."
+                                    minHeight="180px"
+                                />
+                            </div>
+                            <p className="text-xs text-slate-400 font-medium">
+                                المتغيرات المتاحة: <code className="bg-slate-100 px-1.5 py-0.5 rounded text-[#1a27c9] font-bold">{'{{company_name}}'}</code> <code className="bg-slate-100 px-1.5 py-0.5 rounded text-[#1a27c9] font-bold">{'{{mentor_name}}'}</code> <code className="bg-slate-100 px-1.5 py-0.5 rounded text-[#1a27c9] font-bold">{'{{booker_email}}'}</code> <code className="bg-slate-100 px-1.5 py-0.5 rounded text-[#1a27c9] font-bold">{'{{start_time}}'}</code> <code className="bg-slate-100 px-1.5 py-0.5 rounded text-[#1a27c9] font-bold">{'{{meet_link}}'}</code>
+                            </p>
+                        </div>
+
+                        {/* Save Action */}
+                        <div className="pt-4 border-t border-slate-100 flex justify-end">
+                            <button
+                                type="button"
+                                disabled={savingSettings}
+                                onClick={handleSaveNotificationSettings}
+                                className="bg-[#1a27c9] text-white px-10 py-4 rounded-2xl font-black text-xs uppercase tracking-widest hover:bg-[#0d0e0e] hover:shadow-xl hover:shadow-indigo-200 transition-premium flex items-center gap-2 disabled:opacity-50"
+                            >
+                                {savingSettings ? (
+                                    <>
+                                        <Loader2 size={16} className="animate-spin" />
+                                        <span>Saving Settings...</span>
+                                    </>
+                                ) : (
+                                    <>
+                                        <Save size={16} />
+                                        <span>Save Notification Settings</span>
+                                    </>
+                                )}
+                            </button>
                         </div>
                     </div>
                 )}
             </div>
+
+            {/* Toast Notification */}
+            {toast.show && (
+                <div className={`fixed bottom-6 right-6 z-[200] flex items-center gap-3 px-6 py-4 rounded-2xl shadow-2xl transition-all duration-300 ${toast.type === 'error' ? 'bg-rose-600 text-white' : 'bg-emerald-600 text-white'}`}>
+                    <CheckCircle size={20} />
+                    <span className="font-bold text-sm">{toast.message}</span>
+                </div>
+            )}
 
             {/* Mentor Hub Modal - Moved outside main container */}
             {showHubModal && (
@@ -1624,14 +1228,14 @@ export default function MentorBookingAdmin() {
                 </div>
             )}
 
-            {/* Add Slot Modal - Moved outside main container */}
+            {/* Add Slot Modal */}
             {showAddSlot && (
                 <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
                     <div className="absolute inset-0 bg-[#0d0e0e]/60 pointer-events-auto" onClick={() => setShowAddSlot(false)} />
-                    <div className="bg-white w-full max-w-lg rounded-[2.5rem] shadow-2xl overflow-hidden animate-in zoom-in duration-300 p-8 relative z-[101] pointer-events-auto">
+                    <div className="bg-white w-full max-w-lg rounded-[2.5rem] shadow-2xl overflow-hidden animate-in zoom-in duration-300 p-8 relative z-[101] pointer-events-auto max-h-[90vh] overflow-y-auto">
                         <div className="flex items-center justify-between mb-8">
                             <div>
-                                <h3 className="text-2xl font-black text-[#0d0e0e] tracking-tight">Add New Slot</h3>
+                                <h3 className="text-2xl font-black text-[#0d0e0e] tracking-tight">Add New Slots</h3>
                             </div>
                             <button
                                 onClick={() => setShowAddSlot(false)}
@@ -1640,52 +1244,74 @@ export default function MentorBookingAdmin() {
                                 <X size={24} />
                             </button>
                         </div>
-
-                        {isWithin24Hours(newSlot.start_time) && (
-                            <div className="mb-6 p-4 bg-amber-50 border border-amber-200 rounded-2xl flex items-start gap-3">
-                                <AlertTriangle size={20} className="text-amber-500 shrink-0 mt-0.5" />
-                                <div>
-                                    <p className="font-black text-amber-700 text-xs uppercase tracking-widest mb-1">Important Notice</p>
-                                    <p className="text-amber-600 font-bold text-sm">
-                                        Slots within 24 hours from now will NOT be visible to clients on the booking page.
-                                    </p>
-                                </div>
-                            </div>
-                        )}
-
                         <form onSubmit={handleCreateSlot} className="space-y-6">
                             <div>
                                 <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-3">Mentor</label>
                                 <select
                                     value={newSlot.mentor_id}
                                     onChange={(e) => setNewSlot({ ...newSlot, mentor_id: e.target.value })}
-                                    className="w-full px-6 py-5 bg-slate-50 border-2 border-slate-50 focus:border-[#1a27c9]/20 rounded-3xl font-bold text-[#0d0e0e] focus:outline-none transition-all"
                                     required
+                                    className="w-full px-6 py-4 bg-slate-50 border border-slate-100 rounded-2xl font-bold text-[#0d0e0e] focus:outline-none focus:ring-4 focus:ring-[#1a27c9]/5 focus:border-[#1a27c9] transition-premium"
                                 >
-                                    <option value="">Select Mentor</option>
+                                    <option value="">Select a mentor</option>
                                     {mentors.map((mentor) => (
                                         <option key={mentor.id} value={mentor.id}>{mentor.name}</option>
                                     ))}
                                 </select>
                             </div>
                             <div>
-                                <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-3">Start Time</label>
+                                <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-3">Date</label>
                                 <input
-                                    type="datetime-local"
-                                    value={newSlot.start_time}
-                                    onChange={(e) => setNewSlot({ ...newSlot, start_time: e.target.value })}
-                                    className="w-full px-6 py-5 bg-slate-50 border-2 border-slate-50 focus:border-[#1a27c9]/20 rounded-3xl font-bold text-[#0d0e0e] focus:outline-none transition-all"
+                                    type="date"
+                                    value={newSlot.date}
+                                    onChange={(e) => setNewSlot({ ...newSlot, date: e.target.value })}
                                     required
+                                    className="w-full px-6 py-4 bg-slate-50 border border-slate-100 rounded-2xl font-bold text-[#0d0e0e] focus:outline-none focus:ring-4 focus:ring-[#1a27c9]/5 focus:border-[#1a27c9] transition-premium"
                                 />
                             </div>
                             <div>
-                                <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-3">End Time</label>
+                                <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-3">Start Time</label>
                                 <input
-                                    type="datetime-local"
-                                    value={newSlot.end_time}
-                                    onChange={(e) => setNewSlot({ ...newSlot, end_time: e.target.value })}
-                                    className="w-full px-6 py-5 bg-slate-50 border-2 border-slate-50 focus:border-[#1a27c9]/20 rounded-3xl font-bold text-[#0d0e0e] focus:outline-none transition-all"
+                                    type="time"
+                                    value={newSlot.start_time}
+                                    onChange={(e) => setNewSlot({ ...newSlot, start_time: e.target.value })}
                                     required
+                                    className="w-full px-6 py-4 bg-slate-50 border border-slate-100 rounded-2xl font-bold text-[#0d0e0e] focus:outline-none focus:ring-4 focus:ring-[#1a27c9]/5 focus:border-[#1a27c9] transition-premium"
+                                />
+                            </div>
+                            <div>
+                                <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-3">Slot Duration (Minutes)</label>
+                                <input
+                                    type="number"
+                                    value={newSlot.slot_duration}
+                                    onChange={(e) => setNewSlot({ ...newSlot, slot_duration: parseInt(e.target.value) || 30 })}
+                                    min="5"
+                                    step="5"
+                                    required
+                                    className="w-full px-6 py-4 bg-slate-50 border border-slate-100 rounded-2xl font-bold text-[#0d0e0e] focus:outline-none focus:ring-4 focus:ring-[#1a27c9]/5 focus:border-[#1a27c9] transition-premium"
+                                />
+                            </div>
+                            <div>
+                                <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-3">Break Time Between Slots (Minutes)</label>
+                                <input
+                                    type="number"
+                                    value={newSlot.break_time}
+                                    onChange={(e) => setNewSlot({ ...newSlot, break_time: parseInt(e.target.value) || 0 })}
+                                    min="0"
+                                    step="5"
+                                    required
+                                    className="w-full px-6 py-4 bg-slate-50 border border-slate-100 rounded-2xl font-bold text-[#0d0e0e] focus:outline-none focus:ring-4 focus:ring-[#1a27c9]/5 focus:border-[#1a27c9] transition-premium"
+                                />
+                            </div>
+                            <div>
+                                <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-3">Number of Slots</label>
+                                <input
+                                    type="number"
+                                    value={newSlot.num_slots}
+                                    onChange={(e) => setNewSlot({ ...newSlot, num_slots: parseInt(e.target.value) || 1 })}
+                                    min="1"
+                                    required
+                                    className="w-full px-6 py-4 bg-slate-50 border border-slate-100 rounded-2xl font-bold text-[#0d0e0e] focus:outline-none focus:ring-4 focus:ring-[#1a27c9]/5 focus:border-[#1a27c9] transition-premium"
                                 />
                             </div>
                             <div>
@@ -1696,20 +1322,25 @@ export default function MentorBookingAdmin() {
                                         value={newSlot.meet_link}
                                         onChange={(e) => setNewSlot({ ...newSlot, meet_link: e.target.value })}
                                         placeholder="https://meet.google.com/..."
-                                        className="flex-1 px-6 py-5 bg-slate-50 border-2 border-slate-50 focus:border-[#1a27c9]/20 rounded-3xl font-bold text-[#0d0e0e] focus:outline-none transition-all"
+                                        className="flex-1 px-6 py-4 bg-slate-50 border border-slate-100 rounded-2xl font-bold text-[#0d0e0e] focus:outline-none focus:ring-4 focus:ring-[#1a27c9]/5 focus:border-[#1a27c9] transition-premium"
                                     />
                                     <button
                                         type="button"
-                                        disabled={generatingMeetLink || !newSlot.start_time || !newSlot.end_time}
+                                        disabled={generatingMeetLink || !newSlot.date || !newSlot.start_time}
                                         onClick={async () => {
-                                            if (!newSlot.start_time || !newSlot.end_time) {
-                                                alert('Please select start and end time first.');
+                                            if (!newSlot.date || !newSlot.start_time) {
+                                                alert('Please select date and start time first.');
                                                 return;
                                             }
 
+                                            // Calculate start and end dates
+                                            const startTimeStr = `${newSlot.date}T${newSlot.start_time}:00`;
+                                            const startTime = new Date(startTimeStr);
+                                            const endTime = new Date(startTime.getTime() + newSlot.slot_duration * 60000);
+
                                             const link = await generateMeetLink(
-                                                new Date(newSlot.start_time).toISOString(),
-                                                new Date(newSlot.end_time).toISOString(),
+                                                startTime.toISOString(),
+                                                endTime.toISOString(),
                                                 null
                                             );
 
@@ -1717,7 +1348,7 @@ export default function MentorBookingAdmin() {
                                                 setNewSlot({ ...newSlot, meet_link: link });
                                             }
                                         }}
-                                        className="px-4 py-5 bg-white border-2 border-slate-100 text-[#1a27c9] hover:border-[#1a27c9] hover:bg-[#1a27c9]/5 rounded-3xl font-black text-xs uppercase tracking-widest transition-premium disabled:opacity-50 disabled:cursor-not-allowed"
+                                        className="px-4 py-4 bg-white border-2 border-slate-100 text-[#1a27c9] hover:border-[#1a27c9] hover:bg-[#1a27c9]/5 rounded-2xl font-black text-xs uppercase tracking-widest transition-premium disabled:opacity-50 disabled:cursor-not-allowed"
                                     >
                                         {generatingMeetLink ? 'Generating...' : 'Generate'}
                                     </button>
@@ -1735,7 +1366,7 @@ export default function MentorBookingAdmin() {
                                     type="submit"
                                     className="flex-[2] px-8 py-5 bg-[#1a27c9] text-white rounded-2xl font-black text-xs uppercase tracking-widest hover:bg-[#0d0e0e] hover:shadow-xl hover:shadow-indigo-200 transition-premium"
                                 >
-                                    Create Slot
+                                    Create Slots
                                 </button>
                             </div>
                         </form>

@@ -18,6 +18,8 @@ interface BookingData {
   admin_email?: string;
   interview_admin_emails?: string[];
   interview_cc_emails?: string[];
+  mentor_admin_emails?: string[];
+  mentor_cc_emails?: string[];
   meet_link?: string;
   is_ather_team?: boolean;
 }
@@ -346,7 +348,7 @@ serve(async (req) => {
       ? `New Interview Booking - ${bookingData.company_name} with ${bookingData.mentor_name} at ${bookingData.event_name || 'Event'}`
       : `New Mentor Session Booking at ${bookingData.event_name || 'Event'}`;
 
-    // 3. Email to Admin (startups@athareg.com)
+    // 3. Email to Global Admin (startups@athareg.com) if specified
     if (bookingData.admin_email) {
       emails.push({
         from: fromAddress,
@@ -363,48 +365,92 @@ serve(async (req) => {
       });
     }
 
-    // 4. Emails to Interview Admin Emails
-    if (bookingData.interview_admin_emails && bookingData.interview_admin_emails.length > 0) {
-      for (const adminEmail of bookingData.interview_admin_emails) {
-        // Extract just the email address if it's in "Name <email>" format
-        const cleanEmail = adminEmail.match(/<([^>]+)>/)?.[1] || adminEmail.trim();
-        if (cleanEmail) {
-          emails.push({
-            from: fromAddress,
-            to: cleanEmail,
-            subject: adminSubject,
-            html: generateAdminEmail(bookingData),
-            attachments: [
-              {
-                filename: icsFileName,
-                content: icsContent,
-                contentType: 'text/calendar; method=REQUEST; charset=utf-8'
-              }
-            ]
-          });
+    if (bookingData.is_ather_team) {
+      // 4. Selection Process / Ather Team: Emails to Interview Admin Emails
+      if (bookingData.interview_admin_emails && bookingData.interview_admin_emails.length > 0) {
+        for (const adminEmail of bookingData.interview_admin_emails) {
+          const cleanEmail = adminEmail.match(/<([^>]+)>/)?.[1] || adminEmail.trim();
+          if (cleanEmail) {
+            emails.push({
+              from: fromAddress,
+              to: cleanEmail,
+              subject: adminSubject,
+              html: generateAdminEmail(bookingData),
+              attachments: [
+                {
+                  filename: icsFileName,
+                  content: icsContent,
+                  contentType: 'text/calendar; method=REQUEST; charset=utf-8'
+                }
+              ]
+            });
+          }
         }
       }
-    }
 
-    // 5. Emails to Interview CC Emails
-    if (bookingData.interview_cc_emails && bookingData.interview_cc_emails.length > 0) {
-      for (const ccEmail of bookingData.interview_cc_emails) {
-        // Extract just the email address if it's in "Name <email>" format
-        const cleanEmail = ccEmail.match(/<([^>]+)>/)?.[1] || ccEmail.trim();
-        if (cleanEmail) {
-          emails.push({
-            from: fromAddress,
-            to: cleanEmail,
-            subject: adminSubject,
-            html: generateAdminEmail(bookingData),
-            attachments: [
-              {
-                filename: icsFileName,
-                content: icsContent,
-                contentType: 'text/calendar; method=REQUEST; charset=utf-8'
-              }
-            ]
-          });
+      // 5. Selection Process / Ather Team: Emails to Interview CC Emails
+      if (bookingData.interview_cc_emails && bookingData.interview_cc_emails.length > 0) {
+        for (const ccEmail of bookingData.interview_cc_emails) {
+          const cleanEmail = ccEmail.match(/<([^>]+)>/)?.[1] || ccEmail.trim();
+          if (cleanEmail) {
+            emails.push({
+              from: fromAddress,
+              to: cleanEmail,
+              subject: adminSubject,
+              html: generateAdminEmail(bookingData),
+              attachments: [
+                {
+                  filename: icsFileName,
+                  content: icsContent,
+                  contentType: 'text/calendar; method=REQUEST; charset=utf-8'
+                }
+              ]
+            });
+          }
+        }
+      }
+    } else {
+      // 4. Mentors Booking Module: Emails to Mentor Admin Emails
+      if (bookingData.mentor_admin_emails && bookingData.mentor_admin_emails.length > 0) {
+        for (const adminEmail of bookingData.mentor_admin_emails) {
+          const cleanEmail = adminEmail.match(/<([^>]+)>/)?.[1] || adminEmail.trim();
+          if (cleanEmail) {
+            emails.push({
+              from: fromAddress,
+              to: cleanEmail,
+              subject: adminSubject,
+              html: generateAdminEmail(bookingData),
+              attachments: [
+                {
+                  filename: icsFileName,
+                  content: icsContent,
+                  contentType: 'text/calendar; method=REQUEST; charset=utf-8'
+                }
+              ]
+            });
+          }
+        }
+      }
+
+      // 5. Mentors Booking Module: Emails to Mentor CC Emails
+      if (bookingData.mentor_cc_emails && bookingData.mentor_cc_emails.length > 0) {
+        for (const ccEmail of bookingData.mentor_cc_emails) {
+          const cleanEmail = ccEmail.match(/<([^>]+)>/)?.[1] || ccEmail.trim();
+          if (cleanEmail) {
+            emails.push({
+              from: fromAddress,
+              to: cleanEmail,
+              subject: adminSubject,
+              html: generateAdminEmail(bookingData),
+              attachments: [
+                {
+                  filename: icsFileName,
+                  content: icsContent,
+                  contentType: 'text/calendar; method=REQUEST; charset=utf-8'
+                }
+              ]
+            });
+          }
         }
       }
     }

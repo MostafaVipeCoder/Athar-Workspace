@@ -1,19 +1,24 @@
 import React, { useState, useEffect, useRef } from 'react';
 import {
   Plus, Calendar, Layout, Trash2, X, AlertCircle, Edit2,
-  ExternalLink, Check, Copy, LogOut, Users as UsersIcon, BookOpen,
+  ExternalLink, Check, Copy, Users as UsersIcon, BookOpen,
   ChevronDown, ChevronRight, FolderOpen, Folder, MoreVertical,
-  MoveRight, Pencil, FolderPlus
+  MoveRight, Pencil, FolderPlus, Layers, Award
 } from 'lucide-react';
 import { useNavigate, Link } from 'react-router-dom';
 import {
   getEvents, createEvent, deleteEvent,
-  getPrograms, createProgram, updateProgram, deleteProgram, assignEventToProgram
+  getPrograms, createProgram, updateProgram, deleteProgram, assignEventToProgram,
+  getEventSlug
 } from '../lib/api';
 import { useAuth } from '../contexts/AuthContext';
+import { getAppBaseUrl } from '../lib/utils';
 import { usePresence } from '../hooks/usePresence';
 import ActiveUsers from './ActiveUsers';
 import { prefetch } from '../App';
+import UserNavDropdown from './UserNavDropdown';
+import { supabase } from '../lib/supabase';
+
 
 function cn(...classes) { return classes.filter(Boolean).join(' '); }
 
@@ -69,7 +74,7 @@ function EventCard({ event, programs, copiedId, onManage, onCopy, onDelete, onMo
           <span>Manage</span>
         </button>
         <a
-          href={`#/agenda/${event.event_id}`}
+          href={`#/agenda/${getEventSlug(event)}`}
           target="_blank"
           onClick={(e) => e.stopPropagation()}
           className="h-8 w-8 flex items-center justify-center rounded-lg border border-border/50 bg-background text-muted-foreground hover:text-primary hover:border-primary/30 hover:bg-primary/5 transition-all shadow-sm"
@@ -78,7 +83,7 @@ function EventCard({ event, programs, copiedId, onManage, onCopy, onDelete, onMo
           <ExternalLink size={13} />
         </a>
         <button
-          onClick={() => onCopy(event.event_id)}
+          onClick={() => onCopy(event)}
           className={cn(
             'h-8 w-8 flex items-center justify-center rounded-lg border transition-all shadow-sm',
             copiedId === event.event_id
@@ -156,7 +161,7 @@ function ProgramCard({
   onManageEvent, onCopyEvent, onDeleteEvent, onMoveEvent,
   onAddEventToProgram, onRenameProgram, onDeleteProgram
 }) {
-  const [expanded, setExpanded] = useState(true);
+  const [expanded, setExpanded] = useState(false);
   const [showMenu, setShowMenu] = useState(false);
   const menuRef = useRef(null);
 
@@ -196,7 +201,7 @@ function ProgramCard({
             className="flex items-center gap-1.5 px-3 py-2 bg-athar-blue text-white rounded-lg text-[10px] sm:text-xs font-bold hover:opacity-90 transition-all shadow-sm"
           >
             <Plus size={13} />
-            <span className="hidden sm:inline">Add Project</span>
+            <span className="hidden sm:inline">Project</span>
           </button>
 
           <div className="relative" ref={menuRef}>
@@ -271,7 +276,6 @@ export default function Dashboard() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const { activeUsers } = usePresence('global_dashboard');
-  const { signOut } = useAuth();
 
   // Modal visibility
   const [showCreateEventModal, setShowCreateEventModal] = useState(false);
@@ -288,9 +292,6 @@ export default function Dashboard() {
   const [renameValue, setRenameValue] = useState('');
   const [copiedId, setCopiedId] = useState(null);
 
-  const handleSignOut = async () => {
-    try { await signOut(); navigate('/login'); } catch (e) { console.error(e); }
-  };
 
   const loadAll = async () => {
     try {
@@ -344,9 +345,11 @@ export default function Dashboard() {
     try { await deleteEvent(eventId); loadAll(); } catch (err) { console.error(err); }
   };
 
-  const handleCopyLink = (eventId) => {
-    navigator.clipboard.writeText(`${window.location.origin}/#/agenda/${eventId}`);
-    setCopiedId(eventId);
+  const handleCopyLink = (eventOrId) => {
+    const targetEvent = typeof eventOrId === 'object' ? eventOrId : events.find(e => e.event_id === eventOrId);
+    const slug = getEventSlug(targetEvent) || (typeof eventOrId === 'string' ? eventOrId : targetEvent?.event_id);
+    navigator.clipboard.writeText(`${getAppBaseUrl()}/#/agenda/${slug}`);
+    setCopiedId(targetEvent?.event_id || eventOrId);
     setTimeout(() => setCopiedId(null), 2000);
   };
 
@@ -417,20 +420,25 @@ export default function Dashboard() {
               </div>
               <div className="hidden sm:block">
                 <h1 className="text-lg font-extrabold text-athar-black tracking-tight flex items-center gap-2">
-                  Athar Programs <span className="text-athar-blue">Management</span>
+                  Athar<span className="text-athar-blue">OS</span>
                 </h1>
-                <p className="text-[10px] text-athar-black/40 font-bold uppercase tracking-widest mt-0.5">Professional Event Ecosystem</p>
               </div>
             </div>
 
             <div className="flex items-center gap-2 sm:gap-4">
               <div className="hidden sm:block"><ActiveUsers users={activeUsers} /></div>
               <div className="flex items-center gap-2 sm:gap-3 sm:border-l sm:border-border/50 sm:pl-4">
+                <Link to="/alumni" className="flex items-center gap-2 text-muted-foreground hover:text-athar-blue px-3 sm:px-4 py-2 rounded-lg font-bold transition-all hover:bg-athar-blue/5 tap-target">
+                  <Award size={18} className="text-athar-yellow" /><span className="hidden sm:inline">Alumni Platform</span>
+                </Link>
+                <Link to="/form-library" className="flex items-center gap-2 text-muted-foreground hover:text-athar-blue px-3 sm:px-4 py-2 rounded-lg font-bold transition-all hover:bg-athar-blue/5 tap-target">
+                  <Layers size={18} /><span className="hidden sm:inline">Form Library</span>
+                </Link>
                 <Link to="/library" className="flex items-center gap-2 text-muted-foreground hover:text-athar-blue px-3 sm:px-4 py-2 rounded-lg font-bold transition-all hover:bg-athar-blue/5 tap-target">
                   <BookOpen size={18} /><span className="hidden sm:inline">Central Library</span>
                 </Link>
                 <Link to="/experts" className="flex items-center gap-2 text-muted-foreground hover:text-athar-blue px-3 sm:px-4 py-2 rounded-lg font-bold transition-all hover:bg-athar-blue/5 tap-target">
-                  <UsersIcon size={18} /><span className="hidden sm:inline">Athar Experts Network</span>
+                  <UsersIcon size={18} /><span className="hidden sm:inline">Experts Network</span>
                 </Link>
 
                 {/* Add Program */}
@@ -438,7 +446,7 @@ export default function Dashboard() {
                   onClick={() => { setNewProgramName(''); setCreateProgramStatus('idle'); setShowCreateProgramModal(true); }}
                   className="group flex items-center gap-2 bg-background border border-border text-foreground px-3 sm:px-4 py-2 sm:py-2.5 rounded-lg font-bold transition-all hover:border-athar-blue/40 hover:bg-athar-blue/5 hover:text-athar-blue shadow-sm"
                 >
-                  <FolderPlus size={18} /><span className="hidden sm:inline text-sm">Add Program</span>
+                  <FolderPlus size={18} />
                 </button>
 
                 {/* Create Project */}
@@ -447,16 +455,9 @@ export default function Dashboard() {
                   className="group relative overflow-hidden flex items-center gap-2 bg-gradient-to-r from-athar-blue to-athar-black text-white px-3 sm:px-5 py-2 sm:py-2.5 rounded-lg font-bold transition-all duration-300 shadow-lg shadow-athar-blue/20 hover:-translate-y-0.5 active:scale-95"
                 >
                   <Plus size={18} className="relative z-10" />
-                  <span className="relative z-10 hidden sm:inline">Create Project</span>
                 </button>
 
-                <button
-                  onClick={handleSignOut}
-                  className="flex items-center justify-center w-9 h-9 sm:w-11 sm:h-11 text-muted-foreground hover:text-destructive hover:bg-destructive/10 rounded-xl transition-all border border-transparent hover:border-destructive/20 tap-target"
-                  title="Sign Out"
-                >
-                  <LogOut size={18} />
-                </button>
+                <UserNavDropdown />
               </div>
             </div>
           </div>

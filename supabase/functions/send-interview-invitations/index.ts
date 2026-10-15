@@ -8,18 +8,10 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
-// Name formatting is handled by the shared getRecipientDisplayName() utility.
-
-/** Returns true if the string contains Arabic characters */
 const isArabicText = (str: string) => /[\u0600-\u06FF]/.test(str);
 
-/**
- * Checks whether a column header is a "founder name" column.
- * Matches English and Arabic phrasings used in Google Forms.
- */
 function isFounderNameColumn(header: string): boolean {
   const h = header.toLowerCase();
-  // Exclude second-member columns
   if (h.includes('second') || h.includes('العضو الثاني') || h.includes('ثاني')) return false;
   return (
     h.includes('founder name') ||
@@ -37,26 +29,22 @@ function isFounderNameColumn(header: string): boolean {
 }
 
 function extractRecipientDetails(sub: any) {
-  let email = sub.email || sub.contact_email;
+  let email = sub.founder_email || sub.email || sub.contact_email;
   let name = sub.founder_name || sub.startup_name || 'Founder';
-  const companyName = sub.startup_name || sub.company_name || 'Startup';
+  const companyName = sub.company_name || sub.startup_name || 'Startup';
 
   if (!email && sub.additional_data && typeof sub.additional_data === 'object') {
     const additionalData = sub.additional_data;
     const columnOrder = additionalData._column_order;
     let foundEmail = null;
 
-    // 1. Try using column order to locate the email right after the founder's name
     if (Array.isArray(columnOrder)) {
-      // Find index of founder name column
       const founderNameIdx = columnOrder.findIndex((header: string) => {
         const lower = header.toLowerCase();
         return (lower.includes('full name') || lower.includes('الاسم بالكامل') || lower.includes('اسمك بالكامل')) &&
                !lower.includes('second') && !lower.includes('العضو الثاني');
       });
-
       if (founderNameIdx !== -1) {
-        // Find the first email column after the founder name column
         for (let i = founderNameIdx + 1; i < columnOrder.length; i++) {
           const header = columnOrder[i];
           const lower = header.toLowerCase();
@@ -65,103 +53,82 @@ function extractRecipientDetails(sub: any) {
             const val = additionalData[header];
             if (typeof val === 'string' && val.includes('@') && val.includes('.')) {
               const match = val.match(/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/);
-              if (match) {
-                foundEmail = match[0].trim();
-                break;
-              }
+              if (match) { foundEmail = match[0].trim(); break; }
             }
           }
         }
       }
     }
-
-    // 2. Fallback: Search all keys, prioritizing keys containing "email" or "البريد الإلكتروني" and ignoring "second member"
     if (!foundEmail) {
       for (const [key, val] of Object.entries(additionalData)) {
         const lowerKey = key.toLowerCase();
-        if (lowerKey.includes('second') || lowerKey.includes('العضو الثاني')) {
-          continue;
-        }
-        if (lowerKey.includes('email') || lowerKey.includes('البريد الإلكتروني') || lowerKey.includes('البريد الالكتروني') || lowerKey.includes('البريد')) {
-          if (typeof val === 'string' && val.includes('@') && val.includes('.')) {
+        if (lowerKey.includes('second') || lowerKey.includes('العضو الثاني')) continue;
+        if (lowerKey.includes('email') || lowerKey.includes('البريد')) {
+          if (typeof val === 'string' && val.includes('@')) {
             const match = val.match(/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/);
-            if (match) {
-              foundEmail = match[0].trim();
-              break;
-            }
+            if (match) { foundEmail = match[0].trim(); break; }
           }
         }
       }
     }
-
-    // 3. Last resort: Any email-like string in the object that is not a second member key
     if (!foundEmail) {
       for (const [key, val] of Object.entries(additionalData)) {
         const lowerKey = key.toLowerCase();
-        if (lowerKey.includes('second') || lowerKey.includes('العضو الثاني')) {
-          continue;
-        }
-        if (typeof val === 'string' && val.includes('@') && val.includes('.')) {
+        if (lowerKey.includes('second') || lowerKey.includes('العضو الثاني')) continue;
+        if (typeof val === 'string' && val.includes('@')) {
           const match = val.match(/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/);
-          if (match) {
-            foundEmail = match[0].trim();
-            break;
-          }
+          if (match) { foundEmail = match[0].trim(); break; }
         }
       }
     }
-
-    if (foundEmail) {
-      email = foundEmail;
-    }
+    if (foundEmail) email = foundEmail;
   }
 
   if (sub.additional_data && typeof sub.additional_data === 'object') {
     let englishName: string | null = null;
     let arabicFallbackName: string | null = null;
-
     const additionalData = sub.additional_data;
     const columnOrder = additionalData._column_order;
     const keysToCheck = Array.isArray(columnOrder) ? columnOrder : Object.keys(additionalData);
-
     for (const key of keysToCheck) {
       if (!isFounderNameColumn(key)) continue;
       const val = additionalData[key];
       if (typeof val === 'string' && val.trim()) {
         const trimmed = val.trim();
-        if (!isArabicText(trimmed)) {
-          // English name — prefer this
-          if (!englishName) englishName = trimmed;
-        } else {
-          // Arabic name — keep as fallback
-          if (!arabicFallbackName) arabicFallbackName = trimmed;
-        }
+        if (!isArabicText(trimmed)) { if (!englishName) englishName = trimmed; }
+        else { if (!arabicFallbackName) arabicFallbackName = trimmed; }
       }
-      // Stop once we have an English name
       if (englishName) break;
     }
-
-    if (englishName) {
-      name = englishName;
-    } else if (arabicFallbackName && (name === sub.founder_name || name === sub.startup_name || name === 'Founder')) {
-      name = arabicFallbackName;
-    }
+    if (englishName) name = englishName;
+    else if (arabicFallbackName && (name === sub.founder_name || name === sub.startup_name || name === 'Founder')) name = arabicFallbackName;
   }
 
   const finalName = getRecipientDisplayName(name) || 'Founder';
   return { email, name: finalName, firstName: finalName, companyName };
 }
 
-serve(async (req) => {
-  if (req.method === 'OPTIONS') {
-    return new Response('ok', { headers: corsHeaders });
+/** Detect if a string is HTML or plain text */
+function isHtml(str: string): boolean {
+  return /<[a-z][\s\S]*>/i.test(str);
+}
+
+/** Apply variable substitution then return as HTML */
+function buildHtmlBody(bodyTpl: string, vars: Record<string, string>): string {
+  let result = bodyTpl;
+  for (const [key, val] of Object.entries(vars)) {
+    result = result.replace(new RegExp(`\\{\\{${key}\\}\\}`, 'g'), val);
   }
+  return isHtml(result) ? result : result.replace(/\n/g, '<br>');
+}
+
+serve(async (req) => {
+  if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders });
 
   try {
     if (req.method !== 'POST') {
       return new Response(JSON.stringify({ error: 'Method not allowed' }), {
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-        status: 405
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 405
       });
     }
 
@@ -173,16 +140,7 @@ serve(async (req) => {
       Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
     );
 
-    // Fetch SMTP settings
-    const { data: smtpSettings, error: smtpDbError } = await supabase
-      .from('smtp_settings')
-      .select('*')
-      .limit(1)
-      .maybeSingle();
-
-    if (smtpDbError) {
-      console.error('[Interview Invitations] Error fetching SMTP settings:', smtpDbError);
-    }
+    const { data: smtpSettings } = await supabase.from('smtp_settings').select('*').limit(1).maybeSingle();
 
     const smtpUser = smtpSettings?.smtp_user || Deno.env.get("SMTP_USER");
     const smtpPass = smtpSettings?.smtp_pass || Deno.env.get("SMTP_PASS");
@@ -190,49 +148,27 @@ serve(async (req) => {
     const smtpPort = smtpSettings?.smtp_port || parseInt(Deno.env.get("SMTP_PORT") || "465", 10);
 
     if (!smtpUser || !smtpPass) {
-      return new Response(JSON.stringify({
-        success: false,
-        error: 'SMTP credentials missing. Please configure smtp_settings in Supabase database.'
-      }), {
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-        status: 400
+      return new Response(JSON.stringify({ success: false, error: 'SMTP credentials missing.' }), {
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 400
       });
     }
 
     const transporter = nodemailer.createTransport({
-      host: smtpHost,
-      port: smtpPort,
-      secure: smtpPort === 465,
-      auth: {
-        user: smtpUser,
-        pass: smtpPass,
-      },
+      host: smtpHost, port: smtpPort, secure: smtpPort === 465,
+      auth: { user: smtpUser, pass: smtpPass }
     });
 
-    const senderName = 'Athar Startups';
-    const fromAddress = `"${senderName}" <${smtpUser}>`;
-    const emailsToSend: Array<{ to: string; cc?: string; subject: string; html: string; company_name: string }> = [];
+    const fromAddress = `"Athar Startups" <${smtpUser}>`;
+    const perSubmissionResults: any[] = [];
 
-    // Case A: eventId and submissionIds provided
     if (payload.eventId && Array.isArray(payload.submissionIds) && payload.submissionIds.length > 0) {
-      const { data: event } = await supabase
-        .from('events')
-        .select('*')
-        .eq('event_id', payload.eventId)
-        .maybeSingle();
-
+      const { data: event } = await supabase.from('events').select('*').eq('event_id', payload.eventId).maybeSingle();
       const { data: submissions, error: subErr } = await supabase
-        .from('company_submissions')
-        .select('*')
-        .in('submission_id', payload.submissionIds);
+        .from('company_submissions').select('*').in('submission_id', payload.submissionIds);
 
       if (subErr || !submissions || submissions.length === 0) {
-        return new Response(JSON.stringify({
-          success: false,
-          error: `No submissions found for given IDs`
-        }), {
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-          status: 404
+        return new Response(JSON.stringify({ success: false, error: 'No submissions found.' }), {
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 404
         });
       }
 
@@ -240,94 +176,85 @@ serve(async (req) => {
       const ccEmails: string[] = event?.interview_cc_emails || [];
       const subjectTpl = event?.interview_email_template_subject || 'Interview Invitation: {{company_name}}';
       const bodyTpl = event?.interview_email_template_body || 'Dear {{founder_name}},\n\nYou have been invited for an interview. Please book your slot: {{booking_link}}\n\nWarmly,\nThe Athar Team';
-
       const origin = req.headers.get('origin') || 'https://agenda-builder.vercel.app';
       const defaultBookingLink = `${origin}/#/event/${payload.eventId}/ather-team-booking`;
 
       for (const sub of submissions) {
         const { email, name, firstName, companyName } = extractRecipientDetails(sub);
         if (!email) {
-          console.warn(`[Interview Invitations] No email found for startup: ${sub.startup_name}`);
+          console.warn(`[Interview Invitations] No email for: ${sub.startup_name}`);
+          perSubmissionResults.push({ submission_id: sub.submission_id, success: false, email: null, error: 'No email found' });
+          await supabase.from('email_audit_log').insert({
+            event_id: payload.eventId, submission_id: sub.submission_id,
+            email_type: 'interview', recipient: 'unknown', status: 'failed',
+            error_message: 'No email found', sent_by: payload.sentBy || null
+          });
           continue;
         }
 
-        const subject = subjectTpl
-          .replace(/\{\{company_name\}\}/g, companyName)
-          .replace(/\{\{founder_name\}\}/g, name)
-          .replace(/\{\{first_name\}\}/g, firstName);
-
-        const body = bodyTpl
-          .replace(/\{\{company_name\}\}/g, companyName)
-          .replace(/\{\{founder_name\}\}/g, name)
-          .replace(/\{\{first_name\}\}/g, firstName)
-          .replace(/\{\{project_manager_name\}\}/g, 'Athar Team')
-          .replace(/\{\{booking_link\}\}/g, defaultBookingLink);
-
+        const vars = { company_name: companyName, founder_name: name, first_name: firstName, project_manager_name: 'Athar Team', booking_link: defaultBookingLink };
+        const subject = subjectTpl.replace(/\{\{company_name\}\}/g, companyName).replace(/\{\{founder_name\}\}/g, name).replace(/\{\{first_name\}\}/g, firstName);
+        const html = buildHtmlBody(bodyTpl, vars);
         const allCc = [...ccEmails, ...adminEmails].filter(Boolean);
 
-        emailsToSend.push({
-          from: fromAddress,
-          to: email,
-          cc: allCc.length > 0 ? allCc.join(', ') : undefined,
-          subject,
-          html: body.replace(/\n/g, '<br>'),
-          company_name: companyName
-        });
+        try {
+          const info = await transporter.sendMail({
+            from: fromAddress, to: email,
+            cc: allCc.length > 0 ? allCc.join(', ') : undefined,
+            subject, html
+          });
+          console.log(`[Interview Invitations] Sent to ${email}. MessageId: ${info.messageId}`);
+          perSubmissionResults.push({ submission_id: sub.submission_id, success: true, email });
+
+          // Update email_send_count in company_submissions
+          const currentCount = (sub.email_send_count as any) || {};
+          const newCount = { ...currentCount, interview: (currentCount.interview || 0) + 1 };
+          await supabase.from('company_submissions').update({ email_send_count: newCount }).eq('submission_id', sub.submission_id);
+
+          // Audit log
+          await supabase.from('email_audit_log').insert({
+            event_id: payload.eventId, submission_id: sub.submission_id,
+            email_type: 'interview', recipient: email, status: 'sent',
+            sent_by: payload.sentBy || null
+          });
+        } catch (sendErr: any) {
+          console.error(`[Interview Invitations] Failed for ${email}:`, sendErr);
+          perSubmissionResults.push({ submission_id: sub.submission_id, success: false, email, error: sendErr.message });
+          await supabase.from('email_audit_log').insert({
+            event_id: payload.eventId, submission_id: sub.submission_id,
+            email_type: 'interview', recipient: email, status: 'failed',
+            error_message: sendErr.message, sent_by: payload.sentBy || null
+          });
+        }
       }
     } else if (payload.company_email) {
-      // Case B: Direct payload
       const allCc = [...(payload.cc_emails || []), ...(payload.admin_emails || [])].filter(Boolean);
-      emailsToSend.push({
-        from: fromAddress,
-        to: payload.company_email,
-        cc: allCc.length > 0 ? allCc.join(', ') : undefined,
-        subject: payload.subject || 'Interview Invitation',
-        html: (payload.body || '').replace(/\n/g, '<br>'),
-        company_name: payload.company_name || 'Startup'
-      });
+      try {
+        await transporter.sendMail({
+          from: fromAddress, to: payload.company_email,
+          cc: allCc.length > 0 ? allCc.join(', ') : undefined,
+          subject: payload.subject || 'Interview Invitation',
+          html: isHtml(payload.body || '') ? payload.body : (payload.body || '').replace(/\n/g, '<br>')
+        });
+        perSubmissionResults.push({ submission_id: payload.submission_id || null, success: true, email: payload.company_email });
+      } catch (sendErr: any) {
+        perSubmissionResults.push({ submission_id: payload.submission_id || null, success: false, email: payload.company_email, error: sendErr.message });
+      }
     }
 
-    if (emailsToSend.length === 0) {
-      return new Response(JSON.stringify({
-        success: false,
-        error: 'No valid recipient email address found for the selected startup(s).'
-      }), {
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-        status: 400
-      });
-    }
-
-    const sentResults = [];
-    for (const mail of emailsToSend) {
-      console.log(`[Interview Invitations] Sending to ${mail.to}...`);
-      const info = await transporter.sendMail({
-        from: mail.from,
-        to: mail.to,
-        cc: mail.cc,
-        subject: mail.subject,
-        html: mail.html
-      });
-      console.log(`[Interview Invitations] Sent to ${mail.to}. MessageId: ${info.messageId}`);
-      sentResults.push({ to: mail.to, messageId: info.messageId });
-    }
+    const successCount = perSubmissionResults.filter(r => r.success).length;
+    const failCount = perSubmissionResults.filter(r => !r.success).length;
 
     return new Response(JSON.stringify({
       success: true,
-      message: `Successfully sent ${sentResults.length} interview email(s) via SMTP!`,
-      details: sentResults
-    }), {
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      status: 200
-    });
+      message: `Sent ${successCount} interview email(s). ${failCount > 0 ? `${failCount} failed.` : ''}`,
+      results: perSubmissionResults
+    }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 200 });
 
   } catch (error: any) {
     console.error('[Interview Invitations Error]:', error);
-    return new Response(JSON.stringify({
-      success: false,
-      error: error?.message || 'Failed to send interview email via SMTP'
-    }), {
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      status: 500
+    return new Response(JSON.stringify({ success: false, error: error?.message || 'Failed to send interview email' }), {
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 500
     });
   }
 });

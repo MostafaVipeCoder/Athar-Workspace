@@ -14,7 +14,8 @@ import {
     getEvent,
     uploadImage,
     importAgendaData,
-    syncEventFromCloud
+    syncEventFromCloud,
+    getEventSlug
 } from '../lib/api';
 import { formatDate, formatTime, getGoogleDriveDirectLink } from '../lib/utils';
 import { generateAgendaTemplate, parseAgendaExcel, fetchAndParseGoogleSheet } from '../lib/excel';
@@ -820,7 +821,7 @@ export default function EventBuilder({ event, onBack }) {
         showToast(`تم ${shiftHours > 0 ? 'تقديم' : 'تأخير'} مواعيد اليوم بمقدار ساعة`);
     };
 
-    const agendaUrl = `${window.location.href.split('#')[0].replace(/\/$/, '')}/#/agenda/${event.event_id}`;
+    const agendaUrl = `${window.location.href.split('#')[0].replace(/\/$/, '')}/#/agenda/${getEventSlug(eventDetails?.event_name || event?.event_name || event.event_id)}`;
 
     const [copied, setCopied] = useState(false);
     const handleCopy = () => {

@@ -8,7 +8,7 @@ import {
     Check,
     Eye,
 } from 'lucide-react';
-import { getEvent, updateEvent, uploadImage } from '../lib/api';
+import { getEvent, updateEvent, uploadImage, getEventSlug } from '../lib/api';
 import { getGoogleDriveDirectLink } from '../lib/utils';
 
 export default function EventVisualManager() {
@@ -17,6 +17,8 @@ export default function EventVisualManager() {
     const [loading, setLoading] = useState(true);
     const [saving, setSaving] = useState(false);
     const [success, setSuccess] = useState(false);
+
+    const [event, setEvent] = useState(null);
 
     const [settings, setSettings] = useState({
         background_image_url: '',
@@ -37,6 +39,7 @@ export default function EventVisualManager() {
         try {
             setLoading(true);
             const data = await getEvent(eventId);
+            setEvent(data);
             setSettings({
                 background_image_url: data.background_image_url || '',
                 footer_image_url: data.footer_image_url || '',
@@ -156,7 +159,7 @@ export default function EventVisualManager() {
                         </div>
                         <div className="flex items-center gap-2 sm:gap-3 flex-wrap">
                             <a
-                                href={`#/agenda/${eventId}`}
+                                href={`#/agenda/${getEventSlug(event) || eventId}`}
                                 target="_blank"
                                 rel="noopener noreferrer"
                                 className="flex items-center gap-2 px-3 sm:px-4 py-2 text-sm font-bold text-slate-600 hover:bg-slate-50 rounded-xl transition-premium tap-target"

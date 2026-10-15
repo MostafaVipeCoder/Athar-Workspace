@@ -7,8 +7,8 @@ export default function ActiveUsers({ users = [], maxRender = 4, className = '' 
   const excess = users.length - maxRender;
 
   const getInitials = (name) => {
-    if (!name) return '?';
-    const parts = name.split(' ').filter(Boolean);
+    if (!name || typeof name !== 'string') return '?';
+    const parts = name.trim().split(/\s+/).filter(Boolean);
     if (parts.length === 0) return '?';
     if (parts.length === 1) return parts[0].substring(0, 2).toUpperCase();
     return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
@@ -17,7 +17,7 @@ export default function ActiveUsers({ users = [], maxRender = 4, className = '' 
   return (
     <div className={`flex items-center gap-3 ${className}`}>
       <div className="flex items-center -space-x-2">
-        {displayUsers.map((u, i) => (
+        {displayUsers.filter(Boolean).map((u, i) => (
           <div
             key={u.user_id || i}
             className="group relative rounded-full ring-2 ring-white hover:z-10 transition-transform hover:scale-110 cursor-pointer"
@@ -30,7 +30,7 @@ export default function ActiveUsers({ users = [], maxRender = 4, className = '' 
             {/* Tooltip */}
             <div className="absolute top-full left-1/2 -translate-x-1/2 mt-2 opacity-0 group-hover:opacity-100 pointer-events-none transition-opacity z-20">
               <div className="bg-slate-900 text-white text-xs font-bold px-2.5 py-1.5 rounded-lg whitespace-nowrap shadow-xl">
-                {u.full_name}
+                {u.full_name || 'Active User'}
                 <div className="absolute -top-1 left-1/2 -translate-x-1/2 w-2 h-2 bg-slate-900 rotate-45"></div>
               </div>
             </div>

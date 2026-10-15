@@ -28,6 +28,8 @@ export const getDistributionConfig = async (eventId) => {
         ...data,
         unique_pairing: data.unique_pairing ?? true,
         mentor_availability: data.mentor_availability || {},
+        finalized_days: data.finalized_days || [],
+        timer_state: data.timer_state || null,
     };
 };
 
@@ -42,6 +44,8 @@ export const saveDistributionConfig = async (eventId, config) => {
             ...config,
             unique_pairing: config.unique_pairing ?? true,
             mentor_availability: config.mentor_availability || {},
+            finalized_days: config.finalized_days || [],
+            timer_state: config.timer_state || null,
             updated_at: new Date().toISOString(),
         }, { onConflict: 'event_id' })
         .select()
@@ -84,6 +88,20 @@ export const clearDistributionSessions = async (eventId) => {
 };
 
 /**
+ * Clear sessions for specific day indices
+ */
+export const clearDistributionSessionsForDays = async (eventId, dayIndices = []) => {
+    if (!dayIndices || dayIndices.length === 0) return;
+    const { error } = await supabase
+        .from('mentoring_sessions')
+        .delete()
+        .eq('event_id', eventId)
+        .in('day_index', dayIndices);
+
+    if (error) throw error;
+};
+
+/**
  * Save sessions array after generation
  */
 export const saveDistributionSessions = async (sessions, eventId) => {
@@ -102,6 +120,7 @@ export const saveDistributionSessions = async (sessions, eventId) => {
         conflict_reason: s.conflict_reason || null,
         slot_start_time: s.slot_start_time || null,
         slot_end_time: s.slot_end_time || null,
+        is_manual_override: !!s.is_manual_override,
     }));
 
     const { data, error } = await supabase
@@ -146,7 +165,7 @@ export const publishDistribution = async (eventId, isPublished) => {
  * Check if a mentor is available on a given day index
  * @param {string} mentorId
  * @param {number} dayIndex (0-based)
- * @param {Object} availabilityConfig - { [mentorId]: 'all' | 'day_0' | 'day_1' | 'day_2' | 'excluded' | [0, 1] }
+ * @param {Object} availabilityConfig - { [mentorId]: 'all' | 'day_0' | 'day_1' | 'day_2' | 'excluded' | [0, 1] | { available_days?: number[], days?: number[], ... } }
  */
 export const isMentorAvailableOnDay = (mentorId, dayIndex, availabilityConfig = {}) => {
     const avail = availabilityConfig[mentorId];
@@ -157,6 +176,71 @@ export const isMentorAvailableOnDay = (mentorId, dayIndex, availabilityConfig = 
         const d = parseInt(avail.replace('day_', ''), 10);
         return d === dayIndex;
     }
+    if (typeof avail === 'object' && avail !== null) {
+        if (avail.available_days && Array.isArray(avail.available_days)) {
+            return avail.available_days.includes(dayIndex);
+        }
+        if (avail.days && Array.isArray(avail.days)) {
+            return avail.days.includes(dayIndex);
+        }
+    }
+    return true;
+};
+
+/**
+ * Check if a mentor is available in a specific slot on a day
+ * @param {string} mentorId
+ * @param {number} dayIndex
+ * @param {number} slotIndex
+ * @param {string} slotStartTime - "HH:MM"
+ * @param {string} slotEndTime - "HH:MM"
+ * @param {Object} availabilityConfig
+ * @param {number} mentorSlotCountToday - number of slots already allocated to this mentor today
+ */
+export const isMentorAvailableInSlot = (
+    mentorId,
+    dayIndex,
+    slotIndex,
+    slotStartTime,
+    slotEndTime,
+    availabilityConfig = {},
+    mentorSlotCountToday = 0
+) => {
+    if (!isMentorAvailableOnDay(mentorId, dayIndex, availabilityConfig)) {
+        return false;
+    }
+
+    const avail = availabilityConfig[mentorId];
+    if (typeof avail === 'object' && avail !== null) {
+        // Max slots constraint
+        if (avail.max_slots && mentorSlotCountToday >= avail.max_slots) {
+            return false;
+        }
+
+        // Specific slot indices
+        if (Array.isArray(avail.slot_indices) && avail.slot_indices.length > 0) {
+            if (!avail.slot_indices.includes(slotIndex)) {
+                return false;
+            }
+        }
+
+        // Custom time window (start_time / end_time)
+        if (avail.start_time && slotStartTime) {
+            const [mh, mm] = avail.start_time.split(':').map(Number);
+            const [sh, sm] = slotStartTime.split(':').map(Number);
+            if (sh * 60 + sm < mh * 60 + mm) {
+                return false;
+            }
+        }
+        if (avail.end_time && slotEndTime) {
+            const [mh, mm] = avail.end_time.split(':').map(Number);
+            const [eh, em] = slotEndTime.split(':').map(Number);
+            if (eh * 60 + em > mh * 60 + mm) {
+                return false;
+            }
+        }
+    }
+
     return true;
 };
 
@@ -709,3 +793,245 @@ export const generateDistributionFlexible = (globalConfig, dayConfigs, mentors, 
 
     return sessions;
 };
+
+/**
+ * Smart distribution generator that preserves finalized days and avoids duplicate
+ * pairings with companies already met in finalized days.
+ */
+export const generateDistributionWithFinalizedDays = (
+    globalConfig,
+    dayConfigs,
+    mentors,
+    companies,
+    existingSessions = []
+) => {
+    const {
+        unique_pairing = true,
+        mentor_availability = {},
+        finalized_days = [],
+        event_id,
+    } = globalConfig;
+
+    const numDays = globalConfig.num_days || 1;
+    const finalizedSet = new Set(finalized_days || []);
+
+    // 1. Separate preserved finalized sessions and track meetings from them
+    const preservedSessions = [];
+    const mentorMeetCount = {};
+    mentors.forEach(m => {
+        mentorMeetCount[m.id] = {};
+        companies.forEach(c => { mentorMeetCount[m.id][c.id] = 0; });
+    });
+
+    (existingSessions || []).forEach(s => {
+        if (finalizedSet.has(s.day_index)) {
+            preservedSessions.push(s);
+            if (s.mentor_id && s.company_id && !s.is_break) {
+                if (!mentorMeetCount[s.mentor_id]) mentorMeetCount[s.mentor_id] = {};
+                mentorMeetCount[s.mentor_id][s.company_id] = (mentorMeetCount[s.mentor_id][s.company_id] || 0) + 1;
+            }
+        }
+    });
+
+    const newSessions = [];
+
+    // Track occupied slots for unfinalized days
+    const occupiedSlots = {};
+    for (let day = 0; day < numDays; day++) {
+        if (finalizedSet.has(day)) continue;
+        occupiedSlots[day] = {};
+    }
+
+    for (let day = 0; day < numDays; day++) {
+        if (finalizedSet.has(day)) {
+            continue; // Skip generation for finalized days
+        }
+
+        const effConfig = resolveDayEffectiveConfig(globalConfig, dayConfigs, day);
+        const slotTimes = calculateDaySlotTimes(effConfig);
+        const slotsToday = effConfig.slots_per_day;
+
+        for (let slot = 0; slot < slotsToday; slot++) {
+            occupiedSlots[day][slot] = {};
+        }
+
+        const globalAvailable = mentors.filter(m => isMentorAvailableOnDay(m.id, day, mentor_availability));
+        const dayMentorIds = effConfig.mentor_ids;
+        const availableMentorsToday = dayMentorIds && dayMentorIds.length
+            ? globalAvailable.filter(m => dayMentorIds.includes(m.id))
+            : globalAvailable;
+
+        const metInRound = {};
+        const mentorSlotsAssignedToday = {};
+        availableMentorsToday.forEach(m => { 
+            metInRound[m.id] = new Set(); 
+            mentorSlotsAssignedToday[m.id] = 0;
+        });
+
+        for (let slot = 0; slot < slotsToday; slot++) {
+            const timeInfo = slotTimes[slot] || { start_time: '00:00', end_time: '00:00' };
+            const start = timeInfo.start_time;
+            const end = timeInfo.end_time;
+
+            for (const mentor of availableMentorsToday) {
+                // Check if mentor is available in this specific slot
+                const canMentorTakeSlot = isMentorAvailableInSlot(
+                    mentor.id,
+                    day,
+                    slot,
+                    start,
+                    end,
+                    mentor_availability,
+                    mentorSlotsAssignedToday[mentor.id]
+                );
+
+                if (!canMentorTakeSlot) {
+                    // Mentor is not available during this slot
+                    newSessions.push({
+                        event_id,
+                        day_index: day,
+                        slot_index: slot,
+                        mentor_id: mentor.id,
+                        mentor_name: mentor.name,
+                        company_id: null,
+                        company_name: null,
+                        is_break: false,
+                        has_conflict: false,
+                        is_warning: true,
+                        conflict_reason: 'Mentor unavailable in this slot/time window',
+                        slot_start_time: start,
+                        slot_end_time: end,
+                    });
+                    continue;
+                }
+
+                const availableCompanies = companies.filter(c => {
+                    const notSeenMentorThisRound = !metInRound[mentor.id].has(c.id);
+                    const noTimeConflict = !occupiedSlots[day][slot][c.id];
+                    const notSeenAcrossAllDays = !unique_pairing || (mentorMeetCount[mentor.id]?.[c.id] || 0) === 0;
+                    return notSeenMentorThisRound && noTimeConflict && notSeenAcrossAllDays;
+                });
+
+                if (availableCompanies.length === 0) {
+                    const hasMetBeforeInEvent = unique_pairing && companies.some(c => (mentorMeetCount[mentor.id]?.[c.id] || 0) > 0);
+                    const isUniquePairingLimit = unique_pairing && hasMetBeforeInEvent;
+                    const conflictReason = isUniquePairingLimit
+                        ? 'Unique Pairing limit: All available startups have already met this mentor'
+                        : 'No available startup: time conflict or already assigned';
+
+                    newSessions.push({
+                        event_id,
+                        day_index: day,
+                        slot_index: slot,
+                        mentor_id: mentor.id,
+                        mentor_name: mentor.name,
+                        company_id: null,
+                        company_name: null,
+                        is_break: false,
+                        has_conflict: !isUniquePairingLimit,
+                        is_warning: isUniquePairingLimit,
+                        conflict_reason: conflictReason,
+                        slot_start_time: start,
+                        slot_end_time: end,
+                    });
+                    continue;
+                }
+
+                const totalMeetings = (c) => Object.values(mentorMeetCount).reduce((sum, mm) => sum + (mm[c.id] || 0), 0);
+
+                const sorted = [...availableCompanies].sort((a, b) => {
+                    const diff = totalMeetings(a) - totalMeetings(b);
+                    if (diff !== 0) return diff;
+                    return Math.random() - 0.5;
+                });
+
+                const chosen = sorted[0];
+
+                newSessions.push({
+                    event_id,
+                    day_index: day,
+                    slot_index: slot,
+                    mentor_id: mentor.id,
+                    mentor_name: mentor.name,
+                    company_id: chosen.id,
+                    company_name: chosen.name,
+                    is_break: false,
+                    has_conflict: false,
+                    conflict_reason: null,
+                    slot_start_time: start,
+                    slot_end_time: end,
+                });
+
+                metInRound[mentor.id].add(chosen.id);
+                occupiedSlots[day][slot][chosen.id] = mentor.id;
+                mentorMeetCount[mentor.id][chosen.id] = (mentorMeetCount[mentor.id][chosen.id] || 0) + 1;
+                mentorSlotsAssignedToday[mentor.id] += 1;
+            }
+        }
+    }
+
+    // Combine preserved finalized sessions and new unfinalized sessions
+    return [...preservedSessions, ...newSessions].sort((a, b) => {
+        if (a.day_index !== b.day_index) return a.day_index - b.day_index;
+        if (a.slot_index !== b.slot_index) return a.slot_index - b.slot_index;
+        return (a.mentor_name || '').localeCompare(b.mentor_name || '');
+    });
+};
+
+/**
+ * Validate moving or swapping a session
+ */
+export const validateSessionMove = ({
+    sessions = [],
+    sourceSession,
+    targetSession,
+    targetDay,
+    targetSlot,
+    targetMentor,
+    uniquePairing = true,
+}) => {
+    const movingCompanyId = sourceSession?.company_id;
+    const movingCompanyName = sourceSession?.company_name;
+
+    if (!movingCompanyId) {
+        return { valid: true, error: null, warning: null };
+    }
+
+    // 1. Time Conflict: Is moving company already booked in targetDay, targetSlot with another mentor?
+    const hasTimeConflict = sessions.some(s => 
+        s.id !== sourceSession.id &&
+        s.id !== targetSession?.id &&
+        s.day_index === targetDay &&
+        s.slot_index === targetSlot &&
+        s.company_id === movingCompanyId
+    );
+
+    if (hasTimeConflict) {
+        return {
+            valid: false,
+            error: `تضارب زمني: الشركة "${movingCompanyName}" مخصصة بالفعل مع موجه آخر في نفس هذا السلوت (اليوم ${targetDay + 1}، الجلسة ${targetSlot + 1}).`,
+            warning: null,
+        };
+    }
+
+    // 2. Repeat Pairing Check: Has moving company already met target mentor on another day / slot?
+    if (uniquePairing && targetMentor?.id) {
+        const alreadyMet = sessions.some(s =>
+            s.id !== sourceSession.id &&
+            s.mentor_id === targetMentor.id &&
+            s.company_id === movingCompanyId &&
+            !s.is_break
+        );
+
+        if (alreadyMet) {
+            return {
+                valid: false,
+                error: `تكرار لقاء: الشركة "${movingCompanyName}" قد التقت بالفعل بالموجه "${targetMentor.name}" في جلسة سابقة، وتفعيل التوزيع العادل يمنع التكرار.`,
+                warning: `تكرار لقاء مع الموجه "${targetMentor.name}".`,
+            };
+        }
+    }
+
+    return { valid: true, error: null, warning: null };
+};
+

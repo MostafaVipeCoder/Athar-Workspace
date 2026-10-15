@@ -276,6 +276,17 @@ export const parseWorkbook = (workbook) => {
 };
 
 /**
+ * Safe split: handles null, undefined, numbers, booleans, and rich objects
+ * that XLSX may return as cell values — avoids TypeError from calling .split()
+ * on non-string values.
+ */
+const safeSplit = (val, sep = '/') => {
+    if (val === null || val === undefined) return [];
+    if (typeof val !== 'string') return [String(val)];
+    return val.split(sep);
+};
+
+/**
  * Parses a workbook generically, returning all sheets and their rows.
  */
 export const parseGenericWorkbook = (workbook) => {
@@ -297,14 +308,14 @@ export const parseGenericWorkbook = (workbook) => {
         const cleanedRows = rawRows.map(row => {
             const cleanedRow = {};
             Object.keys(row).forEach(key => {
-                // Extract English part before /
-                const englishKey = key.split('/')[0].trim();
+                const englishKey = String(key ?? '').split('/')[0].trim();
                 cleanedRow[englishKey] = row[key];
             });
             return cleanedRow;
         });
 
-        const cleanedHeaders = headers.map(h => h.split('/')[0].trim());
+        // Use safeSplit to guard against numeric/boolean/null header values
+        const cleanedHeaders = headers.map(h => safeSplit(h, '/')[0]?.trim() ?? '');
 
         result[sheetName] = {
             rows: cleanedRows,
@@ -336,6 +347,7 @@ export const parseGenericExcel = (file) => {
 
 /**
  * Fetches and parses a public Google Sheet generically.
+ * Separates fetch errors from parse errors so the user gets accurate feedback.
  */
 export const fetchAndParseGenericGoogleSheet = async (url) => {
     const match = url.match(/\/spreadsheets\/d\/([a-zA-Z0-9-_]+)/);
@@ -343,24 +355,29 @@ export const fetchAndParseGenericGoogleSheet = async (url) => {
     const spreadsheetId = match[1];
 
     const exportUrl = `https://docs.google.com/spreadsheets/d/${spreadsheetId}/export?format=xlsx`;
-    
+
+    let buffer;
     try {
         const response = await fetch(exportUrl);
-
         if (!response.ok) {
-            throw new Error('Failed to fetch Google Sheet. Please check if the spreadsheet is private.');
+            throw new Error(`فشل جلب ملف Google Sheet - Status: ${response.status}. يرجى التأكد من تغيير إعدادات المشاركة إلى "أي شخص لديه الرابط يمكنه العرض".`);
         }
-
-        const buffer = await response.arrayBuffer();
-        const workbook = XLSX.read(buffer, { type: 'array' });
-
-        return parseGenericWorkbook(workbook);
-    } catch (err) {
-        console.error('Google Sheet fetch error:', err);
-        if (err instanceof TypeError || err.message?.includes('Failed to fetch')) {
+        buffer = await response.arrayBuffer();
+    } catch (fetchErr) {
+        console.error('[Google Sheet] Fetch error:', fetchErr);
+        if (fetchErr instanceof TypeError || fetchErr.message?.includes('Failed to fetch')) {
             throw new Error('فشل جلب ملف Google Sheet. الرابط غير متاح للعامة أو مغلق. يرجى التأكد من تغيير إعدادات المشاركة في جوجل شيت إلى "أي شخص لديه الرابط يمكنه العرض" (Anyone with the link can view).');
         }
-        throw err;
+        throw fetchErr;
+    }
+
+    // Parse phase — errors here are unrelated to link permissions
+    try {
+        const workbook = XLSX.read(buffer, { type: 'array' });
+        return parseGenericWorkbook(workbook);
+    } catch (parseErr) {
+        console.error('[Google Sheet] Parse error:', parseErr);
+        throw new Error(`تم تحميل الملف بنجاح لكن فشل تحليله: ${parseErr.message}`);
     }
 };
 
@@ -405,4 +422,18 @@ export const fetchAndParseGoogleSheet = async (url) => {
     const workbook = XLSX.read(buffer, { type: 'array', cellDates: true });
 
     return parseWorkbook(workbook);
+};
+
+/**
+ * Exports JSON array data to an Excel (.xlsx) file and triggers download.
+ * @param {Array<Object>} data
+ * @param {string} filename
+ * @param {string} sheetName
+ */
+export const exportToExcel = (data, filename = 'export.xlsx', sheetName = 'Data') => {
+    if (!data || !data.length) return;
+    const ws = XLSX.utils.json_to_sheet(data);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, sheetName);
+    XLSX.writeFile(wb, filename);
 };

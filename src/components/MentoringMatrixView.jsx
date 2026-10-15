@@ -1,6 +1,9 @@
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { useParams } from 'react-router-dom';
-import { Grid3X3, Printer, AlertTriangle, Sun, AlertCircle, Calendar, CheckCircle2, XCircle } from 'lucide-react';
+import { 
+    Grid3X3, Printer, AlertTriangle, Sun, AlertCircle, Calendar, CheckCircle2, 
+    XCircle, Clock, Volume2, VolumeX, Play, Pause, Plus, Minus, RotateCcw 
+} from 'lucide-react';
 import {
     getDistributionConfig,
     getDistributionSessions,
@@ -10,6 +13,7 @@ import {
     resolveDayEffectiveConfig,
     calculateDaySlotTimes,
 } from '../lib/mentoringDistribution';
+import { useMentoringTimer } from '../lib/useMentoringTimer';
 import { supabase } from '../lib/supabase';
 
 export default function MentoringMatrixView() {
@@ -21,6 +25,7 @@ export default function MentoringMatrixView() {
     const [eventDays, setEventDays] = useState([]);
     const [loading, setLoading] = useState(true);
     const [activeDay, setActiveDay] = useState(0);
+    const [currentTime, setCurrentTime] = useState(new Date());
 
     const timeTo12Hour = (t) => {
         if (!t) return '';
@@ -108,6 +113,67 @@ export default function MentoringMatrixView() {
     );
 
     const hasConflicts = sessions.some(s => s.has_conflict);
+
+    // Current slot calculation for active day
+    const computeCurrentSlotForActiveDay = useCallback(() => {
+        if (!slotTimes.length) return null;
+        const now = currentTime || new Date();
+        const nowMins = now.getHours() * 60 + now.getMinutes();
+        for (let i = 0; i < slotTimes.length; i++) {
+            const st = slotTimes[i];
+            const [sh, sm] = st.start_time.split(':').map(Number);
+            const [eh, em] = st.end_time.split(':').map(Number);
+            const startM = sh * 60 + sm;
+            const endM = eh * 60 + em;
+            if (nowMins >= startM && nowMins < endM) return i;
+        }
+        return null;
+    }, [slotTimes, currentTime]);
+
+    const [currentSlot, setCurrentSlot] = useState(null);
+
+    useEffect(() => {
+        const tick = setInterval(() => {
+            const now = new Date();
+            setCurrentTime(now);
+            setCurrentSlot(computeCurrentSlotForActiveDay());
+        }, 1000);
+        return () => clearInterval(tick);
+    }, [computeCurrentSlotForActiveDay]);
+
+    const defaultSlotSeconds = (activeEffectiveConfig?.slot_duration_minutes || 20) * 60;
+
+    const {
+        secondsLeft,
+        isPaused,
+        isMuted,
+        isAlertMode,
+        adjustTime,
+        togglePause,
+        resetTimer,
+        setExactSeconds,
+        toggleMute,
+    } = useMentoringTimer({
+        eventId,
+        initialSeconds: defaultSlotSeconds,
+        dayIndex: activeDay,
+        slotIndex: currentSlot || 0,
+    });
+
+    const prevSlotRef = useRef(null);
+    useEffect(() => {
+        if (currentSlot !== null && currentSlot !== prevSlotRef.current) {
+            prevSlotRef.current = currentSlot;
+            const st = slotTimes[currentSlot];
+            if (st) {
+                const [eh, em] = st.end_time.split(':').map(Number);
+                const now = new Date();
+                const nowS = now.getHours() * 3600 + now.getMinutes() * 60 + now.getSeconds();
+                const endS = eh * 3600 + em * 60;
+                setExactSeconds(Math.max(0, endS - nowS));
+            }
+        }
+    }, [currentSlot, slotTimes, setExactSeconds]);
 
     // Responsive sizing
     const mentorCount = activeMentors.length || 1;
@@ -257,6 +323,77 @@ export default function MentoringMatrixView() {
                             </button>
                         );
                     })}
+                </div>
+            </div>
+
+            {/* Live Synchronized Timer Bar (Interactive Controls) */}
+            <div className="relative z-10 bg-slate-900 text-white px-4 sm:px-8 py-2.5 no-print flex flex-wrap items-center justify-between gap-4 shadow-sm">
+                <div className="flex items-center gap-3">
+                    <span className="flex h-2.5 w-2.5 relative">
+                        <span className={`animate-ping absolute inline-flex h-full w-full rounded-full opacity-75 ${currentSlot !== null ? 'bg-emerald-400' : 'bg-amber-400'}`}></span>
+                        <span className={`relative inline-flex rounded-full h-2.5 w-2.5 ${currentSlot !== null ? 'bg-emerald-500' : 'bg-amber-500'}`}></span>
+                    </span>
+                    <span className="text-xs font-black uppercase tracking-wider text-slate-200">
+                        {currentSlot !== null ? `الجلسة الحالية: #${currentSlot + 1} (${slotTimes[currentSlot]?.start_time} - ${slotTimes[currentSlot]?.end_time})` : 'لا توجد جلسة جارية حالياً (Waiting for next slot)'}
+                    </span>
+                </div>
+
+                <div className="flex items-center gap-3">
+                    <div className="flex items-center gap-2 bg-slate-800 px-3 py-1.5 rounded-xl border border-slate-700 font-mono text-sm font-extrabold tabular-nums">
+                        <Clock size={14} className="text-athar-blue" />
+                        <span className={`${isAlertMode ? 'text-rose-400 animate-pulse font-black' : secondsLeft && secondsLeft <= 60 ? 'text-rose-400' : 'text-emerald-400'}`}>
+                            {secondsLeft !== null ? `${String(Math.floor(secondsLeft / 60)).padStart(2, '0')}:${String(secondsLeft % 60).padStart(2, '0')}` : '--:--'}
+                        </span>
+                        {isPaused && (
+                            <span className="text-[9px] px-1.5 py-0.5 bg-amber-500/20 text-amber-300 rounded font-bold uppercase">
+                                Paused
+                            </span>
+                        )}
+                    </div>
+
+                    {/* Timer Control Buttons */}
+                    <div className="flex items-center gap-1.5">
+                        <button
+                            onClick={() => adjustTime(-60)}
+                            title="تخفيض دقيقة (-1m)"
+                            className="px-2.5 py-1 bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-bold rounded-lg border border-slate-700 transition-all active:scale-95 cursor-pointer"
+                        >
+                            -1m
+                        </button>
+                        <button
+                            onClick={() => adjustTime(60)}
+                            title="زيادة دقيقة (+1m)"
+                            className="px-2.5 py-1 bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-bold rounded-lg border border-slate-700 transition-all active:scale-95 cursor-pointer"
+                        >
+                            +1m
+                        </button>
+                        <button
+                            onClick={togglePause}
+                            title={isPaused ? "استئناف (Resume)" : "إيقاف مؤقت (Pause)"}
+                            className={`px-3 py-1 text-xs font-bold rounded-lg transition-all active:scale-95 flex items-center gap-1 cursor-pointer ${
+                                isPaused ? 'bg-emerald-600 hover:bg-emerald-700 text-white' : 'bg-amber-600 hover:bg-amber-700 text-white'
+                            }`}
+                        >
+                            {isPaused ? <Play size={11} className="fill-white" /> : <Pause size={11} className="fill-white" />}
+                            {isPaused ? 'استئناف' : 'إيقاف مؤقت'}
+                        </button>
+                        <button
+                            onClick={() => resetTimer(defaultSlotSeconds)}
+                            title="إعادة ضبط الوقت (Reset)"
+                            className="p-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white rounded-lg border border-slate-700 transition-all active:scale-95 cursor-pointer"
+                        >
+                            <RotateCcw size={13} />
+                        </button>
+                        <button
+                            onClick={toggleMute}
+                            title={isMuted ? "تفعيل الصوت (Unmute)" : "كتم الصوت (Mute)"}
+                            className={`p-1.5 rounded-lg border transition-all active:scale-95 cursor-pointer ${
+                                isMuted ? 'bg-rose-900/40 border-rose-700 text-rose-400' : 'bg-slate-800 border-slate-700 text-slate-300'
+                            }`}
+                        >
+                            {isMuted ? <VolumeX size={13} /> : <Volume2 size={13} />}
+                        </button>
+                    </div>
                 </div>
             </div>
 

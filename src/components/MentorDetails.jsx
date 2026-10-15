@@ -6,7 +6,9 @@ import {
     getSlots,
     createSlot,
     updateSlot,
-    deleteSlot
+    deleteSlot,
+    ADVANCE_NOTICE_OPTIONS,
+    isSlotWithinNoticeWindow
 } from '../lib/mentorBooking';
 import LazyImage from './LazyImage';
 import { getGoogleDriveFallbackUrls } from '../lib/utils';
@@ -93,13 +95,9 @@ export default function MentorDetails() {
         setTimeout(() => setCopied(false), 2000);
     };
 
-    const isWithin24Hours = (dateTime) => {
+    const isNoticeExpired = (dateTime) => {
         if (!dateTime) return false;
-        const slotTime = new Date(dateTime);
-        const now = new Date();
-        const diffMs = slotTime - now;
-        const diffHours = diffMs / (1000 * 60 * 60);
-        return diffHours < 24;
+        return isSlotWithinNoticeWindow(dateTime, mentor?.advance_notice_minutes ?? 1440);
     };
 
     if (loading) {
@@ -161,6 +159,11 @@ export default function MentorDetails() {
                         <div className="flex-1 text-center md:text-left">
                             <h1 className="text-3xl font-black text-[#0d0e0e] mb-2 tracking-tight">{mentor.name}</h1>
                             <p className="text-slate-400 font-bold tracking-widest text-xs uppercase mb-2">{mentor.email}</p>
+                            <div className="flex items-center justify-center md:justify-start gap-2 mb-2 flex-wrap">
+                                <span className="px-3 py-1 rounded-lg bg-indigo-50 text-[#1a27c9] text-[10px] font-black uppercase tracking-wider">
+                                    Notice: {ADVANCE_NOTICE_OPTIONS.find(o => o.value === (mentor.advance_notice_minutes ?? 1440))?.label?.split('(')[0]?.trim() || `${mentor.advance_notice_minutes ?? 1440}m`}
+                                </span>
+                            </div>
                             {mentor.bio && <p className="text-slate-500 font-bold leading-relaxed italic">{mentor.bio}</p>}
                         </div>
                         <div className="flex gap-3">
@@ -241,15 +244,24 @@ export default function MentorDetails() {
                                                     onChange={(e) => setEditingSlot({ ...editingSlot, is_available: e.target.checked })}
                                                     className="w-5 h-5"
                                                 />
-                                            ) : (
-                                                <span className={`px-4 py-2 rounded-full text-[10px] font-black uppercase tracking-widest ${
-                                                    slot.is_available
-                                                        ? 'bg-emerald-100 text-emerald-700'
-                                                        : 'bg-rose-100 text-rose-700'
-                                                }`}>
-                                                    {slot.is_available ? 'Yes' : 'No'}
-                                                </span>
-                                            )}
+                                            ) : (() => {
+                                                const isExpired = isSlotWithinNoticeWindow(slot.start_time, mentor?.advance_notice_minutes ?? 1440);
+                                                const isEffectivelyAvailable = slot.is_available && !isExpired;
+                                                return (
+                                                    <div className="flex flex-col gap-1 items-start">
+                                                        <span className={`px-4 py-2 rounded-full text-[10px] font-black uppercase tracking-widest ${
+                                                            isEffectivelyAvailable
+                                                                ? 'bg-emerald-100 text-emerald-700'
+                                                                : 'bg-rose-100 text-rose-700'
+                                                        }`}>
+                                                            {isEffectivelyAvailable ? 'Yes' : 'No'}
+                                                        </span>
+                                                        {slot.is_available && isExpired && (
+                                                            <span className="text-[9px] font-bold text-amber-600">Within notice window</span>
+                                                        )}
+                                                    </div>
+                                                );
+                                            })()}
                                         </td>
                                         <td className="py-5 px-6">
                                             <div className="flex gap-3">
@@ -317,13 +329,13 @@ export default function MentorDetails() {
                             </button>
                         </div>
 
-                        {isWithin24Hours(newSlot.start_time) && (
+                        {isNoticeExpired(newSlot.start_time) && (
                             <div className="mb-6 p-4 bg-amber-50 border border-amber-200 rounded-2xl flex items-start gap-3">
                                 <AlertTriangle size={20} className="text-amber-500 shrink-0 mt-0.5" />
                                 <div>
                                     <p className="font-black text-amber-700 text-xs uppercase tracking-widest mb-1">Important Notice</p>
                                     <p className="text-amber-600 font-bold text-sm">
-                                        Slots within 24 hours from now will NOT be visible to clients on the booking page.
+                                        Slots within {ADVANCE_NOTICE_OPTIONS.find(o => o.value === (mentor?.advance_notice_minutes ?? 1440))?.label?.split('(')[0]?.trim() || `${mentor?.advance_notice_minutes ?? 1440} minutes`} from now will NOT be visible to clients on the booking page.
                                     </p>
                                 </div>
                             </div>

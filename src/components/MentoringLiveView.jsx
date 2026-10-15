@@ -1,6 +1,9 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { useParams } from 'react-router-dom';
-import { Clock, Users, AlertTriangle, Wifi, WifiOff, ChevronRight, Briefcase, Calendar, XCircle, Volume2 } from 'lucide-react';
+import { 
+    Clock, Users, AlertTriangle, Wifi, WifiOff, ChevronRight, Briefcase, 
+    Calendar, XCircle, Volume2, VolumeX, Play, Pause, Plus, Minus, RotateCcw 
+} from 'lucide-react';
 import {
     getDistributionConfig,
     getDistributionSessions,
@@ -9,35 +12,98 @@ import {
     calculateDaySlotTimes,
     isMentorAvailableOnDay,
 } from '../lib/mentoringDistribution';
+import { useMentoringTimer } from '../lib/useMentoringTimer';
 import { supabase } from '../lib/supabase';
 import { getGoogleDriveFallbackUrls } from '../lib/utils';
 
 // ─────────────────────────────────────────────────────────────
-// Countdown Timer Component
+// Countdown Timer Component with Interactive Controls
 // ─────────────────────────────────────────────────────────────
-function CountdownTimer({ seconds, isAlertMode }) {
-    const mins = Math.floor(seconds / 60);
-    const secs = seconds % 60;
+function CountdownTimer({
+    seconds,
+    isPaused,
+    isAlertMode,
+    isMuted,
+    onAdjustTime,
+    onTogglePause,
+    onResetTimer,
+    onToggleMute,
+}) {
+    const mins = Math.floor((seconds || 0) / 60);
+    const secs = (seconds || 0) % 60;
 
     const color = isAlertMode
         ? 'text-rose-600 animate-pulse'
-        : seconds <= 60
+        : (seconds || 0) <= 60
             ? 'text-rose-600'
-            : seconds <= 180
+            : (seconds || 0) <= 180
                 ? 'text-amber-600'
                 : 'text-emerald-700';
 
     return (
         <div className="flex flex-col items-center">
-            <div className={`font-mono font-extrabold tabular-nums text-6xl sm:text-8xl ${color} transition-all duration-500 ${isAlertMode ? 'scale-105' : ''}`}>
+            <div className={`font-mono font-extrabold tabular-nums text-6xl sm:text-8xl ${color} transition-all duration-500 ${isAlertMode ? 'scale-105' : ''} ${isPaused ? 'opacity-60' : ''}`}>
                 {String(mins).padStart(2, '0')}:{String(secs).padStart(2, '0')}
             </div>
-            {isAlertMode && (
+
+            {/* Status alerts */}
+            {isPaused && (
+                <span className="mt-1 px-3 py-1 bg-amber-100 text-amber-800 text-[10px] font-black uppercase tracking-widest rounded-full">
+                    مؤقت متوقف مؤقتاً (Paused)
+                </span>
+            )}
+            {isAlertMode && !isPaused && (
                 <div className="mt-2 flex items-center gap-1.5 text-rose-500 text-[10px] font-black uppercase tracking-widest animate-bounce">
                     <Volume2 size={12} />
-                    Slot ending soon
+                    Slot ending in last 7 seconds
                 </div>
             )}
+
+            {/* Quick Action Controls Bar */}
+            <div className="mt-4 flex flex-wrap items-center justify-center gap-2 bg-slate-100/80 p-2 rounded-2xl border border-slate-200/80 shadow-xs">
+                <button
+                    onClick={() => onAdjustTime?.(-60)}
+                    title="تخفيض دقيقة (-1m)"
+                    className="flex items-center gap-1 px-3 py-1.5 bg-white hover:bg-slate-50 text-slate-700 rounded-xl text-xs font-black border border-slate-200 transition-all hover:scale-105 active:scale-95 shadow-2xs"
+                >
+                    <Minus size={12} /> 1m
+                </button>
+                <button
+                    onClick={() => onAdjustTime?.(60)}
+                    title="زيادة دقيقة (+1m)"
+                    className="flex items-center gap-1 px-3 py-1.5 bg-white hover:bg-slate-50 text-slate-700 rounded-xl text-xs font-black border border-slate-200 transition-all hover:scale-105 active:scale-95 shadow-2xs"
+                >
+                    <Plus size={12} /> 1m
+                </button>
+                <button
+                    onClick={onTogglePause}
+                    title={isPaused ? "استئناف (Resume)" : "إيقاف مؤقت (Pause)"}
+                    className={`flex items-center gap-1.5 px-4 py-1.5 rounded-xl text-xs font-black transition-all hover:scale-105 active:scale-95 shadow-2xs text-white ${
+                        isPaused ? 'bg-emerald-600 hover:bg-emerald-700' : 'bg-amber-600 hover:bg-amber-700'
+                    }`}
+                >
+                    {isPaused ? <Play size={12} className="fill-white" /> : <Pause size={12} className="fill-white" />}
+                    {isPaused ? 'استئناف' : 'إيقاف مؤقت'}
+                </button>
+                <button
+                    onClick={() => onResetTimer?.()}
+                    title="إعادة ضبط الوقت (Reset)"
+                    className="p-2 bg-white hover:bg-slate-50 text-slate-600 hover:text-slate-900 rounded-xl border border-slate-200 transition-all hover:scale-105 active:scale-95 shadow-2xs"
+                >
+                    <RotateCcw size={14} />
+                </button>
+                <button
+                    onClick={onToggleMute}
+                    title={isMuted ? "تفعيل الصوت (Unmute)" : "كتم الصوت (Mute)"}
+                    className={`p-2 rounded-xl border transition-all hover:scale-105 active:scale-95 shadow-2xs ${
+                        isMuted 
+                            ? 'bg-rose-50 border-rose-200 text-rose-600' 
+                            : 'bg-white border-slate-200 text-slate-600'
+                    }`}
+                >
+                    {isMuted ? <VolumeX size={14} /> : <Volume2 size={14} />}
+                </button>
+            </div>
         </div>
     );
 }
@@ -47,101 +113,12 @@ function CountdownTimer({ seconds, isAlertMode }) {
 // ─────────────────────────────────────────────────────────────
 const ALERT_SECONDS_THRESHOLD = 10;
 
-function useCountdownAudioAlert(secondsLeft, currentSlot, currentDayIndex) {
-    const audioCtxRef = useRef(null);
-    const lastAlertedSlotKeyRef = useRef(null);
-    const lastBeepSecondRef = useRef(null);
-
-    const getAudioCtx = () => {
-        if (!audioCtxRef.current) {
-            const Ctx = window.AudioContext || window.webkitAudioContext;
-            if (Ctx) audioCtxRef.current = new Ctx();
-        }
-        return audioCtxRef.current;
-    };
-
-    const playBeep = useCallback((freq = 880, durationMs = 120, volume = 0.25) => {
-        try {
-            const ctx = getAudioCtx();
-            if (!ctx) return;
-
-            if (ctx.state === 'suspended') ctx.resume();
-
-            const osc = ctx.createOscillator();
-            const gain = ctx.createGain();
-
-            osc.type = 'sine';
-            osc.frequency.value = freq;
-
-            gain.gain.setValueAtTime(0, ctx.currentTime);
-            gain.gain.linearRampToValueAtTime(volume, ctx.currentTime + 0.01);
-            gain.gain.linearRampToValueAtTime(0, ctx.currentTime + durationMs / 1000);
-
-            osc.connect(gain);
-            gain.connect(ctx.destination);
-
-            osc.start(ctx.currentTime);
-            osc.stop(ctx.currentTime + durationMs / 1000);
-        } catch (e) {
-            console.warn('Audio beep failed:', e.message);
-        }
-    }, []);
-
-    const playFinalBlast = useCallback(() => {
-        [
-            { f: 660, d: 120, v: 0.25, delay: 0 },
-            { f: 880, d: 120, v: 0.28, delay: 140 },
-            { f: 1175, d: 240, v: 0.32, delay: 280 },
-        ].forEach(({ f, d, v, delay }) => {
-            setTimeout(() => playBeep(f, d, v), delay);
-        });
-    }, [playBeep]);
-
-    useEffect(() => {
-        if (secondsLeft === null || currentSlot === null) return;
-
-        const slotKey = `${currentDayIndex}-${currentSlot}`;
-        const newSlot = slotKey !== lastAlertedSlotKeyRef.current;
-
-        if (newSlot) {
-            lastAlertedSlotKeyRef.current = slotKey;
-            lastBeepSecondRef.current = null;
-        }
-
-        if (secondsLeft <= ALERT_SECONDS_THRESHOLD && secondsLeft > 0) {
-            if (lastBeepSecondRef.current !== secondsLeft) {
-                lastBeepSecondRef.current = secondsLeft;
-
-                if (secondsLeft === ALERT_SECONDS_THRESHOLD) {
-                    playBeep(523, 180, 0.25);
-                } else if (secondsLeft <= 3 && secondsLeft >= 2) {
-                    playBeep(988, 130, 0.28);
-                } else if (secondsLeft === 1) {
-                    playFinalBlast();
-                } else {
-                    playBeep(784, 100, 0.22);
-                }
-            }
-        }
-    }, [secondsLeft, currentSlot, currentDayIndex, playBeep, playFinalBlast]);
-
-    useEffect(() => () => {
-        try { audioCtxRef.current?.close(); } catch (_) {}
-    }, []);
-
-    return secondsLeft !== null && secondsLeft <= ALERT_SECONDS_THRESHOLD && secondsLeft > 0 && currentSlot !== null;
-}
-
-// ─────────────────────────────────────────────────────────────
-// Main Component
-// ─────────────────────────────────────────────────────────────
 export default function MentoringLiveView() {
     const { eventId } = useParams();
     const [config, setConfig] = useState(null);
     const [sessions, setSessions] = useState([]);
     const [loading, setLoading] = useState(true);
     const [currentSlot, setCurrentSlot] = useState(null);
-    const [secondsLeft, setSecondsLeft] = useState(null);
     const [isOnline, setIsOnline] = useState(navigator.onLine);
     const [currentTime, setCurrentTime] = useState(new Date());
     const [mentorsMap, setMentorsMap] = useState({});
@@ -270,12 +247,28 @@ export default function MentoringLiveView() {
     const currentDayCfg = dayConfigs.find(c => c.day_index === currentDayIndex);
     const currentDayMeta = eventDays[currentDayIndex];
 
-    // ── Audio alert hook (after all inputs are defined) ──────
-    const isAlertMode = useCountdownAudioAlert(secondsLeft, currentSlot, currentDayIndex);
+    const defaultSlotSeconds = (dayEffectiveConfig?.slot_duration_minutes || 20) * 60;
 
-    // Compute current slot for THIS DAY's schedule:
-    // match system time (hh:mm) against this day's slotTimes[] start/end windows
-    const computeCurrentSlotForDay = () => {
+    // ── Synchronized Timer Hook ──────────────────────────────
+    const {
+        secondsLeft,
+        isPaused,
+        isMuted,
+        isAlertMode,
+        adjustTime,
+        togglePause,
+        resetTimer,
+        setExactSeconds,
+        toggleMute,
+    } = useMentoringTimer({
+        eventId,
+        initialSeconds: defaultSlotSeconds,
+        dayIndex: currentDayIndex,
+        slotIndex: currentSlot || 0,
+    });
+
+    // Compute current slot for THIS DAY's schedule
+    const computeCurrentSlotForDay = useCallback(() => {
         if (!slotTimes.length) return null;
         const now = currentTime || new Date();
         const nowMins = now.getHours() * 60 + now.getMinutes();
@@ -288,9 +281,9 @@ export default function MentoringLiveView() {
             if (nowMins >= startM && nowMins < endM) return i;
         }
         return null;
-    };
+    }, [slotTimes, currentTime]);
 
-    // Tick every second
+    // Update current time clock and current slot calculation
     useEffect(() => {
         const tick = setInterval(() => {
             const now = new Date();
@@ -298,25 +291,31 @@ export default function MentoringLiveView() {
 
             if (!dayEffectiveConfig || !slotTimes.length) {
                 setCurrentSlot(null);
-                setSecondsLeft(null);
                 return;
             }
 
             const slot = computeCurrentSlotForDay();
             setCurrentSlot(slot);
-            if (slot !== null) {
-                const st = slotTimes[slot];
-                const [eh, em] = st.end_time.split(':').map(Number);
-                const nowS = now.getHours() * 3600 + now.getMinutes() * 60 + now.getSeconds();
-                const endS = eh * 3600 + em * 60;
-                setSecondsLeft(Math.max(0, endS - nowS));
-            } else {
-                setSecondsLeft(null);
-            }
         }, 1000);
         return () => clearInterval(tick);
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [dayEffectiveConfig, slotTimes]);
+    }, [dayEffectiveConfig, slotTimes, computeCurrentSlotForDay]);
+
+    // When slot transitions or on load, calculate initial exact seconds remaining
+    const prevSlotRef = useRef(null);
+    useEffect(() => {
+        if (currentSlot !== null && currentSlot !== prevSlotRef.current) {
+            prevSlotRef.current = currentSlot;
+            const st = slotTimes[currentSlot];
+            if (st) {
+                const [eh, em] = st.end_time.split(':').map(Number);
+                const now = new Date();
+                const nowS = now.getHours() * 3600 + now.getMinutes() * 60 + now.getSeconds();
+                const endS = eh * 3600 + em * 60;
+                const remaining = Math.max(0, endS - nowS);
+                setExactSeconds(remaining);
+            }
+        }
+    }, [currentSlot, slotTimes, setExactSeconds]);
 
     // Re-fetch data every 60s to stay fresh
     useEffect(() => {
@@ -590,7 +589,16 @@ export default function MentoringLiveView() {
                             <div className="text-center">
                                 <p className="text-slate-400 text-xs font-bold uppercase tracking-wider mb-2">Time Remaining</p>
                                 {secondsLeft !== null ? (
-                                    <CountdownTimer seconds={secondsLeft} isAlertMode={isAlertMode} />
+                                    <CountdownTimer 
+                                        seconds={secondsLeft} 
+                                        isPaused={isPaused}
+                                        isAlertMode={isAlertMode}
+                                        isMuted={isMuted}
+                                        onAdjustTime={adjustTime}
+                                        onTogglePause={togglePause}
+                                        onResetTimer={() => resetTimer(defaultSlotSeconds)}
+                                        onToggleMute={toggleMute}
+                                    />
                                 ) : (
                                     <span className="text-slate-300 text-6xl font-extrabold">--:--</span>
                                 )}
