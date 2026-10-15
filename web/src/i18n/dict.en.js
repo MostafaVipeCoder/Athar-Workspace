@@ -131,6 +131,8 @@ export default {
   'project.rev': 'rev {rev}',
   'project.details': 'Project details',
   'project.participants': 'Participants',
+  'project.outbox': 'Outbox',
+  'project.outboxAttention': 'Outbox, {count} need attention',
   'canvas.addFirst': 'Add your first tool',
   'canvas.addFirstBody': 'Drag a tool from the library onto the canvas, or tap its + button. Then connect outputs to inputs.',
   'canvas.saving': 'Saving...',
@@ -226,6 +228,7 @@ export default {
 
   // ---- step 3/5/staff additions
   'nav.staff': 'Staff',
+  'nav.email': 'E-mail',
   'role.hint.super_admin': 'Everything, including staff, roles and settings.',
   'role.hint.project_manager': 'Creates programs; manages the programs and projects they are a member of.',
   'role.hint.alumni_manager': 'Runs the Alumni platform (founders, companies, impact).',

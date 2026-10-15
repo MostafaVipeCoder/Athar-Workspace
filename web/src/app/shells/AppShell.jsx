@@ -20,7 +20,7 @@ export default function AppShell() {
     { to: '/network/companies', label: t('nav.companies') },
     { to: '/library', label: t('nav.library') },
     ...(can('form-library:manage') ? [{ to: '/form-library', label: t('nav.formLibrary') }] : []),
-    ...(can('staff:manage') ? [{ to: '/admin/staff', label: t('nav.staff') }] : []),
+    ...(can('staff:manage') ? [{ to: '/admin/staff', label: t('nav.staff') }, { to: '/admin/email', label: t('nav.email') }] : []),
   ]
   return (
     <div className="flex min-h-dvh flex-col bg-background">

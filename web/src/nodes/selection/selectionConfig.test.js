@@ -61,7 +61,7 @@ describe('selectionConfig', () => {
     expect(renderTemplate('Re: {{company_name}} <b>', { company_name: 'A&B' })).toBe('Re: A&B <b>')
     expect(renderTemplate('Hi {{first_name}} {company_name}\n{{nope}}', { first_name: 'A<b>', company_name: 'C' }, { html: true })).toBe('Hi A&lt;b&gt; C<br>')
     expect(renderTemplate('<p>{{booking_link}}</p>', { booking_link: 'https://x/y?a=1&b=2' }, { html: true })).toBe('<p><a href="https://x/y?a=1&amp;b=2">https://x/y?a=1&amp;b=2</a></p>')
-    expect(sanitizePreviewHtml('<p onclick="x()">a</p><script>bad()</script><a href="javascript:1">b</a>')).toBe('<p>a</p><a href="1">b</a>')
+    expect(sanitizePreviewHtml('<p onclick="x()">a</p><script>bad()</script><a href="javascript:1">b</a>')).toBe('<p>a</p><a>b</a>')
   })
 
   it('indexes outbox rows and scores per item and builds the export columns with labelled answers', () => {

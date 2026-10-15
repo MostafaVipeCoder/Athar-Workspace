@@ -43,6 +43,21 @@ describe('data/alumni.js pins the RPC names and parameters of m49', () => {
     ['setCompaniesAlumni', () => A.setCompaniesAlumni(['c1', 'c2'], true), 'set_companies_alumni', { p_ids: ['c1', 'c2'], p_value: true }],
     ['exportAlumniRows', () => A.exportAlumniRows({ filters: { scope: 'all' }, year: 2023, lang: 'ar', asOf: '2026-10-14' }), 'export_alumni_rows', { p_filters: { scope: 'all' }, p_year: 2023, p_lang: 'ar', p_as_of: '2026-10-14' }],
     ['getAlumniAnalytics', () => A.getAlumniAnalytics({ filters: { q: 'x' }, year: 2024 }), 'get_alumni_analytics', { p_filters: { q: 'x' }, p_year: 2024 }],
+    // m60: the version of what the form loaded (optimistic concurrency), the reason, the history, the stamps and the needs-attention queue
+    ['saveMyFounderProfile (with the version the form loaded)', () => A.saveMyFounderProfile({ phone: '1' }, '2026-10-15T01:00:00+00:00'), 'save_my_founder_profile', { p_patch: { phone: '1' }, p_expected: '2026-10-15T01:00:00+00:00' }],
+    ['upsertCompanySnapshot (version + reason)', () => A.upsertCompanySnapshot('c1', 2024, { revenue_total: 5 }, '2026-10-15T01:00:00+00:00', 'audited'), 'upsert_company_snapshot', { p_company: 'c1', p_year: 2024, p_data: { revenue_total: 5 }, p_expected: '2026-10-15T01:00:00+00:00', p_reason: 'audited' }],
+    ['upsertCompanySnapshot (a year the form loaded no row for)', () => A.upsertCompanySnapshot('c1', 2025, { revenue_total: 5 }, A.NEW_ROW), 'upsert_company_snapshot', { p_company: 'c1', p_year: 2025, p_data: { revenue_total: 5 }, p_expected: '-infinity' }],
+    ['saveAlumniCompany (with a reason)', () => A.saveAlumniCompany('c1', { stage: 'mvp' }, '2026-10-15T01:00:00+00:00', 'corrected'), 'save_alumni_company', { p_company: 'c1', p_patch: { stage: 'mvp' }, p_expected: '2026-10-15T01:00:00+00:00', p_reason: 'corrected' }],
+    ['saveAlumniFounder (version + reason)', () => A.saveAlumniFounder('f1', { phone: '1' }, '2026-10-15T01:00:00+00:00', 'called him'), 'save_alumni_founder', { p_founder: 'f1', p_patch: { phone: '1' }, p_expected: '2026-10-15T01:00:00+00:00', p_reason: 'called him' }],
+    ['reviewCompanySnapshot', () => A.reviewCompanySnapshot('c1', 2024), 'review_company_snapshot', { p_company: 'c1', p_year: 2024, p_reviewed: true }],
+    ['reviewCompanySnapshot (withdraw)', () => A.reviewCompanySnapshot('c1', 2024, false), 'review_company_snapshot', { p_company: 'c1', p_year: 2024, p_reviewed: false }],
+    ['getAlumniStamps', () => A.getAlumniStamps('c1'), 'get_alumni_stamps', { p_company: 'c1' }],
+    ['listAlumniHistory', () => A.listAlumniHistory({ filters: { company_id: 'c1', entity_type: 'snapshot' }, limit: 5000, offset: 50 }), 'list_alumni_history', { p_filters: { company_id: 'c1', entity_type: 'snapshot' }, p_limit: 5000, p_offset: 50 }],
+    ['listAlumniHistory (defaults)', () => A.listAlumniHistory(), 'list_alumni_history', { p_filters: {}, p_limit: 50, p_offset: 0 }],
+    ['getAlumniStateAsOf', () => A.getAlumniStateAsOf('c1', '2026-01-01T00:00:00Z'), 'alumni_state_as_of', { p_company: 'c1', p_at: '2026-01-01T00:00:00Z' }],
+    ['getAlumniStateDiff', () => A.getAlumniStateDiff('c1', '2026-01-01T00:00:00Z', '2026-06-01T00:00:00Z'), 'alumni_state_diff', { p_company: 'c1', p_from: '2026-01-01T00:00:00Z', p_to: '2026-06-01T00:00:00Z' }],
+    ['listAlumniAttention', () => A.listAlumniAttention({ filters: { scope: 'all', missing: 'sector' }, rules: ['sector', 'ceo'], limit: 5000, offset: 25, sort: 'name' }), 'list_alumni_attention', { p_filters: { scope: 'all', missing: 'sector' }, p_rules: ['sector', 'ceo'], p_limit: 5000, p_offset: 25, p_sort: 'name' }],
+    ['listAlumniAttention (defaults: every rule, the worst first)', () => A.listAlumniAttention(), 'list_alumni_attention', { p_filters: {}, p_rules: null, p_limit: 25, p_offset: 0, p_sort: 'missing' }],
   ]
   it.each(calls)('%s', async (_name, run, fn, args) => {
     await run()

@@ -9,6 +9,7 @@ import { COMPANY_MISSING_SECTION, FOUNDER_MISSING_SECTION } from '../../lib/alum
 import './i18n.js'
 import './i18n.id.js'
 import './i18n.company.js'
+import './i18n.edit.js'
 import '../../app/pages/founder/alumni.i18n.js'
 import '../../app/pages/founder/alumni.profile.i18n.js'
 import '../../app/pages/founder/alumni.company.i18n.js'

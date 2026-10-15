@@ -88,7 +88,7 @@ export default function DashboardPage() {
             </section>
 
             <div className="grid gap-4 lg:grid-cols-2">
-              <SectionCard id="attention" title={d('attention')} testId="dash-attention">
+              <SectionCard id="attention" title={d('attention')} testId="dash-attention" action={<Link to={`${ROUTE}/attention`} className="inline-flex min-h-11 items-center text-sm font-semibold text-primary hover:underline" data-testid="dash-open-queue">{d('seeQueue')}</Link>}>
                 <Attention o={o} d={d} fmt={fmt} />
               </SectionCard>
               <SectionCard id="by-sector" title={d('bySector')}>

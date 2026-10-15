@@ -109,6 +109,8 @@ export const staffPath = {
   project: (id) => `/projects/${id}`,
   projectDetails: (id) => `/projects/${id}/details`,
   projectParticipants: (id) => `/projects/${id}/participants`,
+  projectOutbox: (id) => `/projects/${id}/outbox`,
+  emailHealth: () => '/admin/email',
   company: (id) => `/network/companies/${id}`,
   node: (projectId, nodeId, mode) => `/projects/${projectId}/nodes/${nodeId}${mode && mode !== 'view' ? `/${mode}` : ''}`,
   staff: () => '/admin/staff',

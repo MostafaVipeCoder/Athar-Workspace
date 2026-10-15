@@ -16,7 +16,10 @@ const mocks = vi.hoisted(() => ({
 vi.mock('../../../data/alumni.js', async () => {
   const { useQuery } = await import('@tanstack/react-query')
   return {
-    alumniKeys: { root: () => ['alumni'], lookups: () => ['alumni', 'lookups'], me: () => ['alumni', 'me'], myCompany: (id) => ['alumni', 'company', id] },
+    alumniKeys: { root: () => ['alumni'], lookups: () => ['alumni', 'lookups'], me: () => ['alumni', 'me'], myCompany: (id) => ['alumni', 'company', id], stamps: (id) => ['alumni', 'stamps', id], history: (p) => ['alumni', 'history', p] },
+    NEW_ROW: '-infinity',
+    useAlumniStamps: () => ({ data: null }),
+    useAlumniHistory: () => ({ data: { rows: [], total: 0 }, isPending: false }),
     useAlumniLookups: () => useQuery({ queryKey: ['alumni', 'lookups'], queryFn: async () => (await import('../../../shared/alumni/alumni.fixtures.js')).LOOKUPS, staleTime: Infinity }),
     useMyAlumniProfile: (o = {}) => useQuery({ queryKey: ['alumni', 'me'], queryFn: mocks.me, ...o }),
     useMyCompanyProfile: (id) => useQuery({ queryKey: ['alumni', 'company', id], queryFn: () => mocks.company(id), enabled: Boolean(id) }),
@@ -147,7 +150,7 @@ describe('Founder profile page', () => {
     await user.type(name, 'Sara A. Ali')
     await user.click(within(await screen.findByTestId('save-bar')).getByRole('button', { name: 'Save' }))
     await waitFor(() => expect(mocks.saveFounder).toHaveBeenCalledTimes(1))
-    expect(mocks.saveFounder).toHaveBeenCalledWith({ name_en: 'Sara A. Ali' })
+    expect(mocks.saveFounder).toHaveBeenCalledWith({ name_en: 'Sara A. Ali' }, FOUNDER.updated_at) // + the version of the profile the form loaded (m60)
   })
 
   it('the role in a company is saved through the team member RPC (role only), in the same Save', async () => {
@@ -175,7 +178,7 @@ describe('Founder profile page', () => {
     await user.type(id, '29501010101234')
     expect(await screen.findByTestId('national-id-derived')).toHaveTextContent('January 1, 1995')
     await user.click(within(screen.getByTestId('save-bar')).getByRole('button', { name: 'Save' }))
-    await waitFor(() => expect(mocks.saveFounder).toHaveBeenCalledWith({ national_id: '29501010101234' }))
+    await waitFor(() => expect(mocks.saveFounder).toHaveBeenCalledWith({ national_id: '29501010101234' }, FOUNDER.updated_at))
   })
 
   it('a number that belongs to somebody else is a conflict message, and the form keeps the edits', async () => {
@@ -330,7 +333,7 @@ describe('Founder company page', () => {
     const dialog = await screen.findByRole('dialog')
     await user.type(within(dialog).getByLabelText('Challenges'), 'Hiring')
     await user.click(within(dialog).getByRole('button', { name: 'Save' }))
-    await waitFor(() => expect(mocks.upsert).toHaveBeenCalledWith('c1', 2024, { challenges: 'Hiring' }))
+    await waitFor(() => expect(mocks.upsert).toHaveBeenCalledWith('c1', 2024, { challenges: 'Hiring' }, SNAPSHOTS.find((x) => x.year === 2024).updated_at)) // + the version of the row the form loaded (m60)
 
     await user.type(screen.getByLabelText("Co-founder's e-mail"), 'karim@example.com')
     await user.click(screen.getByRole('button', { name: 'Create invitation link' }))

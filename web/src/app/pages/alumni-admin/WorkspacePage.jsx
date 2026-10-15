@@ -2,7 +2,7 @@ import { useEffect, useEffectEvent, useMemo, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { useQueryClient } from '@tanstack/react-query'
 import { FileSpreadsheet, History, NotebookPen, Save } from 'lucide-react'
-import { upsertCompanySnapshot } from '../../../data/alumni.js'
+import { NEW_ROW, upsertCompanySnapshot } from '../../../data/alumni.js'
 import { useAlumniOverview, useAlumniPrograms, useAlumniTable, useSnapshotRows } from '../../../data/alumniAdmin.js'
 import { useLanguage } from '../../../i18n/LanguageProvider.jsx'
 import { Badge } from '../../../ui/Badge.jsx'
@@ -14,6 +14,9 @@ import { useConfirm } from '../../../ui/ConfirmDialog.jsx'
 import { useToast } from '../../../ui/Toast.jsx'
 import UnsavedGuard from '../../../shared/alumni/UnsavedGuard.jsx'
 import { cn } from '../../../lib/cn.js'
+import { parseAlumniError } from '../../../lib/alumni.js'
+import { findConflicts } from '../../../lib/alumniConflicts.js'
+import { useEditText } from '../../../shared/alumni/useEditText.js'
 import { AdminPage, CheckRow, CompanyLogo, Pagination, Segmented } from './ui.jsx'
 import ExportDialog from './ExportDialog.jsx'
 import SnapshotNotes from './SnapshotNotes.jsx'
@@ -23,6 +26,8 @@ import { SNAP_FIELDS, defaultSnapshotYear, snapshotPatch, snapshotToForm, valida
 import { useAdminErrorText, useDebounced } from './hooks.js'
 import './i18n.common.js'
 import './workspace.i18n.js'
+import './workspace.edit.i18n.js'
+import '../../../shared/alumni/i18n.edit.js'
 
 const PAGE_SIZE = 25
 const MONEY = new Set(['revenue_total', 'funding_raised_total'])
@@ -39,6 +44,7 @@ export default function WorkspacePage() {
   const confirm = useConfirm()
   const qc = useQueryClient()
   const errorText = useAdminErrorText()
+  const e = useEditText()
   const [params, setParams] = useSearchParams()
   const state = useMemo(() => parseState(params), [params])
   const overview = useAlumniOverview()
@@ -91,19 +97,44 @@ export default function WorkspacePage() {
     const todo = dirtyIds.map((id) => ({ id, ...edits[id], form: { ...edits[id].base, ...edits[id].changed } }))
     if (todo.some((x) => Object.keys(validateSnapshotForm(x.form)).length > 0)) { toast.warning(d('fixErrors')); return }
     const failed = {}
+    const stale = []
     let ok = 0
     for (let i = 0; i < todo.length; i += 1) {
       setSaving({ done: i, total: todo.length })
       const x = todo[i]
       try {
-        await upsertCompanySnapshot(x.id, year, snapshotPatch(x.base, x.form))
+        // each row is saved with the version of the row the grid loaded (NEW_ROW = no row yet): a row a founder saved meanwhile is a conflict, never overwritten unseen
+        await upsertCompanySnapshot(x.id, year, snapshotPatch(x.base, x.form), snapOf.get(x.id)?.updated_at ?? NEW_ROW)
         ok += 1
-        setEdits((e) => { const n = { ...e }; delete n[x.id]; return n })
-      } catch (e) {
-        failed[x.id] = errorText(e)
+        setEdits((cur) => { const n = { ...cur }; delete n[x.id]; return n })
+      } catch (err) {
+        if (parseAlumniError(err).token === 'alumni_stale') stale.push(x.id)
+        else failed[x.id] = errorText(err)
       }
     }
     setSaving(null)
+    // a stale row: load what the other side saved, keep what I typed, mark the figures we BOTH changed to different values
+    if (stale.length > 0) {
+      const fresh = await snaps.refetch()
+      const byCompany = new Map((fresh.data ?? []).map((s) => [s.company_id, s]))
+      const notes = {}
+      const patchEdits = {}
+      const dropIds = []
+      for (const id of stale) {
+        const cur1 = edits[id]
+        if (!cur1) continue
+        const row = byCompany.get(id) ?? null
+        const freshForm = snapshotToForm(row)
+        const mine = { ...cur1.base, ...cur1.changed }
+        const conflicts = findConflicts({ base: cur1.base, mine, fresh: freshForm, keys: Object.keys(cur1.changed) }).map((c) => c.key)
+        const changed = Object.fromEntries(Object.entries(cur1.changed).filter(([k, v]) => String(v) !== String(freshForm[k] ?? '')))
+        if (Object.keys(changed).length === 0) dropIds.push(id)
+        else patchEdits[id] = { ...cur1, base: freshForm, changed, conflicts, freshForm }
+        notes[id] = { who: e.who({ source: row?.source }, 'manager'), date: row?.updated_at, open: Object.keys(changed).length > 0 }
+      }
+      setEdits((cur) => { const next = { ...cur, ...patchEdits }; for (const id of dropIds) delete next[id]; return next })
+      for (const [id, k] of Object.entries(notes)) failed[id] = t(k.open ? 'alumni.admin.ws.rowStale' : 'alumni.admin.ws.rowReloaded', { who: k.who, date: e.dateTime(k.date) })
+    }
     setRowErrors(failed)
     // one refresh for the whole batch (every refresh re-reads the table, the overview and the analytics)
     await qc.invalidateQueries({ queryKey: ['alumni'], predicate: (q) => q.queryKey[1] !== 'lookups' })
@@ -176,6 +207,7 @@ export default function WorkspacePage() {
                         </td>
                         <td className="px-3 py-2">
                           <Badge tone={has ? 'green' : 'amber'}>{has ? d('reported') : d('missing')}</Badge>
+                          {has && snapOf.get(r.id)?.updated_at && <span className="mt-1 block text-[11px] text-muted-foreground" data-testid="ws-stamp">{d('stampLine', { who: e.sourceLabel(snapOf.get(r.id).source), date: e.date(snapOf.get(r.id).updated_at) })}</span>}
                           {dirty && <Badge tone="blue" className="ms-1">{d('dirty')}</Badge>}
                           {rowErrors[r.id] && <p className="mt-1 max-w-48 text-xs text-destructive-text" role="alert">{d('failed')}: {rowErrors[r.id]}</p>}
                         </td>
@@ -191,8 +223,9 @@ export default function WorkspacePage() {
                               title={errs[f] ? d(`err.${errs[f]}`) : undefined}
                               value={form[f]}
                               onChange={(e) => onCell(r, f, e.target.value)}
-                              className={cn('min-h-11 w-full min-w-24 rounded-input border bg-input-bg px-2 text-end tabular-nums focus:border-primary focus:bg-background focus:outline-none focus:ring-2 focus:ring-primary/20', errs[f] ? 'border-destructive' : 'border-input', edits[r.id]?.changed[f] !== undefined && 'border-primary')}
+                              className={cn('min-h-11 w-full min-w-24 rounded-input border bg-input-bg px-2 text-end tabular-nums focus:border-primary focus:bg-background focus:outline-none focus:ring-2 focus:ring-primary/20', errs[f] || edits[r.id]?.conflicts?.includes(f) ? 'border-destructive' : 'border-input', edits[r.id]?.changed[f] !== undefined && !edits[r.id]?.conflicts?.includes(f) && 'border-primary')}
                             />
+                            {edits[r.id]?.conflicts?.includes(f) && <span className="mt-0.5 block text-xs text-destructive-text" data-testid="ws-conflict-cell">{d('nowValue', { value: edits[r.id].freshForm?.[f] || '-' })}</span>}
                             {errs[f] && <span id={`ws-${r.id}-${f}-err`} role="alert" className="mt-0.5 block text-xs text-destructive-text">{d(`err.${errs[f]}`)}</span>}
                           </td>
                         ))}

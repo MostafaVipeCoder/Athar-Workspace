@@ -532,7 +532,10 @@ begin
 
   with f as (
     select l.* from public.alumni_change_log l
-     where (v_company is null or l.company_id = v_company) and (v_founder is null or l.founder_id = v_founder) and (v_entity is null or l.entity_type = v_entity)
+     where (v_company is null or l.company_id = v_company
+            -- what was written about a person BEFORE he belonged to the company (a record created together with his membership: name, e-mail, phone, "an ID is recorded") belongs to its timeline too
+            or (l.company_id is null and l.founder_id is not null and exists (select 1 from public.company_founders cf where cf.company_id = v_company and cf.founder_id = l.founder_id)))
+       and (v_founder is null or l.founder_id = v_founder) and (v_entity is null or l.entity_type = v_entity)
        and (v_field is null or l.field = v_field) and (v_year is null or l.period_key = v_year) and (v_actor is null or l.actor_user_id = v_actor)
        and (v_role is null or l.actor_role = v_role) and (v_source is null or l.source = v_source) and (v_from is null or l.last_at >= v_from) and (v_to is null or l.at <= v_to)
        and (v_q is null or exists (select 1 from public.companies c where c.id = l.company_id and (strpos(lower(coalesce(c.name_en, '')), v_q) > 0 or strpos(lower(coalesce(c.name_ar, '')), v_q) > 0))))
@@ -922,6 +925,15 @@ begin
     execute v_new;
     raise notice 'm60: % carries %', r.fn, r.marker;
   end loop;
+  -- the manager table (m51): who wrote the company row last, next to its "last updated" date
+  v_def := pg_get_functiondef('public.list_alumni_table(jsonb,integer,integer,text,text,integer)'::regprocedure);
+  if position('updated_source' in v_def) = 0 then
+    v_new := replace(v_def, 'c.directory_visibility, c.updated_at, c.created_at,', 'c.directory_visibility, c.updated_at, c.updated_source, c.created_at,');
+    v_new := replace(v_new, '''reviewed_at'', ci.reviewed_at, ''updated_at'', pg.updated_at,', '''reviewed_at'', ci.reviewed_at, ''updated_at'', pg.updated_at, ''updated_source'', pg.updated_source,');
+    if v_new = v_def or position('pg.updated_source' in v_new) = 0 or position('c.updated_source' in v_new) = 0 then raise exception 'm60: list_alumni_table has no anchor to patch'; end if;
+    execute v_new;
+    raise notice 'm60: list_alumni_table carries updated_source';
+  end if;
 end $$;
 
 -- the invitation may be sent to the e-mail of a record WITHOUT an account (that is the whole point of the adoption above); only an e-mail of a member who already has an account is refused

@@ -178,6 +178,16 @@ describe('configuration (environment only)', () => {
     assert.equal(ok.authUrl, 'http://127.0.0.1:9/o/oauth2/v2/auth')
     assert.equal(ok.fake, true)
   })
+  test('even with ALLOW_FAKE_GOOGLE=1 an override may only point at this machine or host.docker.internal (a leftover flag cannot send secrets to another host)', () => {
+    const base = { ...makeEnv(null), ALLOW_FAKE_GOOGLE: '1' }
+    for (const v of ['GOOGLE_AUTH_BASE', 'GOOGLE_TOKEN_URL', 'GOOGLE_API_BASE', 'GOOGLE_REVOKE_URL']) {
+      assert.throws(() => getGoogleConfig({ ...base, [v]: 'https://evil.example/x' }), (e) => e.code === 'fake_host_not_local' && e.missing.includes(v), v)
+      assert.throws(() => getGoogleConfig({ ...base, [v]: 'http://127.0.0.1.evil.example/x' }), (e) => e.code === 'fake_host_not_local', v)
+    }
+    for (const host of ['localhost:9', '127.0.0.1:9', '[::1]:9', 'host.docker.internal:9']) {
+      assert.equal(getGoogleConfig({ ...base, GOOGLE_TOKEN_URL: `http://${host}/token` }).fake, true, host)
+    }
+  })
   test('http is accepted only for loopback; non-http schemes are refused', () => {
     const base = makeEnv(null)
     delete base.ALLOW_FAKE_GOOGLE

@@ -4,6 +4,8 @@ import { useLanguage } from '../../i18n/LanguageProvider.jsx'
 import { formatFieldText } from '../../lib/alumniHistory.js'
 import './i18n.edit.js'
 
+const WHO_SOURCES = ['manager', 'founder', 'system', 'import']
+
 /**
  * The words of the edit history in the viewer's language (`alumni.edit.*`): field / area / role / source labels, who edited ("the Athar team" for a founder, a name for a manager),
  * and the TEXT of a stored value (vocabulary keys become their labels, a number the money format, a masked value stays masked).
@@ -28,7 +30,8 @@ export function useEditText() {
       /** "the Athar team" / "a founder of the company" / with a name (managers only): "Mona Adel (Athar team)". */
       who: ({ source, name } = {}, audience = 'founder') => {
         if (audience === 'manager' && name && (source === 'manager' || source === 'founder')) return t(source === 'manager' ? 'alumni.edit.stamp.who.managerNamed' : 'alumni.edit.stamp.who.founderNamed', { name })
-        return labelOr(`alumni.edit.stamp.who.${source}`, t('alumni.edit.stamp.who.system'))
+        // an unknown / missing source (a row stamped before the column existed, a year deleted by someone else) is neutral, never 'the system'
+        return t(WHO_SOURCES.includes(source) ? `alumni.edit.stamp.who.${source}` : 'alumni.edit.stamp.who.someone')
       },
       /** The text of a value of `field` ('' when empty). */
       valueText: (field, value) => formatFieldText(field, value, ctx),

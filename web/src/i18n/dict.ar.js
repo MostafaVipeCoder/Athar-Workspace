@@ -131,6 +131,8 @@ export default {
   'project.rev': 'نسخة {rev}',
   'project.details': 'تفاصيل المشروع',
   'project.participants': 'المشاركون',
+  'project.outbox': 'الصادر',
+  'project.outboxAttention': 'الصادر، {count} تحتاج انتباهك',
   'canvas.addFirst': 'أضف أول أداة',
   'canvas.addFirstBody': 'اسحب أداة من المكتبة إلى لوحة العمل، أو اضغط زر + بجانبها. ثم اربط المخرجات بالمدخلات.',
   'canvas.saving': 'جارٍ الحفظ...',
@@ -226,6 +228,7 @@ export default {
 
   // ---- step 3/5/staff additions
   'nav.staff': 'الفريق',
+  'nav.email': 'البريد',
   'role.hint.super_admin': 'كل شيء، بما في ذلك الفريق والأدوار والإعدادات.',
   'role.hint.project_manager': 'ينشئ البرامج ويدير البرامج والمشاريع التي هو عضو فيها.',
   'role.hint.alumni_manager': 'يدير منصة الخريجين (المؤسسون والشركات والأثر).',

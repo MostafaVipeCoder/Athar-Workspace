@@ -122,7 +122,7 @@ describe('the manager area wiring', () => {
     const walk = (list, prefix = '') => list.forEach((r) => { if (r.children) walk(r.children, prefix); if (r.path) flat.push(r) })
     walk(routes)
     const admin = flat.filter((r) => r.path.startsWith('alumni/admin/'))
-    expect(admin.map((r) => r.path).sort()).toEqual(['alumni/admin/analytics', 'alumni/admin/company/:id', 'alumni/admin/dashboard', 'alumni/admin/directory', 'alumni/admin/directory/import', 'alumni/admin/impact',
+    expect(admin.map((r) => r.path).sort()).toEqual(['alumni/admin/analytics', 'alumni/admin/attention', 'alumni/admin/company/:id', 'alumni/admin/dashboard', 'alumni/admin/directory', 'alumni/admin/directory/import', 'alumni/admin/history', 'alumni/admin/impact',
       'alumni/admin/invitations', 'alumni/admin/notifications', 'alumni/admin/opportunities', 'alumni/admin/workspace'])
     for (const r of admin) expect(typeof r.lazy).toBe('function')
   })

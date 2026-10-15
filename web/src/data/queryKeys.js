@@ -41,6 +41,9 @@ export const keys = {
   bookingExtras: (id) => ['node', id, 'bookingExtras'],
   bookingLink: (id) => ['node', id, 'bookingLink'],
   publicBooking: (ref, host, invite) => ['public', 'booking', ref, host ?? null, invite ?? null],
+  // calendar sync (m63): the per-booking sync state of a booking node (under ['node', id]: a node refresh reloads it) + the platform-wide mode flag
+  calendarSync: (id) => ['node', id, 'calendarSync'],
+  calendarSyncMode: () => ['calendarSync', 'mode'],
   // distribution (step 7f): PM payload/rules/timer/links under ['node', id]; public matrix/live payloads + the live timer poll per ref
   distPayload: (id) => ['node', id, 'distPayload'],
   distRules: (id) => ['node', id, 'distRules'],
@@ -81,6 +84,17 @@ export const keys = {
   expert: (id) => ['experts', 'one', id],
   companies: (filter = {}) => ['companies', filter],
   company: (id) => ['companies', 'one', id],
+
+  // Google connection of the acting user (m61): status of mine + the system sender; the super_admin overview
+  googleStatus: () => ['google', 'status'],
+  googleAdmin: () => ['google', 'admin'],
+
+  // e-mail Outbox (m62): every key starts with ['outbox', projectId] so ONE invalidation refreshes the list, the counts and the node badges of a project
+  outbox: (projectId, filter = {}) => ['outbox', projectId, 'list', filter],
+  outboxCounts: (projectId) => ['outbox', projectId, 'counts'],
+  outboxItem: (id) => ['outbox', 'item', id],
+  emailHealth: () => ['emailHealth'],
+  staffInvitationDelivery: () => ['staff', 'invitationDelivery'],
 
   staff: () => ['staff'],
   staffInvitations: () => ['staff', 'invitations'],

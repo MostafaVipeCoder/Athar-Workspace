@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { lazy, Suspense, useState } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import { useAuth } from '../AuthContext.js'
 import { updateProfile, updatePassword } from '../../data/auth.js'
@@ -9,7 +9,10 @@ import { ColorSwatches } from '../../ui/ColorSwatches.jsx'
 import { Avatar } from '../../ui/Avatar.jsx'
 import { useToast } from '../../ui/Toast.jsx'
 import { useLanguage } from '../../i18n/LanguageProvider.jsx'
-import { PROFILE_COLORS } from '../../lib/constants.js'
+import { PROFILE_COLORS, STAFF_ROLES } from '../../lib/constants.js'
+
+// the Google connection (m61) is a lazy chunk: only staff open it, and only on this page
+const GoogleAccountSection = lazy(() => import('../../shared/google/GoogleAccountSection.jsx'))
 
 /** Minimal /profile (06 section 2.1): display name, profile colour, UI language, change password. Any signed-in user. */
 export default function ProfilePage() {
@@ -81,6 +84,12 @@ export default function ProfilePage() {
           <Button type="submit" loading={busy}>{t('common.save')}</Button>
         </div>
       </form>
+
+      {roles.some((r) => STAFF_ROLES.includes(r)) && (
+        <Suspense fallback={<div className="h-40 animate-pulse rounded-card bg-surface" aria-hidden="true" />}>
+          <GoogleAccountSection />
+        </Suspense>
+      )}
 
       <form onSubmit={changePassword} className="space-y-4 rounded-card border bg-card p-4" noValidate>
         <h2 className="font-semibold">{t('profile.changePassword')}</h2>

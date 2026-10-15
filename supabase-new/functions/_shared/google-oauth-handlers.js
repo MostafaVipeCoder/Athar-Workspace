@@ -181,6 +181,14 @@ export function createHandlers(deps) {
       if (!tokens.refreshToken) { await revokeToken(cfg, tokens.accessToken, { fetch: fetchImpl }); return fail('no_refresh_token') }
 
       const store = await deps.getStore()
+      // a reconnect replaces the stored token: the OLD grant is revoked at Google afterwards (best effort), so no live grant is left behind
+      let previous = null
+      try {
+        const existing = await deps.db.lookupConnection({ userId: p.userId, system: p.system })
+        if (existing && existing.status !== 'revoked') previous = await store.load(existing.id)
+      } catch {
+        previous = null
+      }
       try {
         await store.save({ ownerUserId: p.system ? null : p.userId, actorId: p.userId, isSystem: p.system, email: idv.email, googleSub: idv.sub, scopes: tokens.scopes, refreshToken: tokens.refreshToken })
       } catch (e) {
@@ -190,6 +198,7 @@ export function createHandlers(deps) {
         if (t === 'forbidden') return fail('forbidden')
         throw e
       }
+      if (previous && previous !== tokens.refreshToken) await revokeToken(cfg, previous, { fetch: fetchImpl })
       log('google_oauth_connected', { user: p.userId, system: p.system })
       return redirect(ret, true, null, p.system)
     } catch (e) {

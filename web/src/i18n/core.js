@@ -98,7 +98,7 @@ export function pickLiteral(literal, lang) {
   return literal[lang] || literal[lang === 'ar' ? 'en' : 'ar'] || ''
 }
 
-const STAFF_PREFIXES = ['/programs', '/projects', '/network', '/library', '/form-library', '/team', '/profile', '/dev']
+const STAFF_PREFIXES = ['/programs', '/projects', '/network', '/library', '/form-library', '/team', '/profile', '/admin', '/dev']
 
 /** Default language per area: staff app English, public/founder/auth Arabic (06 section 7.1). */
 export function defaultLangForPath(pathname = '/') {

@@ -16,7 +16,7 @@ const SNAPS = [
   { company_id: 'c2', snapshot_type: 'annual', period_year: 2024, revenue_total: 120000, funding_raised_total: null, employees_total: 4, employees_female: 3, freelancers: null, traction: null, challenges: null, needs: null, source: 'manager', updated_at: '2026-10-01T00:00:00Z' },
 ]
 let mock
-function setup(extra = {}) {
+function setup(extra = {}, tables = { company_snapshots: SNAPS }) {
   mock = makeDb({
     rpc: {
       list_alumni_lookups: LOOKUPS,
@@ -28,7 +28,7 @@ function setup(extra = {}) {
       delete_company_snapshot: { deleted: true, snapshots: [] },
       ...extra,
     },
-    tables: { company_snapshots: SNAPS },
+    tables,
   })
   h.db = mock.db
 }
@@ -97,10 +97,64 @@ describe('the M&E workspace grid', () => {
     await user.click(screen.getByTestId('ws-save'))
     await waitFor(() => expect(mock.rpcCalls('upsert_company_snapshot')).toHaveLength(2))
     const calls = mock.rpcCalls('upsert_company_snapshot').map((c) => c.args)
-    expect(calls).toContainEqual({ p_company: 'c1', p_year: 2024, p_data: { employees_total: 12, freelancers: null } })
-    expect(calls).toContainEqual({ p_company: 'c3', p_year: 2024, p_data: { revenue_total: 1500000 } })
+    // each row carries the version of the yearly row the grid loaded (a row with no figures yet: '-infinity'): a row somebody saved meanwhile is a conflict
+    expect(calls).toContainEqual({ p_company: 'c1', p_year: 2024, p_data: { employees_total: 12, freelancers: null }, p_expected: '2026-10-01T00:00:00Z' })
+    expect(calls).toContainEqual({ p_company: 'c3', p_year: 2024, p_data: { revenue_total: 1500000 }, p_expected: '-infinity' })
     expect(calls.map((c) => c.p_company)).not.toContain('c2') // an untouched row is not saved
     await waitFor(() => expect(screen.getByTestId('ws-savebar')).toHaveTextContent('No change yet.'))
+  })
+
+  it('a row somebody saved first: their latest values are loaded, my edit stays, the figure we BOTH changed is marked with their value, and Save again carries the fresh version', async () => {
+    const user = userEvent.setup()
+    let fresh = false
+    const stale = Object.assign(new Error('alumni_stale: reload'), { code: 'P0001', hint: 'alumni_stale' })
+    const FRESH = [{ ...SNAPS[0], employees_total: 20, freelancers: 7, source: 'manager', updated_at: '2026-10-14T00:00:00Z' }, SNAPS[1]]
+    setup({ upsert_company_snapshot: (a) => (a.p_expected === '2026-10-01T00:00:00Z' ? stale : { saved: true, snapshot: {}, snapshots: [] }) }, { company_snapshots: () => (fresh ? FRESH : SNAPS) })
+    renderPage()
+    await screen.findByText('Nile Robotics')
+    await user.clear(cell('Nile Robotics', 'Employees'))
+    await user.type(cell('Nile Robotics', 'Employees'), '12')
+    await user.clear(cell('Nile Robotics', 'Revenue'))
+    await user.type(cell('Nile Robotics', 'Revenue'), '2000000')
+    fresh = true
+    await user.click(screen.getByTestId('ws-save'))
+    const row = (await screen.findAllByTestId('ws-row'))[0]
+    expect(await within(row).findByRole('alert')).toHaveTextContent('Changed by the Athar team on')
+    expect(within(row).getByTestId('ws-conflict-cell')).toHaveTextContent('Now: 20') // employees: both of us changed it
+    expect(within(row).getAllByTestId('ws-conflict-cell')).toHaveLength(1)
+    expect(cell('Nile Robotics', 'Employees')).toHaveValue('12') // mine is still typed
+    expect(cell('Nile Robotics', 'Freelancers')).toHaveValue('7') // theirs, which I did not touch
+    expect(cell('Nile Robotics', 'Revenue')).toHaveValue('2000000')
+    expect(screen.getByTestId('ws-savebar')).toHaveTextContent('1 row changed')
+    await user.click(screen.getByTestId('ws-save'))
+    await waitFor(() => expect(mock.rpcCalls('upsert_company_snapshot')).toHaveLength(2))
+    expect(mock.rpcCalls('upsert_company_snapshot')[1].args).toEqual({ p_company: 'c1', p_year: 2024, p_data: { employees_total: 12, revenue_total: 2000000 }, p_expected: '2026-10-14T00:00:00Z' })
+  })
+
+  it('a stale row whose figures equal what the other side saved has nothing left to save', async () => {
+    const user = userEvent.setup()
+    let fresh = false
+    const stale = Object.assign(new Error('alumni_stale: reload'), { code: 'P0001', hint: 'alumni_stale' })
+    const FRESH = [{ ...SNAPS[0], employees_total: 12, source: 'founder', updated_at: '2026-10-14T00:00:00Z' }, SNAPS[1]]
+    setup({ upsert_company_snapshot: stale }, { company_snapshots: () => (fresh ? FRESH : SNAPS) })
+    renderPage()
+    await screen.findByText('Nile Robotics')
+    await user.clear(cell('Nile Robotics', 'Employees'))
+    await user.type(cell('Nile Robotics', 'Employees'), '12')
+    fresh = true
+    await user.click(screen.getByTestId('ws-save'))
+    const row = (await screen.findAllByTestId('ws-row'))[0]
+    expect(await within(row).findByRole('alert')).toHaveTextContent('your edits were the same')
+    await waitFor(() => expect(screen.getByTestId('ws-savebar')).toHaveTextContent('No change yet.'))
+    expect(within(row).queryByTestId('ws-conflict-cell')).not.toBeInTheDocument()
+  })
+
+  it('under each reported year: who edited the row last and when', async () => {
+    renderPage()
+    await screen.findByText('Nile Robotics')
+    const stamps = await screen.findAllByTestId('ws-stamp')
+    expect(stamps[0]).toHaveTextContent('Founder on')
+    expect(stamps[1]).toHaveTextContent('Athar team on')
   })
 
   it('blocks the save while a cell is invalid (female more than the total, not a number) and sends nothing', async () => {

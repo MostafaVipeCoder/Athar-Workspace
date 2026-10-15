@@ -65,6 +65,8 @@ const TOKEN_KEYS = {
   booking_invalid: 'booking.err.invalid',
   booking_not_confirmed: 'booking.err.notConfirmed',
   booking_shared_link_required: 'booking.err.sharedLinkRequired',
+  // m63 calendar sync mode (hint = token)
+  calendar_mode_invalid: 'booking.sync.err.modeInvalid',
   // m35 distribution (hint = token; `distribution_invalid` carries "<field>:<reason>" in detail)
   distribution_invalid: 'distribution.err.invalid',
   distribution_day_locked: 'distribution.err.dayLocked',
@@ -100,6 +102,8 @@ const TOKEN_KEYS = {
   alumni_in_use: 'alumni.err.inUse',
   // m50 (an application for a closed / inactive opportunity)
   opportunity_closed: 'alumni.err.opportunityClosed',
+  // m62 e-mail outbox (hint = token; `email_invalid` carries "<field>:<reason>" in detail; text: shared/outbox/i18n.js)
+  email_invalid: 'outbox.err.invalid',
 }
 
 /** Tokens whose AppError code is not the one their SQLSTATE would give (an application error is P0001 / 22023, but the caller reasons on the MEANING). */

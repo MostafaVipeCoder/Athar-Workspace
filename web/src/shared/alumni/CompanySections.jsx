@@ -18,14 +18,14 @@ import './i18n.company.js'
 /**
  * The company form of design 09 F5 / M3 as independent sections. Every section takes `{ values, set, setMany, errors, disabled }`:
  * `values` = lib/alumniForms `companyToForm`, `errors` = `{ field: 'translated message' }` (instant checks and the server's refusal), `set(key, value)`.
- * Derived values (programs, team counts) are NOT here: they are read-only blocks next to the form. Labels of the vocabularies come from the database.
+ * `stamp` (optional) = a node shown under the section heading ("last edited by ... on ..."). Derived values (programs, team counts) are NOT here: they are read-only blocks next to the form. Labels of the vocabularies come from the database.
  */
 
 /** Name (ar / en), logo, description, established date. `userId` = the account the logo is filed under (public-assets/alumni/<userId>/logo/...). */
-export function CompanyBasicsSection({ id = 'basics', values, set, setMany, errors = {}, disabled, userId, track }) {
+export function CompanyBasicsSection({ id = 'basics', values, set, setMany, errors = {}, disabled, userId, track, stamp }) {
   const { t } = useLanguage()
   return (
-    <ProfileSection id={id} icon={Building2} title={t('alumni.common.basicsTitle')} description={t('alumni.common.basicsDesc')}>
+    <ProfileSection id={id} stamp={stamp} icon={Building2} title={t('alumni.common.basicsTitle')} description={t('alumni.common.basicsDesc')}>
       <div className="max-w-xs">
         <ImageField
           label={t('alumni.common.logo')}
@@ -74,12 +74,12 @@ export function CompanyBasicsSection({ id = 'basics', values, set, setMany, erro
 }
 
 /** Startup type, sector + sub sector, stage, legal status. */
-export function CompanyClassificationSection({ id = 'classification', values, set, setMany, errors = {}, disabled }) {
+export function CompanyClassificationSection({ id = 'classification', values, set, setMany, errors = {}, disabled, stamp }) {
   const { t } = useLanguage()
   const types = useLookupOptions('startup_type', values.startup_type || null)
   const legal = useLookupOptions('legal_status', values.legal_status || null)
   return (
-    <ProfileSection id={id} icon={Layers} title={t('alumni.common.classificationTitle')} description={t('alumni.common.classificationDesc')}>
+    <ProfileSection id={id} stamp={stamp} icon={Layers} title={t('alumni.common.classificationTitle')} description={t('alumni.common.classificationDesc')}>
       <ChipSelect label={t('alumni.common.startupType')} options={types.options} value={values.startup_type} allowClear disabled={disabled || types.isPending} onChange={(v) => set('startup_type', v)} error={errors.startup_type} />
       <SectorPicker sector={values.sector} subsector={values.subsector} errors={errors} disabled={disabled} onChange={(v) => setMany({ sector: v.sector, subsector: v.subsector })} />
       <LookupSelect kind="stage" label={t('alumni.common.stage')} value={values.stage} disabled={disabled} error={errors.stage} onChange={(v) => set('stage', v)} />
@@ -89,10 +89,10 @@ export function CompanyClassificationSection({ id = 'classification', values, se
 }
 
 /** The company's operating location (a governorate of the list; never "born abroad") + the free-text address. */
-export function CompanyLocationSection({ id = 'location', values, set, setMany, errors = {}, disabled }) {
+export function CompanyLocationSection({ id = 'location', values, set, setMany, errors = {}, disabled, stamp }) {
   const { t } = useLanguage()
   return (
-    <ProfileSection id={id} icon={MapPin} title={t('alumni.common.locationTitle')} description={t('alumni.common.locationDesc')}>
+    <ProfileSection id={id} stamp={stamp} icon={MapPin} title={t('alumni.common.locationTitle')} description={t('alumni.common.locationDesc')}>
       <GovernoratePicker label={t('alumni.common.governorate')} value={values.governorate} disabled={disabled} error={errors.governorate} onChange={(v) => set('governorate', v)} />
       <BilingualField
         label={t('alumni.common.address')}
@@ -105,12 +105,12 @@ export function CompanyLocationSection({ id = 'location', values, set, setMany, 
 }
 
 /** Website, app, LinkedIn and the social links (canonical `{ kind, url, label? }` entries, at most 12). */
-export function CompanyOnlineSection({ id = 'online', values, set, errors = {}, disabled }) {
+export function CompanyOnlineSection({ id = 'online', values, set, errors = {}, disabled, stamp }) {
   const { t } = useLanguage()
   const links = values.links ?? []
   const setLink = (i, patch) => set('links', links.map((l, j) => (j === i ? { ...l, ...patch } : l)))
   return (
-    <ProfileSection id={id} icon={Globe2} title={t('alumni.common.onlineTitle')} description={t('alumni.common.onlineDesc')}>
+    <ProfileSection id={id} stamp={stamp} icon={Globe2} title={t('alumni.common.onlineTitle')} description={t('alumni.common.onlineDesc')}>
       <div className="grid gap-field-gap sm:grid-cols-2">
         <Field type="url" dir="ltr" inputMode="url" label={t('alumni.common.website')} placeholder="https://" value={values.website_url} disabled={disabled} error={errors.website_url} onChange={(e) => set('website_url', e.target.value)} />
         <Field type="url" dir="ltr" inputMode="url" label={t('alumni.common.app')} placeholder="https://" value={values.app_url} disabled={disabled} error={errors.app_url} onChange={(e) => set('app_url', e.target.value)} />
@@ -147,12 +147,12 @@ export function CompanyOnlineSection({ id = 'online', values, set, errors = {}, 
 }
 
 /** Open / closed; when closed: the date, the reason, what the founders did after, a note. Re-opening clears the four closing fields (the server refuses them on an open company). */
-export function CompanyStatusSection({ id = 'status', values, set, setMany, errors = {}, disabled }) {
+export function CompanyStatusSection({ id = 'status', values, set, setMany, errors = {}, disabled, stamp }) {
   const { t } = useLanguage()
   const status = useLookupOptions('operating_status', null)
   const closed = values.operating_status === 'closed'
   return (
-    <ProfileSection id={id} icon={Power} title={t('alumni.common.statusTitle')} description={t('alumni.common.statusDesc')}>
+    <ProfileSection id={id} stamp={stamp} icon={Power} title={t('alumni.common.statusTitle')} description={t('alumni.common.statusDesc')}>
       <ChipSelect
         label={t('alumni.common.operatingStatus')}
         options={status.options}
@@ -175,11 +175,11 @@ export function CompanyStatusSection({ id = 'status', values, set, setMany, erro
 }
 
 /** Who may find the company in the alumni directory. `blocked` = a manager hid it (founders only see that fact, never the note). */
-export function DirectoryVisibilitySection({ id = 'directory', values, set, errors = {}, disabled, blocked = false, isAlumni = false }) {
+export function DirectoryVisibilitySection({ id = 'directory', values, set, errors = {}, disabled, blocked = false, isAlumni = false, stamp }) {
   const { t } = useLanguage()
   const vis = useLookupOptions('directory_visibility', null)
   return (
-    <ProfileSection id={id} icon={Compass} title={t('alumni.common.directoryTitle')} description={t('alumni.common.directoryDesc')}>
+    <ProfileSection id={id} stamp={stamp} icon={Compass} title={t('alumni.common.directoryTitle')} description={t('alumni.common.directoryDesc')}>
       <ChipSelect label={t('alumni.common.visibility')} options={vis.options} value={values.directory_visibility} disabled={disabled || vis.isPending} onChange={(v) => set('directory_visibility', v)} error={errors.directory_visibility} />
       <p className="text-sm text-muted-foreground" data-testid="visibility-explain">{t(`alumni.common.visibility.${values.directory_visibility || 'private'}`)}</p>
       {!isAlumni && <p className="text-xs text-muted-foreground">{t('alumni.common.notAlumniYet')}</p>}

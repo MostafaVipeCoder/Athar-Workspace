@@ -38,7 +38,7 @@ export function TemplateEditor({ template, onChange, placeholders = [], sampleVa
         <div className="flex flex-wrap items-center gap-1 text-xs">
           <span className="me-1 font-medium">{t('email.placeholders')}:</span>
           {placeholders.map((p) => (
-            <button key={p} type="button" onClick={() => insert(p)} className="rounded-full border border-input bg-background px-2 py-0.5 font-mono hover:bg-surface" aria-label={t('email.insert', { key: p })} dir="ltr">{`{{${p}}}`}</button>
+            <button key={p} type="button" onClick={() => insert(p)} className="inline-flex min-h-8 items-center rounded-full border border-input bg-background px-2 py-0.5 font-mono hover:bg-surface max-md:min-h-11" aria-label={t('email.insert', { key: p })} dir="ltr">{`{{${p}}}`}</button>
           ))}
         </div>
         {showLists && (

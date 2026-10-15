@@ -25,12 +25,12 @@ export function DerivedValue({ label, value, origin = 'derived', hint, className
   )
 }
 
-/** One section of a profile form: a card with a heading and an anchor (`id`) the completeness meter and the section chips jump to. */
-export function ProfileSection({ id, title, description, icon: Icon, children, className, done }) {
+/** One section of a profile form: a card with a heading and an anchor (`id`) the completeness meter and the section chips jump to. `stamp` = a node shown under the heading (the "last edited by" line). */
+export function ProfileSection({ id, title, description, icon: Icon, children, className, done, stamp }) {
   const headingId = `${id}-title`
   const { t } = useLanguage()
   return (
-    <section id={id} aria-labelledby={headingId} className={cn('scroll-mt-40 space-y-4 rounded-card border bg-card p-4 sm:p-5', className)} data-testid={`section-${id}`}>
+    <section id={id} aria-labelledby={headingId} className={cn('scroll-mt-40 space-y-4 rounded-card border bg-card p-4 transition-shadow sm:p-5 data-[highlight=true]:ring-2 data-[highlight=true]:ring-primary', className)} data-testid={`section-${id}`}>
       <div className="space-y-0.5">
         <h2 id={headingId} className="flex items-center gap-2 text-card-title">
           {Icon && <Icon className="h-5 w-5 shrink-0 text-primary" aria-hidden="true" />}
@@ -38,6 +38,7 @@ export function ProfileSection({ id, title, description, icon: Icon, children, c
           {done === true && <Badge tone="green" className="ms-auto shrink-0">{t('alumni.common.complete')}</Badge>}
         </h2>
         {description && <p className="text-sm text-muted-foreground">{description}</p>}
+        {stamp}
       </div>
       {children}
     </section>

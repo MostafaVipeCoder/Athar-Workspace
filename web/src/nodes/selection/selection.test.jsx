@@ -26,7 +26,7 @@ const extras = () => ({
 // an applicant marked WITHDRAWN (m40): still in the stage ("interview"), flagged by the DB, with the PM-only reason
 const withdrawnRow = () => ({ item_id: 'i4', source: { kind: 'form_response', id: 'r4', state: 'ok' }, display: { title_en: 'Wadi Labs', subtitle_en: 'Sara' }, contact: { email: 'f4@x.io' }, fields: {}, overlay: {}, status: 'interview', sort_order: null, excluded: false, withdrawn: true, withdrawal: { at: '2026-10-12T09:00:00Z', reason: 'left the program', source: 'participant' }, cursor: { s: 3, k: 'i4' } })
 
-const mocks = vi.hoisted(() => ({ resolveList: vi.fn(), ensureItem: vi.fn(), patch: vi.fn(), setStatus: vi.fn(), exclude: vi.fn(), withdraw: vi.fn(), reinstate: vi.fn(), extras: vi.fn(), setScore: vi.fn(), send: vi.fn(), getDef: vi.fn() }))
+const mocks = vi.hoisted(() => ({ resolveList: vi.fn(), ensureItem: vi.fn(), patch: vi.fn(), setStatus: vi.fn(), exclude: vi.fn(), withdraw: vi.fn(), reinstate: vi.fn(), extras: vi.fn(), setScore: vi.fn(), send: vi.fn(), getDef: vi.fn(), google: vi.fn() }))
 
 vi.mock('../../data/lists.js', async () => {
   const { useQuery, useMutation, useQueryClient } = await import('@tanstack/react-query')
@@ -74,9 +74,14 @@ vi.mock('../../data/selection.js', async () => {
     },
   }
 })
+vi.mock('../../data/google.js', async () => {
+  const { useQuery } = await import('@tanstack/react-query')
+  return { useGoogleStatus: () => useQuery({ queryKey: ['google', 'status'], queryFn: () => mocks.google() }) }
+})
 vi.mock('../../data/forms.js', () => ({ getFormDefinition: (id) => mocks.getDef(id) }))
 vi.mock('../../data/storage.js', () => ({ publicImageUrl: (p) => (p ? `http://img/${p}` : ''), publicThumbUrl: (p) => (p ? `http://img/t/${p}` : ''), uploadImage: vi.fn() }))
 
+const googleFallback = () => ({ mine: null, system: { email: 'startups@athareg.com', status: 'active' }, effective: { source: 'system', email: 'startups@athareg.com', fallback: true, reason: 'user_not_connected' }, is_super_admin: false })
 const auth = { user: { id: 'u1' }, roles: ['project_manager'], status: 'authed', hasRole: () => false, can: () => true }
 const node = { id: 'S', project_id: 'P', type: 'selection', type_version: 1, name_en: 'Stage 1', name_ar: 'المرحلة 1', visibility: 'private', show_to_participants: false, config: {}, rev: 1 }
 const graph = {
@@ -98,6 +103,7 @@ beforeEach(() => {
   vi.clearAllMocks()
   mocks.resolveList.mockImplementation(async () => rows())
   mocks.extras.mockImplementation(async () => extras())
+  mocks.google.mockImplementation(async () => googleFallback())
   mocks.ensureItem.mockResolvedValue('new-id')
   mocks.getDef.mockResolvedValue({ form: {}, sections: [], questions: [{ id: 'q1', key: 'company_name', type: 'text', semantic: 'company_name', label_en: 'Company' }, { id: 'q2', key: 'q7', type: 'text', semantic: null, label_en: 'Pitch ready?', label_ar: 'جاهز؟' }] })
   mocks.send.mockResolvedValue([{ item_id: 'i1', outbox_id: 'o2', status: 'queued', recipient: 'f1@x.io' }])
@@ -197,6 +203,18 @@ describe('Selection node', () => {
     await user.click(screen.getByRole('tab', { name: /^All stages/ }))
     await user.click(await screen.findByRole('button', { name: 'Delta Farms' }))
     expect(await screen.findByTestId('drawer-withdraw')).toBeInTheDocument()
+  })
+
+  it('Edit: the e-mails tab shows the REAL Google sender of the acting manager (own account, system fallback, nobody)', async () => {
+    const user = userEvent.setup()
+    mocks.google.mockImplementation(async () => ({ mine: { status: 'active', email: 'pm@athareg.com', scopes_ok: true }, system: { email: 'startups@athareg.com', status: 'active' }, effective: { source: 'user', email: 'pm@athareg.com', fallback: false, reason: null }, is_super_admin: false }))
+    mount('edit')
+    await screen.findAllByTestId('item-row')
+    await user.click(screen.getByTestId('tab-emails'))
+    const notice = await within(screen.getByTestId('emails-tab')).findByTestId('sender-notice')
+    expect(notice).toHaveAttribute('data-kind', 'mine')
+    expect(notice).toHaveTextContent('E-mails from this node are sent from your Google account (')
+    expect(notice).toHaveTextContent('pm@athareg.com')
   })
 
   it('Edit: the e-mails tab leaves withdrawn applicants out of the recipients (and says so)', async () => {

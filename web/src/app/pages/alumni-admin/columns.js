@@ -148,7 +148,7 @@ export function cellText(row, key, env) {
     case 'alumni': return row?.is_alumni ? 'yes' : 'no'
     case 'visibility': return L('directory_visibility', row?.directory_visibility)
     case 'reviewed': return reviewState(row)
-    case 'updated': return date(row?.updated_at)
+    case 'updated': return row?.updated_source && row?.updated_at && env.t ? `${date(row.updated_at)} · ${env.t(`alumni.edit.source.${row.updated_source}`)}` : date(row?.updated_at) // who wrote it last (m60)
     default: return ''
   }
 }

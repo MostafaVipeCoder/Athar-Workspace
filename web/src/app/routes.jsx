@@ -84,6 +84,8 @@ export const routes = [
               { element: <RequireAccess permission="form-library:manage" />, children: [{ path: 'form-library', ...soon(7, 'central form library') }] },
               // 08 section 14: staff management (super_admin). `/team` from the design table redirects here.
               { element: <RequireAccess permission="staff:manage" />, children: [{ path: 'admin/staff', ...page(() => import('./pages/staff/StaffPage.jsx')) }] },
+              // m62: the health of the whole e-mail queue (super_admin)
+              { element: <RequireAccess permission="staff:manage" />, children: [{ path: 'admin/email', ...page(() => import('./pages/staff/EmailHealthPage.jsx')) }] },
               { path: 'team', element: <Navigate to="/admin/staff" replace /> },
               ...(import.meta.env.DEV ? [{ path: 'dev/nodes', ...page(() => import('./pages/DevNodesPage.jsx')) }] : []),
             ],
@@ -99,6 +101,8 @@ export const routes = [
                   { index: true, ...page(() => import('./pages/ProjectPage.jsx')) },
                   { path: 'details', ...page(() => import('./pages/ProjectDetailsPage.jsx')) },
                   { path: 'participants', ...page(() => import('./pages/ParticipantsPage.jsx')) },
+                  // m62: the project's e-mail Outbox (delivery state, retry / cancel / mark sent / resend, "Send now")
+                  { path: 'outbox', ...page(() => import('./pages/OutboxPage.jsx')) },
                   { path: 'nodes/:nodeId', ...page(() => import('./pages/NodeRoutes.jsx'), 'NodeViewPage') },
                   { path: 'nodes/:nodeId/edit/*', ...page(() => import('./pages/NodeRoutes.jsx'), 'NodeEditPage') },
                   { path: 'nodes/:nodeId/settings', ...page(() => import('./pages/NodeRoutes.jsx'), 'NodeSettingsPage') },
@@ -188,6 +192,9 @@ export const routes = [
               { path: 'alumni/admin/impact', ...analyticsView('impact') },
               { path: 'alumni/admin/workspace', ...page(() => import('./pages/alumni-admin/WorkspacePage.jsx')) },
               { path: 'alumni/admin/company/:id', ...page(() => import('./pages/alumni-admin/CompanyPage.jsx')) },
+              // m60 (owner decisions 20.3 / 20.4): the needs-attention queue and the history of edits (tabs next to the directory)
+              { path: 'alumni/admin/attention', ...page(() => import('./pages/alumni-admin/AttentionPage.jsx')) },
+              { path: 'alumni/admin/history', ...page(() => import('./pages/alumni-admin/HistoryPage.jsx')) },
             ],
           },
         ],

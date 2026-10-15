@@ -9,12 +9,16 @@ import { Button } from '../../ui/Button.jsx'
 import { Badge } from '../../ui/Badge.jsx'
 import { Field } from '../../ui/Field.jsx'
 import { EmptyState, Loading } from '../../ui/States.jsx'
+import { SenderNotice } from '../../shared/google/SenderNotice.jsx'
+import { NodeOutboxSummary } from '../../shared/outbox/NodeOutboxSummary.jsx'
+import { OutboxStateBadge } from '../../shared/outbox/OutboxStateBadge.jsx'
+import { useOutbox } from '../../data/outbox.js'
+import { explanationKey, stateOf } from '../../lib/outbox.js'
 import { materializeItem } from '../../data/lists.js'
 import { biPick, isActiveItem } from '../../lib/entities.js'
 import { cn } from '../../lib/cn.js'
 import { BULK_CONFIRM_THRESHOLD, EMAIL_KEYS, PLACEHOLDERS_BY_KEY, emailIndex, normalizeSelectionConfig, renderTemplate, sampleVars, sanitizePreviewHtml, stageForEmail, toStoredConfig, validateSelectionConfig } from './selectionConfig.js'
 
-const STATUS_TONE = { queued: 'blue', sending: 'blue', sent: 'green', failed: 'red', dead: 'red', cancelled: 'neutral', needs_review: 'amber' }
 const RESULT_TONE = { queued: 'green', already_sent: 'neutral', duplicate: 'neutral', no_recipient: 'red', item_not_found: 'red', withdrawn: 'red' }
 const list = (s) => String(s ?? '').split(',').map((x) => x.trim()).filter(Boolean)
 
@@ -46,6 +50,9 @@ export function EmailsTab({ node, config: saved, items, extras, loading = false,
   const recipients = useMemo(() => items.filter((i) => isActiveItem(i) && stage && i.status === stage.key), [items, stage])
   const withdrawnInStage = useMemo(() => items.filter((i) => i.withdrawn && stage && i.status === stage.key).length, [items, stage])
   const emails = useMemo(() => emailIndex(extras?.emails ?? []), [extras])
+  // m62: the REAL delivery state of this node's e-mails (blocked with its reason, retrying, needs review...) from the Outbox, refreshed while mail is on its way
+  const outbox = useOutbox(node.project_id, { nodeId: node.id, limit: 200 })
+  const liveById = useMemo(() => new Map((outbox.data?.rows ?? []).map((r) => [r.id, r])), [outbox.data])
   const sentOf = (item) => emails[item.itemId]?.[key]?.last ?? null
   const unsent = recipients.filter((i) => !sentOf(i) || ['failed', 'dead', 'cancelled'].includes(sentOf(i).status))
   const sample = items.find((i) => i.id === sampleId) ?? recipients[0] ?? items[0] ?? null
@@ -109,6 +116,8 @@ export function EmailsTab({ node, config: saved, items, extras, loading = false,
   return (
     <div className="space-y-6" data-testid="emails-tab">
       <p className="text-xs text-muted-foreground">{t('selection.emails.hint')}</p>
+      <SenderNotice scope="email" />
+      <NodeOutboxSummary projectId={node.project_id} nodeId={node.id} />
       <div className="flex flex-wrap gap-1" role="tablist" aria-label={t('selection.emails.template')}>
         {EMAIL_KEYS.map((k) => (
           <button key={k} type="button" role="tab" aria-selected={key === k} onClick={() => { setKey(k); setSelected(new Set()); setResults({}) }} className={cn('tap-target rounded-md px-3 text-sm', key === k ? 'bg-foreground text-background' : 'hover:bg-surface')} data-testid={`email-${k}`}>
@@ -213,7 +222,16 @@ export function EmailsTab({ node, config: saved, items, extras, loading = false,
                           <td className="p-2 text-xs" dir="ltr">{i.contact?.email || <span className="text-destructive-text">{t('selection.result.no_recipient')}</span>}</td>
                           <td className="p-2">
                             <div className="flex flex-wrap items-center gap-1">
-                              {last ? <Badge tone={STATUS_TONE[last.status] ?? 'neutral'}>{t(`selection.status.${last.status}`)} ×{emails[i.itemId][key].count}</Badge> : <span className="text-xs text-muted-foreground">{t('selection.emails.never')}</span>}
+                              {last ? (() => {
+                                const live = liveById.get(last.id) ?? last
+                                const why = ['blocked', 'failed', 'needs_review'].includes(stateOf(live)) ? explanationKey(live) : null
+                                return (
+                                  <>
+                                    <OutboxStateBadge row={live} suffix={`×${emails[i.itemId][key].count}`} data-testid="delivery-state" />
+                                    {why && <span className="basis-full max-w-xs text-xs text-muted-foreground" data-testid="delivery-why">{t(why)}</span>}
+                                  </>
+                                )
+                              })() : <span className="text-xs text-muted-foreground">{t('selection.emails.never')}</span>}
                               {res && <Badge tone={RESULT_TONE[res] ?? 'neutral'}>{t(`selection.result.${res}`)}</Badge>}
                             </div>
                           </td>

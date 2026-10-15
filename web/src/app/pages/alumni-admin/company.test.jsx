@@ -35,6 +35,21 @@ const PAYLOAD = {
   snapshots: [{ id: 's1', year: 2024, revenue_total: 910000, funding_raised_total: 400000, employees_total: 11, employees_female: 5, freelancers: 3, traction: '', challenges: null, needs: '', source: 'founder', updated_at: '2026-10-01T00:00:00Z' }],
 }
 
+const STAMPS = {
+  company: { updated_at: '2026-10-12T09:30:00Z', source: 'manager', name: 'Mona Adel' },
+  sections: { basics: { at: '2026-10-12T09:30:00Z', source: 'manager', name: 'Mona Adel', role: 'alumni_manager', edits: 3 }, classification: { at: '2026-10-05T08:00:00Z', source: 'founder', name: 'Sara Ali', role: 'founder', edits: 1 } },
+  years: [{ year: 2024, updated_at: '2026-10-01T00:00:00Z', source: 'founder', reviewed_at: null, reviewed: false, name: 'Sara Ali' }],
+  founders: [{ founder_id: 'f1', updated_at: '2026-10-03T00:00:00Z', source: 'manager' }, { founder_id: 'f2', updated_at: '2026-10-04T00:00:00Z', source: 'founder' }],
+}
+const HISTORY = {
+  total: 2, limit: 30, offset: 0,
+  rows: [
+    { id: 2, at: '2026-10-12T09:30:00Z', last_at: '2026-10-12T09:30:00Z', edits: 1, request_id: 'r2', source: 'manager', entity_type: 'company', entity_id: 'c1', company_id: 'c1', field: 'name_en', old_value: 'Nile Robotix', new_value: 'Nile Robotics', redacted: false, actor: { role: 'alumni_manager', user_id: 'u1', name: 'Mona Adel' }, company: { name_en: 'Nile Robotics' } },
+    { id: 1, at: '2026-10-05T08:00:00Z', last_at: '2026-10-05T08:00:00Z', edits: 1, request_id: 'r1', source: 'founder', entity_type: 'company', entity_id: 'c1', company_id: 'c1', field: 'sector', old_value: null, new_value: 'technology', redacted: false, actor: { role: 'founder', user_id: 'u2', name: 'Sara Ali' }, company: { name_en: 'Nile Robotics' } },
+  ],
+}
+const STALE = () => Object.assign(new Error('alumni_stale: reload'), { code: 'P0001', hint: 'alumni_stale' })
+
 let mock
 function setup(extra = {}) {
   mock = makeDb({
@@ -42,7 +57,9 @@ function setup(extra = {}) {
       list_alumni_lookups: LOOKUPS,
       get_alumni_company: PAYLOAD,
       save_alumni_company: (a) => ({ saved: true, ...PAYLOAD, company: company({ id: a.p_company ?? 'new-co', ...(a.p_patch.name_en ? { name_en: a.p_patch.name_en } : {}), updated_at: '2026-10-14T10:00:00Z' }) }),
-      get_alumni_founder: (a) => ({ id: a.p_founder, identity: { id_masked: '**********1234', has_national_id: true, ...(a.p_reveal ? { national_id: FULL_ID } : {}) } }),
+      get_alumni_stamps: STAMPS,
+      list_alumni_history: HISTORY,
+      get_alumni_founder: (a) => ({ id: a.p_founder, name_en: a.p_founder === 'f2' ? 'Hana Mostafa' : 'Sara Ali', bio_en: 'Loves robots', updated_at: '2026-10-01T00:00:00Z', updated_source: 'founder', identity: a.p_founder === 'f2' ? { has_national_id: false } : { id_masked: '**********1234', has_national_id: true, ...(a.p_reveal ? { national_id: FULL_ID } : {}) } }),
       save_alumni_founder: (a) => ({ saved: true, replaced: [], founder: { id: a.p_founder } }),
       save_company_team_member: { saved: true, founder_id: 'f9' },
       set_company_ceo: { saved: true },
@@ -62,7 +79,7 @@ function setup(extra = {}) {
 function renderAt(path) {
   return renderWithProviders(
     <AuthContext.Provider value={auth}><ConfirmProvider><Routes><Route path="/alumni/admin/company/:id" element={<CompanyPage />} /></Routes></ConfirmProvider></AuthContext.Provider>,
-    { route: `${path}?lang=en` },
+    { route: /lang=/.test(path) ? path : `${path}?lang=en` },
   )
 }
 
@@ -170,13 +187,14 @@ describe('the manager company page', () => {
     renderAt('/alumni/admin/company/c1')
     const members = await screen.findAllByTestId('admin-team-member')
     await user.click(within(members[1]).getByRole('button', { name: /Edit details and national ID/ }))
-    const dialog = await screen.findByRole('dialog')
+    // the founder's block (version, bio, masked ID) is loaded first (get_alumni_founder), then the form opens
+    const dialog = (await screen.findByTestId('founder-form')).closest('[role="dialog"]')
     await user.type(within(dialog).getByLabelText('National ID'), NEW_ID)
     expect(await within(dialog).findByText(/Aswan/)).toBeInTheDocument()
     expect(mock.rpcCalls('preview_national_id')[0].args).toEqual({ p_id: NEW_ID })
     await user.click(within(dialog).getByTestId('founder-save'))
     await waitFor(() => expect(mock.rpcCalls('save_alumni_founder')).toHaveLength(1))
-    expect(mock.rpcCalls('save_alumni_founder')[0].args).toEqual({ p_founder: 'f2', p_patch: { national_id: NEW_ID } })
+    expect(mock.rpcCalls('save_alumni_founder')[0].args).toEqual({ p_founder: 'f2', p_patch: { national_id: NEW_ID }, p_expected: '2026-10-01T00:00:00Z' })
     await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
     expect(document.body.textContent).not.toContain(NEW_ID)
   })
@@ -243,6 +261,150 @@ describe('the manager company page', () => {
     await user.click(within(await screen.findByTestId('save-bar')).getByRole('button', { name: 'Create the company' }))
     await waitFor(() => expect(mock.rpcCalls('save_alumni_company')).toHaveLength(1))
     expect(mock.rpcCalls('save_alumni_company')[0].args).toMatchObject({ p_company: null, p_patch: { name_en: 'Fresh Startup' } })
+  })
+
+  it('every section says who edited it last and when (the manager sees the name), and the company has its own history section', async () => {
+    renderAt('/alumni/admin/company/c1')
+    await screen.findByRole('heading', { name: 'Nile Robotics', level: 1 })
+    await waitFor(() => expect(within(document.getElementById('basics')).getByTestId('stamp-line')).toHaveTextContent('Last edited by Mona Adel (Athar team) on'))
+    await waitFor(() => expect(within(document.getElementById('classification')).getByTestId('stamp-line')).toHaveTextContent('Last edited by Sara Ali (founder) on'))
+    const members = await screen.findAllByTestId('admin-team-member')
+    await waitFor(() => expect(within(members[1]).getByTestId('stamp-line')).toHaveTextContent('Last edited by a founder of the company'))
+    expect(within(members[0]).getByTestId('stamp-line')).toHaveTextContent('Athar team')
+    const history = document.getElementById('history')
+    expect(await within(history).findAllByTestId('history-save')).toHaveLength(2)
+    expect(mock.rpcCalls('list_alumni_history')[0].args).toEqual({ p_filters: { company_id: 'c1' }, p_limit: 30, p_offset: 0 })
+    expect(within(history).getByText('Sara Ali')).toBeInTheDocument()
+  })
+
+  it('a stale save where the founder changed ANOTHER field: their value is loaded, mine stays, Save again carries the new version and only my field', async () => {
+    const user = userEvent.setup()
+    let saves = 0
+    let fresh = false
+    const FRESH = { ...PAYLOAD, company: company({ description_en: 'Farm robots and drones', updated_at: '2026-10-14T12:00:00Z', updated_source: 'founder' }) }
+    setup({
+      get_alumni_company: () => (fresh ? FRESH : PAYLOAD),
+      save_alumni_company: () => { saves += 1; if (saves === 1) { fresh = true; return STALE() } return { saved: true, ...FRESH } },
+    })
+    renderAt('/alumni/admin/company/c1')
+    await screen.findByRole('heading', { name: 'Nile Robotics', level: 1 })
+    const english = screen.getAllByLabelText('English', { selector: 'input' })[0]
+    await user.clear(english)
+    await user.type(english, 'Nile Robotics Ltd')
+    await user.click(within(await screen.findByTestId('save-bar')).getByRole('button', { name: 'Save' }))
+    await user.click(await screen.findByRole('button', { name: 'Reload and keep my edits' }))
+    await waitFor(() => expect(screen.getByDisplayValue('Farm robots and drones')).toBeInTheDocument()) // theirs
+    expect(screen.getAllByLabelText('English', { selector: 'input' })[0]).toHaveValue('Nile Robotics Ltd') // mine
+    expect(screen.queryByTestId('stale-banner')).not.toBeInTheDocument()
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument() // nothing to ask: different fields
+    // the outcome is an inline status (a toast would cover the Save button)
+    expect(screen.getByTestId('stale-notice')).toHaveTextContent('saved other changes meanwhile')
+    await user.click(within(await screen.findByTestId('save-bar')).getByRole('button', { name: 'Save' }))
+    await waitFor(() => expect(mock.rpcCalls('save_alumni_company')).toHaveLength(2))
+    expect(mock.rpcCalls('save_alumni_company')[1].args).toEqual({ p_company: 'c1', p_patch: { name_en: 'Nile Robotics Ltd' }, p_expected: '2026-10-14T12:00:00Z' })
+    await waitFor(() => expect(screen.queryByTestId('stale-notice')).not.toBeInTheDocument()) // saved: the notice is gone
+  })
+
+  it('both changed the SAME field: a dialog asks which value to keep, nothing is chosen for me, and keeping theirs leaves nothing to save', async () => {
+    const user = userEvent.setup()
+    let fresh = false
+    const FRESH = { ...PAYLOAD, company: company({ name_en: 'Nile Robotics Group', updated_at: '2026-10-14T12:00:00Z', updated_source: 'founder' }) }
+    setup({
+      get_alumni_company: () => (fresh ? FRESH : PAYLOAD),
+      save_alumni_company: () => { fresh = true; return STALE() },
+    })
+    renderAt('/alumni/admin/company/c1')
+    await screen.findByRole('heading', { name: 'Nile Robotics', level: 1 })
+    const english = screen.getAllByLabelText('English', { selector: 'input' })[0]
+    await user.clear(english)
+    await user.type(english, 'Nile Robotics Ltd')
+    await user.click(within(await screen.findByTestId('save-bar')).getByRole('button', { name: 'Save' }))
+    await user.click(await screen.findByRole('button', { name: 'Reload and keep my edits' }))
+    const dialog = await screen.findByRole('dialog')
+    expect(within(dialog).getByTestId('conflict-mine-value')).toHaveTextContent('Nile Robotics Ltd')
+    expect(within(dialog).getByTestId('conflict-theirs-value')).toHaveTextContent('Nile Robotics Group')
+    expect(within(dialog).getByTestId('conflict-apply')).toBeDisabled()
+    await user.click(within(dialog).getByRole('radio', { name: /Use their value/ }))
+    await user.click(within(dialog).getByTestId('conflict-apply'))
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
+    expect(screen.getByTestId('stale-notice')).toHaveTextContent('Your choices are applied')
+    expect(screen.getAllByLabelText('English', { selector: 'input' })[0]).toHaveValue('Nile Robotics Group')
+    await waitFor(() => expect(screen.queryByTestId('save-bar')).not.toBeInTheDocument())
+    expect(mock.rpcCalls('save_alumni_company')).toHaveLength(1)
+  })
+
+  it('a manager can give the reason of a change; it travels with the save and is kept in the history', async () => {
+    const user = userEvent.setup()
+    renderAt('/alumni/admin/company/c1')
+    await screen.findByRole('heading', { name: 'Nile Robotics', level: 1 })
+    expect(screen.queryByTestId('change-reason')).not.toBeInTheDocument()
+    const english = screen.getAllByLabelText('English', { selector: 'input' })[0]
+    await user.type(english, ' Ltd')
+    await user.type(within(await screen.findByTestId('change-reason')).getByLabelText(/Reason for this change/), 'registered as a company')
+    await user.click(within(await screen.findByTestId('save-bar')).getByRole('button', { name: 'Save' }))
+    await waitFor(() => expect(mock.rpcCalls('save_alumni_company')).toHaveLength(1))
+    expect(mock.rpcCalls('save_alumni_company')[0].args).toEqual({ p_company: 'c1', p_patch: { name_en: 'Nile Robotics Ltd' }, p_expected: '2026-10-10T10:00:00Z', p_reason: 'registered as a company' })
+  })
+
+  it('a link from the needs-attention queue lands on the section of the item, highlighted: ?focus=sector#classification', async () => {
+    renderAt('/alumni/admin/company/c1?focus=sector&lang=en#classification')
+    await screen.findByRole('heading', { name: 'Nile Robotics', level: 1 })
+    await waitFor(() => expect(document.getElementById('classification')).toHaveAttribute('data-highlight', 'true'), { timeout: 2000 })
+    expect(document.activeElement).toBe(document.getElementById('classification'))
+  })
+
+  it('?focus=ceo_id opens the CEO form straight away (the item is a field of the CEO)', async () => {
+    renderAt('/alumni/admin/company/c1?focus=ceo_id&lang=en#team')
+    const form = await screen.findByTestId('founder-form')
+    expect(within(form.closest('[role="dialog"]')).getByLabelText('Name in English')).toHaveValue('Sara Ali') // f1 is the CEO
+    expect(mock.rpcCalls('get_alumni_founder')[0].args).toEqual({ p_founder: 'f1', p_reveal: false })
+  })
+
+  it('a founder record somebody saved first: the dialog loads their latest, my edit stays, and the second Save carries the new version', async () => {
+    const user = userEvent.setup()
+    let fresh = false
+    let saves = 0
+    setup({
+      get_alumni_founder: (a) => ({ id: a.p_founder, name_en: 'Hana Mostafa', bio_en: fresh ? 'Loves robots and drones' : 'Loves robots', updated_at: fresh ? '2026-10-14T12:00:00Z' : '2026-10-01T00:00:00Z', updated_source: fresh ? 'founder' : 'manager', identity: { has_national_id: false } }),
+      save_alumni_founder: () => { saves += 1; if (saves === 1) { fresh = true; return STALE() } return { saved: true, replaced: [], founder: { id: 'f2' } } },
+    })
+    renderAt('/alumni/admin/company/c1')
+    const members = await screen.findAllByTestId('admin-team-member')
+    await user.click(within(members[1]).getByRole('button', { name: /Edit details and national ID/ }))
+    const dialog = (await screen.findByTestId('founder-form')).closest('[role="dialog"]')
+    await user.type(within(dialog).getByLabelText('Phone'), '+201012345678')
+    await user.click(within(dialog).getByTestId('founder-save'))
+    expect(await within(dialog).findByTestId('founder-notice')).toHaveTextContent('saved other changes meanwhile')
+    expect(within(dialog).getByLabelText('Phone')).toHaveValue('+201012345678') // mine
+    expect(within(dialog).getByDisplayValue('Loves robots and drones')).toBeInTheDocument() // theirs
+    await user.click(within(dialog).getByTestId('founder-save'))
+    await waitFor(() => expect(mock.rpcCalls('save_alumni_founder')).toHaveLength(2))
+    expect(mock.rpcCalls('save_alumni_founder')[1].args).toEqual({ p_founder: 'f2', p_patch: { phone: '+201012345678' }, p_expected: '2026-10-14T12:00:00Z' })
+  })
+
+  it('a founder record where both changed the same field: the choices are inline and Apply waits for every one', async () => {
+    const user = userEvent.setup()
+    let fresh = false
+    setup({
+      get_alumni_founder: (a) => ({ id: a.p_founder, name_en: 'Hana Mostafa', bio_en: fresh ? 'Their bio' : 'Loves robots', updated_at: fresh ? '2026-10-14T12:00:00Z' : '2026-10-01T00:00:00Z', updated_source: fresh ? 'founder' : 'manager', identity: { has_national_id: false } }),
+      save_alumni_founder: () => { fresh = true; return STALE() },
+    })
+    renderAt('/alumni/admin/company/c1')
+    const members = await screen.findAllByTestId('admin-team-member')
+    await user.click(within(members[1]).getByRole('button', { name: /Edit details and national ID/ }))
+    const dialog = (await screen.findByTestId('founder-form')).closest('[role="dialog"]')
+    const bio = within(dialog).getByDisplayValue('Loves robots')
+    await user.clear(bio)
+    await user.type(bio, 'My bio')
+    await user.click(within(dialog).getByTestId('founder-save'))
+    const box = await within(dialog).findByTestId('founder-conflict')
+    expect(within(box).getByTestId('conflict-mine-value')).toHaveTextContent('My bio')
+    expect(within(box).getByTestId('conflict-theirs-value')).toHaveTextContent('Their bio')
+    expect(within(dialog).getByTestId('conflict-apply')).toBeDisabled()
+    await user.click(within(box).getByRole('radio', { name: /Keep my value/ }))
+    await user.click(within(dialog).getByTestId('conflict-apply'))
+    expect(await within(dialog).findByTestId('founder-notice')).toBeInTheDocument()
+    expect(within(dialog).getByDisplayValue('My bio')).toBeInTheDocument()
   })
 
   it('a company that does not exist says so with a way back', async () => {

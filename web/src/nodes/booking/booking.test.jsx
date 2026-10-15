@@ -12,7 +12,7 @@ import manifest from './manifest.js'
 const mocks = vi.hoisted(() => ({
   admin: vi.fn(), extras: vi.fn(), link: vi.fn(), page: vi.fn(), create: vi.fn(), cancelPublic: vi.fn(),
   upsert: vi.fn(), updateProvider: vi.fn(), addSlots: vi.fn(), deleteSlots: vi.fn(), cancel: vi.fn(), restore: vi.fn(), reschedule: vi.fn(), retry: vi.fn(), ensureLink: vi.fn(),
-  listItems: vi.fn(), ensureItem: vi.fn(),
+  listItems: vi.fn(), ensureItem: vi.fn(), google: vi.fn(), calendar: vi.fn(), calMode: vi.fn(), setCalMode: vi.fn(),
 }))
 
 vi.mock('../../data/booking.js', async () => {
@@ -48,8 +48,25 @@ vi.mock('../../data/lists.js', async () => {
     materializeItem: async (listId, item) => item.itemId ?? mocks.ensureItem(listId, item.source.kind, item.source.id),
   }
 })
+vi.mock('../../data/google.js', async () => {
+  const { useQuery } = await import('@tanstack/react-query')
+  return { useGoogleStatus: () => useQuery({ queryKey: ['google', 'status'], queryFn: () => mocks.google() }) }
+})
+vi.mock('../../data/calendarSync.js', async () => {
+  const { useQuery, useMutation, useQueryClient } = await import('@tanstack/react-query')
+  return {
+    hasActiveSync: () => false,
+    useCalendarSyncOverview: (id) => useQuery({ queryKey: ['node', id, 'calendarSync'], queryFn: async () => (await mocks.calendar(id)) ?? null }),
+    useCalendarSyncMode: () => useQuery({ queryKey: ['calendarSync', 'mode'], queryFn: async () => (await mocks.calMode()) ?? null }),
+    useCalendarSyncModeMutation: () => {
+      const qc = useQueryClient()
+      return useMutation({ mutationFn: (mode) => mocks.setCalMode(mode), onSuccess: () => qc.invalidateQueries({ queryKey: ['calendarSync'] }) })
+    },
+  }
+})
 vi.mock('../../data/storage.js', () => ({ publicImageUrl: (p) => (p ? `http://img/${p}` : ''), publicThumbUrl: (p) => (p ? `http://img/t/${p}` : ''), uploadImage: vi.fn() }))
 
+const googleFallback = () => ({ mine: null, system: { email: 'startups@athareg.com', status: 'active' }, effective: { source: 'system', email: 'startups@athareg.com', fallback: true, reason: 'user_not_connected' }, is_super_admin: false })
 const auth = { user: { id: 'u1', email: 'pm@x.io' }, profile: { full_name: 'Mona PM' }, roles: ['project_manager'], status: 'authed', hasRole: () => false, can: () => true }
 const anon = { user: null, profile: null, roles: [], status: 'anon', hasRole: () => false, can: () => false }
 const node = { id: 'B', project_id: 'P', type: 'booking', type_version: 1, name_en: 'Mentor sessions', name_ar: 'جلسات', visibility: 'public', show_to_participants: false, config: {}, rev: 1 }
@@ -80,11 +97,11 @@ const pagePayload = (over = {}) => ({
   ...over,
 })
 
-function mount(mode, over = {}) {
+function mount(mode, over = {}, lang = 'en') {
   const adapter = createMemoryAdapter({ nodes: [{ ...node, ...over }], edges: graph.edges })
   renderWithProviders(
     <AuthContext.Provider value={auth}><ConfirmProvider><NodeHost mode={mode} node={{ ...node, ...over }} graph={graph} projectId="P" adapter={adapter} /></ConfirmProvider></AuthContext.Provider>,
-    { route: '/projects/P/nodes/B?lang=en' },
+    { route: `/projects/P/nodes/B?lang=${lang}` },
   )
   return adapter
 }
@@ -99,7 +116,12 @@ async function mountPublic(route, authValue = anon) {
 beforeEach(() => {
   vi.clearAllMocks()
   mocks.admin.mockImplementation(async () => adminData())
+  mocks.google.mockImplementation(async () => googleFallback())
   mocks.extras.mockImplementation(async () => extrasData())
+  mocks.calendar.mockResolvedValue(null)
+  mocks.calMode.mockResolvedValue({ mode: 'shadow', can_set: false, last_run_at: null })
+  mocks.setCalMode.mockResolvedValue({ mode: 'live', previous: 'shadow', in_flight: 0 })
+  mocks.retry.mockResolvedValue(1)
   mocks.link.mockResolvedValue({ linkId: 'l1', slug: 'bk1', enabled: true })
   mocks.listItems.mockImplementation(async () => listRows())
   mocks.ensureItem.mockResolvedValue('li2')
@@ -209,6 +231,180 @@ describe('Booking node', () => {
     await waitFor(() => expect(mocks.restore).toHaveBeenCalledWith('b1'))
   })
 
+  // ---- m63: the calendar sync state of every booking, in the words of the PM
+  const ENTRY = (id, state, over = {}) => ({ booking_id: id, state, code: null, job: null, event_id: null, migrated: false, synced_at: null, calendar_email: null, plan: null, ...over })
+  const overview = (entries, over = {}) => ({ mode: 'live', can_set_mode: false, last_run_at: '2026-10-15T10:00:00Z', now: '2026-10-15T10:01:00Z', bookings: entries, ...over })
+  const manyBookings = (ids) => ids.map((id, i) => ({ id, slot_id: 's1', status: 'confirmed', booker_email: `f${i}@x.io`, booker_name: `Booker ${i}`, booker_company_name: `Co ${i}`, meet_link: id === 'b-synced' ? 'https://meet.google.com/abc-defg-hij' : null, legacy_calendar_event_id: null, lang: 'en', created_at: `2026-10-0${i + 1}T10:00:00Z` }))
+  const rowOf = (rows, name) => rows.find((r) => within(r).queryByText(name))
+
+  it('Edit / Bookings (m63): every sync state in words - synced (open in Google Calendar), migrated, queued, syncing, retrying, shadow + plan, off, needs a connection, failed', async () => {
+    const ids = ['b-synced', 'b-migrated', 'b-pending', 'b-syncing', 'b-retrying', 'b-shadow', 'b-off', 'b-needs', 'b-failed', 'b-past', 'b-none']
+    mocks.admin.mockImplementation(async () => ({ ...adminData(), bookings: manyBookings(ids) }))
+    mocks.calendar.mockResolvedValue(overview([
+      ENTRY('b-synced', 'synced', { event_id: 'e0e0e0', calendar_email: 'pm@athareg.com', job: { id: 'j', kind: 'calendar_create', status: 'done', attempts: 1, html_link: null } }),
+      ENTRY('b-migrated', 'migrated', { event_id: '8vp3k0jsl1d2m4n5o6q7r8s9t0', calendar_email: 'startups@athareg.com', migrated: true }),
+      ENTRY('b-pending', 'pending', { job: { id: 'j', kind: 'calendar_create', status: 'pending', attempts: 0 } }),
+      ENTRY('b-syncing', 'syncing', { job: { id: 'j', kind: 'calendar_create', status: 'processing', attempts: 1 } }),
+      ENTRY('b-retrying', 'retrying', { code: 'rate_limited:429', job: { id: 'j', kind: 'calendar_create', status: 'failed', attempts: 2, next_attempt_at: '2026-10-15T10:05:00Z' } }),
+      ENTRY('b-shadow', 'shadow', { plan: { action: 'create', kind: 'calendar_create', calendar: 'pm@athareg.com', event: { summary: 'Mentor Session: Co 5 with Mentor One', start: '2027-03-10T10:00:00+02:00', timeZone: 'Africa/Cairo', attendee_count: 2, attendees: ['a@x.io', 'b@x.io'], meet: 'unique' } } }),
+      ENTRY('b-off', 'off'),
+      ENTRY('b-needs', 'needs_connection', { code: 'needs_reconnect', job: { id: 'j', kind: 'calendar_create', status: 'pending', attempts: 0 } }),
+      ENTRY('b-failed', 'failed', { code: 'shared_link_required', job: { id: 'j', kind: 'calendar_create', status: 'dead', attempts: 1 } }),
+      ENTRY('b-past', 'past'),
+      ENTRY('b-none', 'none'),
+    ]))
+    const user = userEvent.setup()
+    mount('edit')
+    await screen.findAllByTestId('provider-row')
+    await user.click(screen.getByTestId('tab-bookings'))
+    const rows = await screen.findAllByTestId('booking-row')
+    expect(rows).toHaveLength(ids.length)
+    const cell = (name) => within(rowOf(rows, name)).getByTestId('sync-cell')
+    const badge = (name) => within(cell(name)).getByTestId('sync-badge')
+    expect(badge('Booker 0')).toHaveTextContent('Synced')
+    expect(within(cell('Booker 0')).getByTestId('sync-calendar')).toHaveTextContent('pm@athareg.com')
+    const open = within(cell('Booker 0')).getByTestId('sync-open-calendar')
+    expect(open.getAttribute('href')).toMatch(/^https:\/\/calendar\.google\.com\/calendar\/event\?eid=/)
+    expect(decodeURIComponent(open.getAttribute('href').split('eid=')[1])).not.toContain('=')
+    expect(within(cell('Booker 0')).getByTestId('sync-meet')).toHaveAttribute('href', 'https://meet.google.com/abc-defg-hij')
+    expect(badge('Booker 1')).toHaveTextContent('Synced (migrated)')
+    expect(within(cell('Booker 1')).getByTestId('sync-calendar')).toHaveTextContent('startups@athareg.com')
+    expect(badge('Booker 2')).toHaveTextContent('Queued')
+    expect(badge('Booker 3')).toHaveTextContent('Syncing')
+    expect(badge('Booker 4')).toHaveTextContent('Retrying')
+    expect(within(cell('Booker 4')).getByTestId('sync-attempt')).toHaveTextContent('Attempt 2 of 6')
+    expect(within(cell('Booker 4')).getByTestId('sync-problem')).toHaveTextContent('Google is limiting requests right now')
+    expect(within(cell('Booker 4')).getByTestId('sync-retry')).toHaveTextContent('Retry now')
+    expect(badge('Booker 5')).toHaveTextContent('Shadow (not sent to Google)')
+    const plan = within(cell('Booker 5')).getByTestId('sync-plan')
+    expect(within(plan).getByTestId('sync-plan-action')).toHaveTextContent('Create the event')
+    expect(plan).toHaveTextContent('Mentor Session: Co 5 with Mentor One')
+    expect(plan).toHaveTextContent('Guests (2)')
+    expect(plan).toHaveTextContent('A new Meet link is created with the event')
+    expect(plan).toHaveTextContent('pm@athareg.com')
+    expect(badge('Booker 6')).toHaveTextContent('Sync is off')
+    expect(badge('Booker 7')).toHaveTextContent('Needs a Google connection')
+    expect(within(cell('Booker 7')).getByTestId('sync-problem')).toHaveTextContent('must be connected again')
+    expect(within(cell('Booker 7')).getByTestId('sync-connect')).toHaveAttribute('href', '/profile')
+    expect(badge('Booker 8')).toHaveTextContent('Sync failed')
+    expect(within(cell('Booker 8')).getByTestId('sync-problem')).toHaveTextContent('Shared Meet mode needs a link')
+    expect(badge('Booker 9')).toHaveTextContent('Not synced (session over)')
+    expect(badge('Booker 10')).toHaveTextContent('Not synced')
+    // Retry on the failed one calls the RPC for THAT booking; the booking e-mail column and the other actions are untouched
+    await user.click(within(cell('Booker 8')).getByTestId('sync-retry'))
+    await waitFor(() => expect(mocks.retry).toHaveBeenCalledWith('b-failed'))
+    expect(await screen.findByText('Sync queued again.')).toBeInTheDocument()
+    expect(within(cell('Booker 0')).queryByTestId('sync-retry')).toBeNull() // a synced booking has no Retry
+  })
+
+  it('Edit / Bookings (m63): shadow mode says nothing is sent to Google yet (and a worker that ran a minute ago is not called silent)', async () => {
+    mocks.admin.mockImplementation(async () => ({ ...adminData(), bookings: manyBookings(['b-a']) }))
+    mocks.calendar.mockResolvedValue(overview([ENTRY('b-a', 'shadow')], { mode: 'shadow' }))
+    const user = userEvent.setup()
+    const first = mount('edit')
+    void first
+    await screen.findAllByTestId('provider-row')
+    await user.click(screen.getByTestId('tab-bookings'))
+    expect(await screen.findByTestId('sync-banner-shadow')).toHaveTextContent('Shadow mode: the new sync only PLANS')
+    expect(screen.queryByTestId('sync-banner-stale')).toBeNull() // the worker ran a minute ago
+  })
+
+  it('Edit / Bookings (m63): live with waiting jobs and a worker silent for 20 minutes is called out', async () => {
+    mocks.admin.mockImplementation(async () => ({ ...adminData(), bookings: manyBookings(['b-a']) }))
+    mocks.calendar.mockResolvedValue(overview([ENTRY('b-a', 'pending')], { mode: 'live', last_run_at: '2026-10-15T09:41:00Z' }))
+    const user = userEvent.setup()
+    mount('edit')
+    await screen.findAllByTestId('provider-row')
+    await user.click(screen.getByTestId('tab-bookings'))
+    expect(await screen.findByTestId('sync-banner-stale')).toHaveTextContent('has not run for 20 minutes')
+  })
+
+  it('Edit / Bookings (m63): a worker that never reported a run is called out', async () => {
+    mocks.admin.mockImplementation(async () => ({ ...adminData(), bookings: manyBookings(['b-a']) }))
+    mocks.calendar.mockResolvedValue(overview([ENTRY('b-a', 'pending')], { mode: 'live', last_run_at: null }))
+    const user = userEvent.setup()
+    mount('edit')
+    await screen.findAllByTestId('provider-row')
+    await user.click(screen.getByTestId('tab-bookings'))
+    expect(await screen.findByTestId('sync-banner-stale')).toHaveTextContent('has not reported a run yet')
+  })
+
+  it('Edit / Bookings (m63): mode off explains why nothing reaches Google', async () => {
+    mocks.admin.mockImplementation(async () => ({ ...adminData(), bookings: manyBookings(['b-a']) }))
+    mocks.calendar.mockResolvedValue(overview([ENTRY('b-a', 'off')], { mode: 'off' }))
+    const user = userEvent.setup()
+    mount('edit')
+    await screen.findAllByTestId('provider-row')
+    await user.click(screen.getByTestId('tab-bookings'))
+    expect(await screen.findByTestId('sync-banner-off')).toHaveTextContent('Calendar sync is switched off')
+    expect(screen.queryByTestId('sync-banner-shadow')).toBeNull()
+  })
+
+  it('Edit / Bookings (m63, Arabic): the states and the problems read in Arabic, the retry control keeps its 44 px height class', async () => {
+    mocks.admin.mockImplementation(async () => ({ ...adminData(), bookings: manyBookings(['b-a', 'b-b']) }))
+    mocks.calendar.mockResolvedValue(overview([ENTRY('b-a', 'failed', { code: 'invalid_timezone', job: { id: 'j', kind: 'calendar_create', status: 'dead', attempts: 1 } }), ENTRY('b-b', 'migrated', { migrated: true, event_id: 'abc12', calendar_email: 'startups@athareg.com' })], { mode: 'live' }))
+    const user = userEvent.setup()
+    mount('edit', {}, 'ar')
+    await screen.findAllByTestId('provider-row')
+    await user.click(screen.getByTestId('tab-bookings'))
+    const rows = await screen.findAllByTestId('booking-row')
+    const a = within(rows[0]).getByTestId('sync-cell')
+    expect(within(a).getByTestId('sync-badge')).toHaveTextContent('فشلت المزامنة')
+    expect(within(a).getByTestId('sync-problem')).toHaveTextContent('المنطقة الزمنية للمشروع ليست منطقة صالحة')
+    expect(within(a).getByTestId('sync-retry').className).toContain('min-h-11')
+    expect(within(within(rows[1]).getByTestId('sync-cell')).getByTestId('sync-badge')).toHaveTextContent('متزامن (مرحّل)')
+    expect(within(within(rows[1]).getByTestId('sync-cell')).getByTestId('sync-open-calendar')).toHaveTextContent('فتح في Google Calendar')
+  })
+
+  it('Settings (m63): a project manager SEES the calendar sync mode and when the worker ran, but cannot change it', async () => {
+    mocks.calMode.mockResolvedValue({ mode: 'shadow', can_set: false, last_run_at: new Date(Date.now() - 3 * 60_000).toISOString() })
+    mount('settings')
+    const card = await screen.findByTestId('sync-mode')
+    expect(within(card).getByTestId('sync-mode-badge')).toHaveTextContent('Shadow')
+    expect(within(card).getByTestId('sync-mode-help')).toHaveTextContent('plans every pending job')
+    expect(within(card).getByTestId('sync-mode-lastrun')).toHaveTextContent(/The worker last ran/)
+    expect(within(card).getByTestId('sync-mode-readonly')).toHaveTextContent('Only a super admin can change the mode.')
+    expect(within(card).queryByTestId('sync-mode-switch')).toBeNull()
+  })
+
+  it('Settings (m63): the super admin switches the mode; going LIVE asks first (and says the Apps Script poller must be off), the others apply at once', async () => {
+    mocks.calMode.mockResolvedValue({ mode: 'shadow', can_set: true, last_run_at: null })
+    const user = userEvent.setup()
+    mount('settings')
+    const card = await screen.findByTestId('sync-mode')
+    expect(within(card).getByTestId('sync-mode-lastrun')).toHaveTextContent('has not reported a run yet')
+    const apply = within(card).getByTestId('sync-mode-apply')
+    expect(apply).toBeDisabled() // nothing picked yet
+    await user.click(within(card).getByTestId('sync-mode-live'))
+    await user.click(apply)
+    const dlg = await screen.findByRole('dialog')
+    expect(dlg).toHaveTextContent('Switch the calendar sync to LIVE?')
+    expect(dlg).toHaveTextContent('Apps Script poller')
+    await user.click(within(dlg).getByRole('button', { name: 'Cancel' }))
+    expect(mocks.setCalMode).not.toHaveBeenCalled()
+    await user.click(apply)
+    await user.click(within(await screen.findByRole('dialog')).getByRole('button', { name: 'Confirm' }))
+    await waitFor(() => expect(mocks.setCalMode).toHaveBeenCalledWith('live'))
+    expect(await screen.findByText('Calendar sync mode: Live.')).toBeInTheDocument()
+    // off needs no confirmation
+    await user.click(within(card).getByTestId('sync-mode-off'))
+    await user.click(within(card).getByTestId('sync-mode-apply'))
+    await waitFor(() => expect(mocks.setCalMode).toHaveBeenCalledWith('off'))
+    expect(screen.queryByRole('dialog')).toBeNull()
+  })
+
+  it('Settings (m63): going live while jobs are being processed warns with the count the database reported', async () => {
+    mocks.calMode.mockResolvedValue({ mode: 'shadow', can_set: true, last_run_at: null })
+    mocks.setCalMode.mockResolvedValue({ mode: 'live', previous: 'shadow', in_flight: 3 })
+    const user = userEvent.setup()
+    mount('settings')
+    const card = await screen.findByTestId('sync-mode')
+    await user.click(within(card).getByTestId('sync-mode-live'))
+    await user.click(within(card).getByTestId('sync-mode-apply'))
+    await user.click(within(await screen.findByRole('dialog')).getByRole('button', { name: 'Confirm' }))
+    expect(await screen.findByText(/3 calendar jobs are being processed right now/)).toBeInTheDocument()
+  })
+
   it('Settings: ONE save carries name + visibility + config + children.settings; shared mode without a link is blocked inline', async () => {
     const user = userEvent.setup()
     const adapter = mount('settings')
@@ -228,6 +424,35 @@ describe('Booking node', () => {
     expect(saved.children.settings).toMatchObject({ mode: 'interview', meeting_link_mode: 'shared', shared_meet_link: 'https://meet.google.com/abc-defg-hij', organizer_connection_id: null, default_advance_notice_min: 1440 })
     expect(saved.config.emails.booking_confirmation.subject).toContain('{{provider_name}}')
     expect(screen.getByTestId('settings-connection')).toHaveValue('')
+  })
+
+  it('Settings shows the REAL Google state of the acting user in the Calendar and E-mails sections (no more placeholder)', async () => {
+    mount('settings')
+    const calendar = await screen.findByTestId('settings-calendar')
+    expect(await within(calendar).findByTestId('sender-notice')).toHaveAttribute('data-kind', 'fallback')
+    expect(within(calendar).getByTestId('sender-notice')).toHaveTextContent('You have not connected Google: calendar events are created in the system calendar (')
+    expect(within(calendar).getByRole('link', { name: 'Connect Google in your profile' })).toHaveAttribute('href', '/profile')
+    const emails = screen.getByTestId('settings-emails')
+    expect(within(emails).getByTestId('sender-notice')).toHaveAttribute('data-kind', 'fallback')
+  })
+
+  it('Settings: connected, needs-reconnect and nobody-can-send states of the acting user', async () => {
+    mocks.google.mockImplementation(async () => ({ mine: { status: 'active', email: 'pm@athareg.com', scopes_ok: true }, system: null, effective: { source: 'user', email: 'pm@athareg.com', fallback: false, reason: null }, is_super_admin: false }))
+    const first = mount('settings')
+    void first
+    const calendar = await screen.findByTestId('settings-calendar')
+    expect(await within(calendar).findByTestId('sender-notice')).toHaveAttribute('data-kind', 'mine')
+    expect(within(calendar).getByTestId('sender-notice')).toHaveTextContent('pm@athareg.com')
+    expect(within(calendar).getByRole('link', { name: 'Google settings' })).toHaveAttribute('href', '/profile')
+  })
+
+  it('Settings: a stopped connection with no system sender says the e-mails wait in the outbox', async () => {
+    mocks.google.mockImplementation(async () => ({ mine: { status: 'needs_reconnect', email: 'pm@athareg.com' }, system: null, effective: { source: null, email: null, fallback: false, reason: 'user_needs_reconnect_no_system' }, is_super_admin: false }))
+    mount('settings')
+    const emails = await screen.findByTestId('settings-emails')
+    expect(await within(emails).findByTestId('sender-notice')).toHaveAttribute('data-kind', 'noneReconnect')
+    expect(within(emails).getByTestId('sender-notice')).toHaveTextContent('e-mails wait in the outbox')
+    expect(within(emails).getByRole('link', { name: 'Reconnect Google in your profile' })).toBeInTheDocument()
   })
 
   it('View: the PM preview renders the public page through the same component with booking disabled', async () => {

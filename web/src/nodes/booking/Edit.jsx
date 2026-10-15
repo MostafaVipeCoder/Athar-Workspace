@@ -9,6 +9,7 @@ import { useLanguage } from '../../i18n/LanguageProvider.jsx'
 import { useToast } from '../../ui/Toast.jsx'
 import { ErrorState, Loading } from '../../ui/States.jsx'
 import { useBookingAdmin, useBookingExtras, useBookingMutations } from '../../data/booking.js'
+import { useCalendarSyncOverview } from '../../data/calendarSync.js'
 import { resolveTimeZone } from '../../lib/time/tz.js'
 import { cn } from '../../lib/cn.js'
 import { mergeProviders, normalizeBookingConfig } from './bookingConfig.js'
@@ -32,6 +33,7 @@ export default function BookingEdit() {
   const qc = useQueryClient()
   const admin = useBookingAdmin(node.id)
   const extras = useBookingExtras(node.id)
+  const calendar = useCalendarSyncOverview(node.id)
   const providersIn = useInputPort('mentors')
   const scheduleIn = useInputPort('schedule')
   const onChanged = () => invalidateNodeOutputs(qc, graph, node.id, projectId)
@@ -77,7 +79,7 @@ export default function BookingEdit() {
             <SlotsTab rows={rows} slots={admin.data.slots} bookings={admin.data.bookings} schedule={scheduleIn} config={config} tz={tz} mutations={m} run={run} />
           </div>
           <div className={cn(tab !== 'bookings' && 'hidden')}>
-            <BookingsTab node={node} rows={rows} slots={admin.data.slots} bookings={admin.data.bookings} extras={extras.data} loadingExtras={extras.isPending} settings={settings} tz={tz} mutations={m} run={run} />
+            <BookingsTab node={node} rows={rows} slots={admin.data.slots} bookings={admin.data.bookings} extras={extras.data} loadingExtras={extras.isPending} calendar={calendar.data ?? null} settings={settings} tz={tz} mutations={m} run={run} />
           </div>
         </>
       )}

@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react'
-import { CalendarClock, Download, ExternalLink, RefreshCw, XCircle } from 'lucide-react'
+import { CalendarClock, Download, XCircle } from 'lucide-react'
 import { Badge } from '../../ui/Badge.jsx'
 import { Button } from '../../ui/Button.jsx'
 import { Modal } from '../../ui/Modal.jsx'
@@ -12,19 +12,22 @@ import { WithdrawnChip } from '../../shared/entities/WithdrawnChip.jsx'
 import { exportRows } from '../../lib/export/xlsx.js'
 import { formatDateTime, formatTime } from '../../lib/time/format.js'
 import { cn } from '../../lib/cn.js'
-import { bookingColumns, confirmedBySlot, emailIndex, providerName, slotState, syncState } from './bookingConfig.js'
+import { bookingColumns, confirmedBySlot, emailIndex, overviewIndex, providerName, slotState, syncState } from './bookingConfig.js'
+import SyncCell from './SyncCell.jsx'
+import { NodeOutboxSummary } from '../../shared/outbox/NodeOutboxSummary.jsx'
+import { OutboxStateBadge } from '../../shared/outbox/OutboxStateBadge.jsx'
+import { useOutbox } from '../../data/outbox.js'
 
-const SYNC_TONE = { synced: 'green', legacy: 'green', pending: 'blue', waiting_connection: 'amber', processing: 'blue', failed: 'red', dead: 'red', cancelled: 'neutral', none: 'outline' }
-const EMAIL_TONE = { queued: 'blue', sending: 'blue', sent: 'green', failed: 'red', dead: 'red', cancelled: 'neutral', needs_review: 'amber' }
 const FILTERS = ['upcoming', 'past', 'cancelled', 'all']
 
 /**
- * Bookings of the node with the slot they hold, the calendar/Meet sync state from `integration_jobs` (design 07 section
- * 2.2: pending / waiting for a Google connection / synced / failed + retry), the outbox state of the confirmation and
+ * Bookings of the node with the slot they hold, the calendar/Meet sync state (m63 `calendar` overview: pending / syncing / retrying / synced /
+ * migrated / shadow / off / needs a Google connection / failed, with the problem in words, Retry and "Open in Google Calendar"; without the overview the
+ * state is derived from the queue rows like before), the outbox state of the confirmation and
  * cancellation e-mails, cancel (confirm + Undo = restore while the slot is free), reschedule (free slots of the same
  * provider), Meet link, Excel export. Interview mode also lists the invitations the Selection stage issued.
  */
-export default function BookingsTab({ node, rows, slots, bookings, extras, loadingExtras, settings, tz, mutations: m, run }) {
+export default function BookingsTab({ node, rows, slots, bookings, extras, loadingExtras, calendar = null, settings, tz, mutations: m, run }) {
   const { t, lang, pick } = useLanguage()
   const toast = useToast()
   const confirm = useConfirm()
@@ -33,6 +36,9 @@ export default function BookingsTab({ node, rows, slots, bookings, extras, loadi
   const slotById = useMemo(() => Object.fromEntries(slots.map((s) => [s.id, s])), [slots])
   const providerNames = useMemo(() => Object.fromEntries(rows.filter((r) => r.provider).map((r) => [r.provider.id, providerName(r, lang)])), [rows, lang])
   const emails = useMemo(() => emailIndex(extras?.emails ?? []), [extras])
+  // m62: the REAL delivery state of this node's e-mails from the Outbox (waiting, retrying, needs review...), refreshed while mail is on its way
+  const outbox = useOutbox(node.project_id, { nodeId: node.id, limit: 200 })
+  const liveById = useMemo(() => new Map((outbox.data?.rows ?? []).map((r) => [r.id, r])), [outbox.data])
   // m40: bookers (invited companies) the PM marked WITHDRAWN: their booking stays (nothing is cancelled automatically), flagged for the PM
   const withdrawnIds = useMemo(() => new Set((extras?.withdrawn_items ?? []).map((x) => x.id)), [extras])
   const bySlot = useMemo(() => confirmedBySlot(bookings), [bookings])
@@ -41,7 +47,8 @@ export default function BookingsTab({ node, rows, slots, bookings, extras, loadi
     const s = slotById[b.slot_id]
     return { ...b, starts_at: s?.starts_at ?? null, ends_at: s?.ends_at ?? null, provider_id: s?.provider_id ?? null, company: b.booker_company_name ?? '' }
   }), [bookings, slotById])
-  const sync = useMemo(() => Object.fromEntries(list.map((b) => [b.id, syncState(b, extras?.jobs ?? [], extras?.connections ?? [])])), [list, extras])
+  const syncIndex = useMemo(() => (calendar ? overviewIndex(calendar) : null), [calendar])
+  const sync = useMemo(() => Object.fromEntries(list.map((b) => [b.id, syncState(b, extras?.jobs ?? [], extras?.connections ?? [], syncIndex)])), [list, extras, syncIndex])
   const visible = list.filter((b) => {
     if (filter === 'cancelled') return b.status === 'cancelled'
     if (b.status === 'cancelled') return filter === 'all'
@@ -69,11 +76,21 @@ export default function BookingsTab({ node, rows, slots, bookings, extras, loadi
     toast.success(t('booking.bookings.exported', { count: n }))
   })
   const waiting = Object.values(sync).some((s) => s.key === 'waiting_connection')
+  // the worker's mode and heartbeat (server time): shadow / off explain why nothing reaches Google, a silent worker is called out
+  const mode = calendar?.mode ?? null
+  const waitingKeys = mode === 'live' ? ['pending', 'retrying'] : mode === 'shadow' ? ['shadow'] : []
+  const minutesSinceRun = calendar?.last_run_at && calendar?.now ? Math.max(0, Math.round((Date.parse(calendar.now) - Date.parse(calendar.last_run_at)) / 60000)) : null
+  const silent = waitingKeys.length > 0 && Object.values(sync).some((s) => waitingKeys.includes(s.key)) && (minutesSinceRun === null || minutesSinceRun > 5)
+  const retrying = (b) => m.retrySync.isPending && m.retrySync.variables?.bookingId === b.id
 
   return (
     <div className="space-y-3" data-testid="bookings-tab">
       <p className="text-xs text-muted-foreground">{t('booking.bookings.hint')}</p>
+      <NodeOutboxSummary projectId={node.project_id} nodeId={node.id} />
       {waiting && <p className="rounded-md bg-accent/40 p-2 text-xs" data-testid="waiting-connection">{t('booking.sync.waitingHint')}</p>}
+      {mode === 'shadow' && <p className="rounded-md bg-accent/40 p-2 text-xs" role="status" data-testid="sync-banner-shadow">{t('booking.sync.banner.shadow')}</p>}
+      {mode === 'off' && <p className="rounded-md bg-surface p-2 text-xs" role="status" data-testid="sync-banner-off">{t('booking.sync.banner.off')}</p>}
+      {silent && <p className="rounded-md bg-destructive/10 p-2 text-xs text-destructive-text" role="status" data-testid="sync-banner-stale">{minutesSinceRun === null ? t('booking.sync.banner.neverRun') : t('booking.sync.banner.stale', { minutes: minutesSinceRun })}</p>}
       <div className="flex flex-wrap items-center gap-1" role="tablist" aria-label={t('booking.col.status')}>
         {FILTERS.map((k) => (
           <button key={k} type="button" role="tab" aria-selected={filter === k} onClick={() => setFilter(k)} className={cn('tap-target rounded-md px-3 text-sm', filter === k ? 'bg-foreground text-background' : 'hover:bg-surface')} data-testid={`filter-${k}`}>
@@ -83,10 +100,10 @@ export default function BookingsTab({ node, rows, slots, bookings, extras, loadi
         <Button size="sm" variant="outline" className="ms-auto" onClick={exportXlsx} disabled={!visible.length}><Download className="h-4 w-4" aria-hidden="true" />{t('booking.bookings.export')}</Button>
       </div>
       {loadingExtras && <Loading />}
-      {!visible.length ? <EmptyState title={t('booking.bookings.empty')} /> : (
+      {!visible.length ? <EmptyState title={t(list.length ? `booking.bookings.empty.${filter}` : 'booking.bookings.empty')} body={list.length ? t('booking.bookings.emptyElsewhere', { count: list.length }) : undefined} /> : (
         <div className="overflow-x-auto rounded-input border border-border">
-          <table className="w-full text-sm">
-            <thead className="bg-surface text-xs font-semibold uppercase text-athar-ink">
+          <table className="w-full text-sm max-md:block">
+            <thead className="bg-surface text-xs font-semibold uppercase text-athar-ink max-md:hidden">
               <tr>
                 <th className="p-2 text-start">{t('booking.col.booker')}</th>
                 <th className="p-2 text-start">{t('booking.col.provider')}</th>
@@ -97,37 +114,32 @@ export default function BookingsTab({ node, rows, slots, bookings, extras, loadi
                 <th className="p-2"><span className="sr-only">{t('booking.col.actions')}</span></th>
               </tr>
             </thead>
-            <tbody>
+            <tbody className="max-md:block">
               {visible.map((b) => {
                 const st = sync[b.id]
                 const em = emails[b.id] ?? {}
                 return (
-                  <tr key={b.id} className="border-t align-top" data-testid="booking-row" data-status={b.status}>
-                    <td className="p-2">
+                  <tr key={b.id} className="border-t align-top max-md:mb-2 max-md:block max-md:rounded-input max-md:border" data-testid="booking-row" data-status={b.status}>
+                    <td className="p-2 max-md:flex max-md:gap-2 max-md:before:w-20 max-md:before:shrink-0 max-md:before:text-xs max-md:before:font-semibold max-md:before:text-athar-ink max-md:before:content-[attr(data-label)]" data-label={t('booking.col.booker')}>
                       <p className="font-medium" dir="auto">{b.booker_name || '-'}</p>
                       <p className="text-xs text-muted-foreground" dir="ltr">{b.booker_email}</p>
                       {b.company && <p className="text-xs" dir="auto">{b.company}</p>}
                       {b.booker_item_id && withdrawnIds.has(b.booker_item_id) && <WithdrawnChip data-testid="booker-withdrawn" />}
                     </td>
-                    <td className="p-2" dir="auto">{providerNames[b.provider_id] ?? '-'}</td>
-                    <td className="p-2 tabular-nums">{b.starts_at ? <>{formatDateTime(b.starts_at, { lang, tz })} - {formatTime(b.ends_at, { lang, tz })}</> : '-'}</td>
-                    <td className="p-2"><Badge tone={b.status === 'confirmed' ? 'green' : 'neutral'}>{t(`booking.status.${b.status}`)}</Badge></td>
-                    <td className="p-2">
-                      <div className="flex flex-wrap items-center gap-1">
-                        <Badge tone={SYNC_TONE[st.key]} data-testid="sync-badge">{t(`booking.sync.${st.key}`)}</Badge>
-                        {st.job?.error && <span className="text-xs text-destructive-text" title={st.job.error}>{st.job.error.slice(0, 60)}</span>}
-                        {(st.key === 'failed' || st.key === 'dead') && <Button size="sm" variant="ghost" onClick={() => retry(b)} aria-label={`${t('booking.bookings.retry')}: ${nameOf(b)}`}><RefreshCw className="h-4 w-4" aria-hidden="true" />{t('booking.bookings.retry')}</Button>}
-                        {b.meet_link && <a href={b.meet_link} target="_blank" rel="noopener noreferrer" className="tap-target inline-flex items-center gap-1 text-xs text-primary underline" dir="ltr"><ExternalLink className="h-3.5 w-3.5" aria-hidden="true" />{t('booking.bookings.openMeet')}</a>}
-                      </div>
+                    <td className="p-2 max-md:flex max-md:gap-2 max-md:before:w-20 max-md:before:shrink-0 max-md:before:text-xs max-md:before:font-semibold max-md:before:text-athar-ink max-md:before:content-[attr(data-label)]" dir="auto" data-label={t('booking.col.provider')}>{providerNames[b.provider_id] ?? '-'}</td>
+                    <td className="p-2 tabular-nums max-md:flex max-md:gap-2 max-md:before:w-20 max-md:before:shrink-0 max-md:before:text-xs max-md:before:font-semibold max-md:before:text-athar-ink max-md:before:content-[attr(data-label)]" data-label={t('booking.col.when')}>{b.starts_at ? <>{formatDateTime(b.starts_at, { lang, tz })} - {formatTime(b.ends_at, { lang, tz })}</> : '-'}</td>
+                    <td className="p-2 max-md:flex max-md:gap-2 max-md:before:w-20 max-md:before:shrink-0 max-md:before:text-xs max-md:before:font-semibold max-md:before:text-athar-ink max-md:before:content-[attr(data-label)]" data-label={t('booking.col.status')}><Badge tone={b.status === 'confirmed' ? 'green' : 'neutral'}>{t(`booking.status.${b.status}`)}</Badge></td>
+                    <td className="p-2 max-md:flex max-md:gap-2 max-md:before:w-20 max-md:before:shrink-0 max-md:before:text-xs max-md:before:font-semibold max-md:before:text-athar-ink max-md:before:content-[attr(data-label)]" data-label={t('booking.col.sync')}>
+                      <SyncCell booking={b} state={st} tz={tz} onRetry={retry} retrying={retrying(b)} nameOf={nameOf} />
                     </td>
-                    <td className="p-2">
+                    <td className="p-2 max-md:flex max-md:gap-2 max-md:before:w-20 max-md:before:shrink-0 max-md:before:text-xs max-md:before:font-semibold max-md:before:text-athar-ink max-md:before:content-[attr(data-label)]" data-label={t('booking.col.emails')}>
                       <div className="flex flex-wrap gap-1">
                         {Object.keys(em).length === 0 ? <span className="text-xs text-muted-foreground">{t('booking.bookings.noEmails')}</span> : Object.entries(em).map(([k, v]) => (
-                          <Badge key={k} tone={EMAIL_TONE[v.last?.status] ?? 'neutral'}>{t(`booking.email.${k}`)} · {t(`booking.emailStatus.${v.last?.status}`)}{v.count > 1 ? ` ×${v.count}` : ''}</Badge>
+                          <OutboxStateBadge key={k} row={liveById.get(v.last?.id) ?? v.last} prefix={t(`booking.email.${k}`)} suffix={v.count > 1 ? `×${v.count}` : null} title={liveById.get(v.last?.id)?.blocked_reason ? t(`outbox.blocked.${liveById.get(v.last.id).blocked_reason}`) : undefined} />
                         ))}
                       </div>
                     </td>
-                    <td className="p-2">
+                    <td className="p-2 max-md:block">
                       {b.status === 'confirmed' && (
                         <div className="flex flex-wrap justify-end gap-1">
                           <Button size="sm" variant="ghost" onClick={() => setMoving(b)} aria-label={`${t('booking.bookings.reschedule')}: ${nameOf(b)}`}><CalendarClock className="h-4 w-4" aria-hidden="true" />{t('booking.bookings.reschedule')}</Button>

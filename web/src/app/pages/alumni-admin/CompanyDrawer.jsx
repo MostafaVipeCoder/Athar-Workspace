@@ -1,40 +1,87 @@
+import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import { ExternalLink } from 'lucide-react'
-import { useAlumniCompany } from '../../../data/alumni.js'
+import { useAlumniCompany, useAlumniStamps } from '../../../data/alumni.js'
 import { useLanguage } from '../../../i18n/LanguageProvider.jsx'
 import { Modal } from '../../../ui/Modal.jsx'
 import { Badge } from '../../../ui/Badge.jsx'
 import { buttonClass } from '../../../ui/buttonStyles.js'
-import { Query, FactRow } from './ui.jsx'
+import { useConfirm } from '../../../ui/ConfirmDialog.jsx'
+import MetricsTable from '../../../shared/alumni/MetricsTable.jsx'
+import StampLine from '../../../shared/alumni/StampLine.jsx'
+import { Query, FactRow, Segmented } from './ui.jsx'
 import ManagerFields from './ManagerFields.jsx'
+import CompanyAdminTeam from './CompanyAdminTeam.jsx'
+import CompanyProfileForm from './CompanyProfileForm.jsx'
+import HistoryPanel from './HistoryPanel.jsx'
 import RevealId from './RevealId.jsx'
+import { useCompanyActions } from './useCompanyActions.js'
 import { reviewState } from './columns.js'
 import { useAdminFormat, useLabels } from './hooks.js'
 import './i18n.common.js'
 import './directory.i18n.js'
+import './company.i18n.js'
+import './company.edit.i18n.js'
+import '../../../shared/alumni/i18n.js'
+import '../../../shared/alumni/i18n.company.js'
+import '../../../shared/alumni/i18n.edit.js'
+
+const TABS = ['overview', 'edit', 'team', 'figures', 'history']
 
 /**
- * The company drawer of the directory (M2 / M3 summary): what a manager needs without leaving the list. The MANAGER-OWNED fields are editable here (alumni mark, the private
- * hint, the directory veto, the review stamp); the profile itself is edited on the full page. Program participation, the founders' derived values and the counts are read-only:
- * they are derived by the database (the CEO's age / gender / governorate come from the national ID). IDs are masked with an audited reveal.
+ * The company drawer of the directory (M2 / M3): what a manager needs without leaving the list, now with EVERY field editable (owner decision 20.3): an overview with the manager-owned
+ * fields (alumni mark, private hint, directory veto, review stamp), the full profile form, the team (every founder, national ID, bio), the yearly figures and the history of the company.
+ * Program participation, the founders' derived values and the counts are read-only: they are derived by the database (the CEO's age / gender / governorate come from the national ID).
+ * IDs are masked with an audited reveal. Closing the drawer with unsaved edits asks first.
  */
 export default function CompanyDrawer({ row, onClose }) {
   const { t, pick } = useLanguage()
   const d = (k, v) => t(`alumni.admin.dir.${k}`, v)
+  const co = (k, v) => t(`alumni.admin.co.${k}`, v)
+  const confirm = useConfirm()
   const q = useAlumniCompany(row?.id)
+  const [tab, setTab] = useState('overview')
+  const [dirty, setDirty] = useState(false)
   const name = row ? pick(row, 'name') : ''
 
+  async function close() {
+    if (dirty && !(await confirm({ title: t('alumni.common.leaveTitle'), message: t('alumni.common.leaveBody'), confirmLabel: t('alumni.common.leave'), cancelLabel: t('alumni.common.stay'), destructive: true }))) return
+    setDirty(false)
+    onClose()
+  }
+
   return (
-    <Modal open={Boolean(row)} onClose={onClose} side title={name || d('drawerTitle')} description={d('drawerTitle')} closeLabel={d('drawerClose')} footer={
+    <Modal open={Boolean(row)} onClose={close} side className="sm:max-w-3xl" title={name || d('drawerTitle')} description={d('drawerTitle')} closeLabel={d('drawerClose')} footer={
       row ? <Link to={`/alumni/admin/company/${row.id}`} className={buttonClass({ variant: 'primary', size: 'md' })}><ExternalLink className="h-4 w-4" aria-hidden="true" />{d('openFullPage')}</Link> : null
     }>
       {row && (
-        <Query query={q} skeleton="h-64 w-full">
-          {(data) => <DrawerBody data={data} />}
-        </Query>
+        <div className="space-y-4">
+          <Segmented label={d('drawerTitle')} value={tab} onChange={setTab} options={TABS.map((x) => ({ value: x, label: co(`drawerTab${x[0].toUpperCase()}${x.slice(1)}`) }))} />
+          <Query query={q} skeleton="h-64 w-full">
+            {(data) => (
+              tab === 'overview' ? <DrawerBody data={data} />
+                : tab === 'edit' ? <div className="space-y-3"><p className="text-sm text-muted-foreground">{co('drawerEditHint')}</p><CompanyProfileForm key={data.company.id} payload={data} embedded onDirtyChange={setDirty} /></div>
+                : tab === 'team' ? <DrawerTeam data={data} />
+                : tab === 'figures' ? <DrawerFigures data={data} />
+                : <HistoryPanel companyId={data.company.id} />
+            )}
+          </Query>
+        </div>
       )}
     </Modal>
   )
+}
+
+function DrawerTeam({ data }) {
+  const actions = useCompanyActions(data)
+  const stamps = useAlumniStamps(data.company.id)
+  return <CompanyAdminTeam companyId={data.company.id} team={data.team} counts={data.counts} ceoFounderId={data.ceo_founder_id} onChanged={actions.refresh} founderStamps={stamps.data?.founders ?? []} />
+}
+
+function DrawerFigures({ data }) {
+  const actions = useCompanyActions(data)
+  const stamps = useAlumniStamps(data.company.id)
+  return <MetricsTable snapshots={data.snapshots} onSave={actions.saveYear} onDelete={actions.deleteYear} onReload={actions.reloadYear} onReview={actions.reviewYear} audience="manager" yearStamps={stamps.data?.years ?? []} />
 }
 
 function DrawerBody({ data }) {
@@ -55,6 +102,7 @@ function DrawerBody({ data }) {
         <Badge tone={review === 'current' ? 'green' : review === 'changed' ? 'amber' : 'outline'}>{t(`alumni.admin.common.review.${review}`)}</Badge>
         <Badge tone="neutral">{d('drawer.visibilityShort')}: {labels.label('directory_visibility', c.directory_visibility)}</Badge>
       </div>
+      <StampLine audience="manager" stamp={c.updated_source ? { at: c.updated_at, source: c.updated_source } : null} />
 
       <section aria-labelledby="dr-manager" className="space-y-3 rounded-card border bg-surface/50 p-4">
         <h3 id="dr-manager" className="text-base font-bold">{d('drawer.manager')}</h3>
