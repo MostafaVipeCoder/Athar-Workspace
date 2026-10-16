@@ -67,6 +67,7 @@ export const KIND_PROFILE = Object.freeze({
   landing: 'landing',
   library: 'content',
   photo: 'avatar',
+  'expert-photo': 'avatar', // the Athar Network experts registry (global/expert-photo/, m75)
   avatar: 'avatar',
   logo: 'logo',
 })

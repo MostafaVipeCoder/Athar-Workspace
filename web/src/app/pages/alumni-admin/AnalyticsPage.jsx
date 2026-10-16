@@ -20,6 +20,7 @@ import { exportFilename, exportWorkbook } from './exportXlsx.js'
 import { useAdminErrorText, useAdminFormat, useLabels } from './hooks.js'
 import './i18n.common.js'
 import './analytics.i18n.js'
+import './quarters.i18n.js'
 
 const FILTER_KEYS = ['program_id', 'sector', 'stage', 'startup_type', 'legal_status', 'governorate', 'ceo_governorate', 'ceo_gender', 'age_category', 'education_status', 'operating_status']
 // the keys analyticsSheets asks for -> the dictionary keys of this page
@@ -93,6 +94,7 @@ export default function AnalyticsPage({ mode = 'analytics' }) {
             <Link key={k} to={to} aria-current={mode === k ? 'page' : undefined} className={cn('inline-flex min-h-11 items-center rounded-full px-4 text-sm font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring', mode === k ? 'bg-foreground text-background' : 'hover:bg-surface')}>{label}</Link>
           ))}
         </nav>
+        <Link to="/alumni/admin/performance" className="inline-flex min-h-11 items-center text-sm font-semibold text-primary hover:underline" data-testid="open-performance">{t('alumni.admin.qs.pf.title')}</Link>
         <select aria-label={d('year')} className={`${SELECT_CLASS} min-h-11 w-auto py-1`} value={state.year ?? ''} onChange={(e) => update({ year: e.target.value ? Number(e.target.value) : null })}>
           <option value="">{d('yearLatest')}{q.data && !state.year ? ` (${q.data.year})` : ''}</option>
           {yearOptions(q.data?.year).map((y) => <option key={y} value={y}>{d('year')}: {y}</option>)}

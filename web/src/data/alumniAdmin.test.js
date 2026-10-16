@@ -100,18 +100,6 @@ describe('other direct reads', () => {
     expect(or).toBe('name_en.ilike.*sa ra*,name_ar.ilike.*sa ra*,email.ilike.*sa ra*')
   })
 
-  it('the yearly rows of a page are one query for the page\'s companies; no ids = no call', async () => {
-    expect(await A.listSnapshotsForCompanies([], 2024)).toEqual([])
-    expect(mocks.from).not.toHaveBeenCalled()
-    const { api, calls } = builder()
-    mocks.from.mockReturnValue(api)
-    await A.listSnapshotsForCompanies(['c1', 'c2'], 2024)
-    expect(mocks.from).toHaveBeenCalledWith('company_snapshots')
-    expect(calls).toContainEqual(['in', 'company_id', ['c1', 'c2']])
-    expect(calls).toContainEqual(['eq', 'snapshot_type', 'annual'])
-    expect(calls).toContainEqual(['eq', 'period_year', 2024])
-  })
-
   it('the recipients of a broadcast are read by its id', async () => {
     const { api, calls } = builder()
     mocks.from.mockReturnValue(api)
@@ -123,7 +111,7 @@ describe('other direct reads', () => {
 
 describe('query keys', () => {
   it('live under [alumni, admin] so a shared save refreshes them, and never contain a national ID', () => {
-    for (const k of [A.adminKeys.programs(), A.adminKeys.table({ q: 'x' }), A.adminKeys.overview(), A.adminKeys.broadcasts({}), A.adminKeys.audience('k'), A.adminKeys.opportunities(), A.adminKeys.snapshots({ ids: ['c1'], year: 2024 })]) {
+    for (const k of [A.adminKeys.programs(), A.adminKeys.table({ q: 'x' }), A.adminKeys.overview(), A.adminKeys.broadcasts({}), A.adminKeys.audience('k'), A.adminKeys.opportunities()]) {
       expect(k.slice(0, 2)).toEqual(['alumni', 'admin'])
     }
   })

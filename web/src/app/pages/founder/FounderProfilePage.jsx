@@ -1,6 +1,6 @@
 import { useCallback, useMemo, useState } from 'react'
 import { Link, useLocation } from 'react-router-dom'
-import { Building2, Fingerprint, PartyPopper, Plus, UserRound } from 'lucide-react'
+import { Building2, Fingerprint, PartyPopper, Plus, RefreshCw, UserRound } from 'lucide-react'
 import { useAuth } from '../../AuthContext.js'
 import { alumniKeys, getMyAlumniProfile, saveCompanyTeamMember, saveMyFounderProfileStrict, useAlumniLookups, useMyAlumniProfile } from '../../../data/alumni.js'
 import { removeObjects, publicThumbUrl } from '../../../data/storage.js'
@@ -8,6 +8,7 @@ import { FOUNDER_BUCKET, uploadFounderPhoto, useFounderPhotoUrl } from '../../..
 import { useLanguage } from '../../../i18n/LanguageProvider.jsx'
 import { Badge } from '../../../ui/Badge.jsx'
 import { BilingualField } from '../../../ui/BilingualField.jsx'
+import { Button } from '../../../ui/Button.jsx'
 import { buttonClass } from '../../../ui/buttonStyles.js'
 import { EmptyState, ErrorState, Skeleton } from '../../../ui/States.jsx'
 import { Field } from '../../../ui/Field.jsx'
@@ -28,11 +29,14 @@ import { useDraftForm } from '../../../shared/alumni/useDraftForm.js'
 import { useAlumniErrorText } from '../../../shared/alumni/useAlumniErrorText.js'
 import { useAlumniRefresh } from '../../../shared/alumni/useAlumniRefresh.js'
 import { useLookupOptions } from '../../../shared/alumni/useLookupOptions.js'
+import StampLine from '../../../shared/alumni/StampLine.jsx'
+import { useStaleResolver } from '../../../shared/alumni/useStaleResolver.jsx'
 import SectionNav from './SectionNav.jsx'
 import './alumni.i18n.js'
 import './alumni.profile.i18n.js'
 import '../../../shared/alumni/i18n.js'
 import '../../../shared/alumni/i18n.id.js'
+import '../../../shared/alumni/i18n.edit.js'
 
 const roleKey = (companyId) => `role:${companyId}`
 const formOf = (profile) => ({ ...founderToForm(profile.founder), ...Object.fromEntries((profile.companies ?? []).map((c) => [roleKey(c.id), c.role ?? ''])) })
@@ -72,8 +76,11 @@ function ProfileForm({ profile }) {
   const [submitted, setSubmitted] = useState(false)
   const [serverErrors, setServerErrors] = useState({})
   const [conflict, setConflict] = useState(false)
+  const [stale, setStale] = useState(false)
   const [replaced, setReplaced] = useState([])
   const [busy, setBusy] = useState(false)
+  // somebody else (the Athar team) saved this profile while I was editing: load their version, keep my edits, ask only where we both changed the same field
+  const resolver = useStaleResolver({ form, toForm: formOf, versionOf, whoOf: (p) => p.founder.updated_source, audience: 'founder' })
 
   const patch = founderPatchOf(base, values)
   const roleChanges = roleChangesOf(companies, base, values)
@@ -96,10 +103,17 @@ function ProfileForm({ profile }) {
 
   function undo() {
     form.reset()
+    resolver.clearNotice()
     setServerErrors({})
     setConflict(false)
+    setStale(false)
     setReplaced([])
     setSubmitted(false)
+  }
+
+  async function loadLatest() {
+    const r = await resolver.resolve({ fetchFresh: () => fetchFresh(alumniKeys.me(), getMyAlumniProfile), keys: [...Object.keys(patch), ...roleChanges.map((c) => roleKey(c.id))] })
+    if (r !== 'failed') setStale(false)
   }
 
   async function save() {
@@ -115,7 +129,8 @@ function ProfileForm({ profile }) {
     try {
       let notice = []
       if (Object.keys(patch).length) {
-        const saved = await saveMyFounderProfileStrict(patch) // a national_id_conflict THROWS here (token national_id_conflict)
+        // the version of the profile the form loaded (the first part of the form version): a profile the Athar team changed meanwhile is refused (alumni_stale), never overwritten
+        const saved = await saveMyFounderProfileStrict(patch, String(form.version).split('|')[0]) // a national_id_conflict THROWS here (token national_id_conflict)
         notice = saved.replaced ?? []
       }
       for (const c of roleChanges) {
@@ -125,12 +140,15 @@ function ProfileForm({ profile }) {
       const fresh = await fetchFresh(alumniKeys.me(), getMyAlumniProfile)
       form.rebase(formOf(fresh), versionOf(fresh))
       setReplaced(notice)
+      resolver.clearNotice()
       toast.success(t('alumni.founder.saved'))
     } catch (err) {
       const parsed = parseAlumniError(err)
       if (err?.token === 'national_id_conflict') {
         setConflict(true)
         scrollToSection('national-id')
+      } else if (parsed.token === 'alumni_stale') {
+        setStale(true)
       } else {
         const fe = fieldErrorOf(parsed)
         if (fe) {
@@ -188,7 +206,17 @@ function ProfileForm({ profile }) {
 
       <SectionNav sections={sections} label={t('alumni.founder.nav.label')} />
 
-      <ProfileSection id="identity" icon={UserRound} title={t('alumni.founder.profile.identityTitle')} description={t('alumni.founder.profile.identityDesc')}>
+      {stale && (
+        <div role="alert" className="space-y-2 rounded-card border border-destructive/40 bg-destructive/5 p-4 text-sm" data-testid="stale-banner">
+          <p className="font-bold">{t('alumni.edit.conflict.banner')}</p>
+          <p>{t('alumni.edit.conflict.bannerBody')}</p>
+          <Button variant="outline" size="sm" onClick={loadLatest}><RefreshCw className="h-4 w-4" aria-hidden="true" />{t('alumni.edit.conflict.load')}</Button>
+        </div>
+      )}
+      {resolver.dialog}
+      {resolver.notice}
+
+      <ProfileSection id="identity" icon={UserRound} title={t('alumni.founder.profile.identityTitle')} description={t('alumni.founder.profile.identityDesc')} stamp={<StampLine stamp={founder.updated_source ? { at: founder.updated_at, source: founder.updated_source } : null} />}>
         <div className="max-w-[12rem]">
           <ImageField
             label={t('alumni.founder.photo')}
@@ -294,8 +322,13 @@ function ProfileForm({ profile }) {
 /** /alumni/founder/profile */
 export default function FounderProfilePage() {
   const { t } = useLanguage()
+  const { hasRole } = useAuth()
   const q = useMyAlumniProfile()
   if (q.isPending) return <ProfileSkeleton />
+  // a staff account (super_admin, project manager, alumni manager) is never a founder: explain instead of showing a raw error
+  if (q.error && q.error.code === 'forbidden' && !hasRole('founder')) {
+    return <EmptyState title={t('alumni.founder.profile.staffTitle')} body={t('alumni.founder.profile.staffBody')} />
+  }
   if (q.error) return <ErrorState error={q.error} title={t('alumni.founder.profile.loadFailed')} onRetry={q.refetch} />
   return <ProfileForm profile={q.data} />
 }

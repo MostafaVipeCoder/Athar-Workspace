@@ -1,54 +1,59 @@
-import { Link } from 'react-router-dom'
-import { Award, CheckCircle2, Circle, Layers, LineChart, Rocket } from 'lucide-react'
-import { useMyAlumniProfile, useMyCompanyProfile } from '../../../data/alumni.js'
+import { useState } from 'react'
+import { Link, Navigate, useSearchParams } from 'react-router-dom'
+import { Award, CheckCircle2, Circle, Compass, Layers, LineChart, Rocket } from 'lucide-react'
+import { useMyAlumniProfile } from '../../../data/alumni.js'
 import { useAllMyCertificates } from '../../../data/alumniFounder.js'
 import { useMyPrograms } from '../../../data/founder.js'
 import { useLanguage } from '../../../i18n/LanguageProvider.jsx'
 import { Badge } from '../../../ui/Badge.jsx'
 import { buttonClass } from '../../../ui/buttonStyles.js'
 import { EmptyState, ErrorState, Skeleton, SkeletonList } from '../../../ui/States.jsx'
-import { buildMilestones, milestonePercent, nextMilestone, overallCompleteness, reportedYears } from '../../../lib/alumniProgress.js'
+import { buildMilestones, milestonePercent, nextMilestone, overallCompleteness } from '../../../lib/alumniProgress.js'
 import { cn } from '../../../lib/cn.js'
 import { CompletenessMeter, ProfileSection } from '../../../shared/alumni/blocks.jsx'
-import TrendBars from '../../../shared/alumni/TrendBars.jsx'
+import FiguresPanel from '../../../shared/alumni/FiguresPanel.jsx'
 import { statusTone } from './programLogic.js'
 import './i18n.js'
 import './alumni.i18n.js'
 import './alumni.progress.i18n.js'
 import '../../../shared/alumni/i18n.js'
 import '../../../shared/alumni/i18n.company.js'
+import '../../../shared/alumni/i18n.quarters.js'
+import '../../../shared/alumni/i18n.closed.js'
 
-/** The yearly trend of ONE company (its own query: a failure stays inside this block). */
-function CompanyTrend({ company }) {
+/** The figures of the company the founder picked (the company of a reminder link comes in `?company=`): the quarter's draft, "confirm", and the closed quarters with their graphs. */
+function CompaniesFigures({ companies, focus }) {
   const { t, pick } = useLanguage()
-  const q = useMyCompanyProfile(company.id)
-  const years = q.data ? reportedYears(q.data.snapshots) : []
+  const [picked, setPicked] = useState(null)
+  const current = companies.find((c) => c.id === (picked ?? focus)) ?? companies[0]
   return (
-    <li className="space-y-3 rounded-card border bg-card p-4" data-testid="progress-company">
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <h3 className="break-words text-base font-bold">{pick(company, 'name')}</h3>
-        {years.length > 0 && <Badge tone="blue">{t('alumni.founder.progress.lastUpdate', { year: years[0] })}</Badge>}
-      </div>
-      {q.isPending ? <Skeleton className="h-28 w-full" /> : q.error ? (
-        <p role="alert" className="text-sm text-destructive-text">{t('alumni.founder.progress.blockFailed')}</p>
-      ) : years.length === 0 ? (
-        <div className="space-y-2">
-          <p className="text-sm text-muted-foreground">{t('alumni.founder.progress.noFigures')}</p>
-          <Link to={`/alumni/founder/company/${company.id}#metrics`} className={buttonClass({ variant: 'outline', size: 'sm' })}>{t('alumni.founder.progress.addFigures')}</Link>
+    <div className="space-y-3" data-testid="progress-companies">
+      {companies.length > 1 && (
+        <div role="tablist" className="-mx-1 flex gap-1 overflow-x-auto px-1 pb-1">
+          {companies.map((c) => (
+            <button key={c.id} role="tab" type="button" aria-selected={c.id === current.id} onClick={() => setPicked(c.id)} className={cn('inline-flex min-h-11 shrink-0 items-center rounded-full border px-4 text-sm font-semibold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring', c.id === current.id ? 'border-foreground bg-foreground text-background' : 'border-input bg-background hover:border-foreground')}>{pick(c, 'name')}</button>
+          ))}
+        </div>
+      )}
+      {current.operating_status === 'closed' ? (
+        <div className="flex flex-wrap items-center gap-3 rounded-card border border-accent bg-accent/20 p-4" data-testid="progress-company-closed">
+          <Compass className="h-5 w-5 shrink-0" aria-hidden="true" />
+          <div className="min-w-0 flex-1"><p className="font-bold">{t('alumni.closed.progressCardTitle')}</p><p className="text-sm">{t('alumni.closed.progressCardBody')}</p></div>
+          <Link to={`/alumni/founder/after-closing?company=${current.id}`} className={buttonClass({ size: 'sm' })}>{t('alumni.closed.progressCardCta')}</Link>
         </div>
       ) : (
-        <>
-          <TrendBars snapshots={q.data.snapshots} />
-          <Link to={`/alumni/founder/company/${company.id}#metrics`} className={buttonClass({ variant: 'ghost', size: 'sm' })}>{t('alumni.founder.progress.updateFigures')}</Link>
-        </>
+        <div className="rounded-card border bg-card p-4" data-testid="progress-company">
+          <FiguresPanel key={current.id} companyId={current.id} audience="founder" companyName={pick(current, 'name')} />
+        </div>
       )}
-    </li>
+    </div>
   )
 }
 
 /** /alumni/founder/progress: REAL progress only (design 09 F6): the milestones are decided by the server's own completeness and lists, never by a mock. */
 export default function FounderProgressPage() {
   const { t, pick, formatDate } = useLanguage()
+  const [search] = useSearchParams()
   const profileQ = useMyAlumniProfile()
   const programsQ = useMyPrograms()
   const certsQ = useAllMyCertificates()
@@ -57,6 +62,8 @@ export default function FounderProgressPage() {
   if (profileQ.error) return <ErrorState error={profileQ.error} title={t('alumni.founder.progress.loadFailed')} onRetry={profileQ.refetch} />
 
   const profile = profileQ.data
+  const focused = profile.companies.find((c) => c.id === search.get('company'))
+  if (focused?.operating_status === 'closed') return <Navigate to={`/alumni/founder/after-closing?company=${focused.id}`} replace />
   const programs = (programsQ.data ?? []).filter((p) => p.status !== 'withdrawn')
   const certificates = certsQ.data ?? []
   const milestones = buildMilestones({ profile, programs: programsQ.data ?? [], certificates })
@@ -150,7 +157,7 @@ export default function FounderProgressPage() {
             action={<Link to="/alumni/founder/company/new" className={buttonClass({ className: 'mt-2' })}>{t('alumni.founder.profile.createCompany')}</Link>}
           />
         ) : (
-          <ul className="space-y-3">{profile.companies.map((c) => <CompanyTrend key={c.id} company={c} />)}</ul>
+          <CompaniesFigures companies={profile.companies} focus={search.get('company')} />
         )}
       </ProfileSection>
     </div>

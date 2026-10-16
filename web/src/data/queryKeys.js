@@ -41,6 +41,9 @@ export const keys = {
   bookingExtras: (id) => ['node', id, 'bookingExtras'],
   bookingLink: (id) => ['node', id, 'bookingLink'],
   publicBooking: (ref, host, invite) => ['public', 'booking', ref, host ?? null, invite ?? null],
+  // calendar sync (m63): the per-booking sync state of a booking node (under ['node', id]: a node refresh reloads it) + the platform-wide mode flag
+  calendarSync: (id) => ['node', id, 'calendarSync'],
+  calendarSyncMode: () => ['calendarSync', 'mode'],
   // distribution (step 7f): PM payload/rules/timer/links under ['node', id]; public matrix/live payloads + the live timer poll per ref
   distPayload: (id) => ['node', id, 'distPayload'],
   distRules: (id) => ['node', id, 'distRules'],
@@ -79,8 +82,26 @@ export const keys = {
   // Athar Network / companies registry (data/people.js)
   experts: (filter = {}) => ['experts', filter],
   expert: (id) => ['experts', 'one', id],
+  // the experts REGISTRY (m75 - m77): everything under ['experts'] so ONE invalidation after a write refreshes the list, the profile, the tags and the duplicate finder
+  expertRegistry: (state, lang) => ['experts', 'registry', lang, state],
+  expertProfile: (id) => ['experts', 'profile', id],
+  expertTags: (includeArchived = false) => ['experts', 'tags', includeArchived],
+  expertSimilar: (args) => ['experts', 'similar', args],
+  expertPairs: () => ['experts', 'pairs'],
+  expertMerges: (id) => ['experts', 'merges', id ?? 'all'],
   companies: (filter = {}) => ['companies', filter],
   company: (id) => ['companies', 'one', id],
+
+  // Google connection of the acting user (m61): status of mine + the system sender; the super_admin overview
+  googleStatus: () => ['google', 'status'],
+  googleAdmin: () => ['google', 'admin'],
+
+  // e-mail Outbox (m62): every key starts with ['outbox', projectId] so ONE invalidation refreshes the list, the counts and the node badges of a project
+  outbox: (projectId, filter = {}) => ['outbox', projectId, 'list', filter],
+  outboxCounts: (projectId) => ['outbox', projectId, 'counts'],
+  outboxItem: (id) => ['outbox', 'item', id],
+  emailHealth: () => ['emailHealth'],
+  staffInvitationDelivery: () => ['staff', 'invitationDelivery'],
 
   staff: () => ['staff'],
   staffInvitations: () => ['staff', 'invitations'],

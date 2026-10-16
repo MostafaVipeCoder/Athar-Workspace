@@ -6,17 +6,19 @@ import { renderWithProviders } from '../../../test/render.jsx'
 import { ConfirmProvider } from '../../../ui/ConfirmDialog.jsx'
 import { AuthContext } from '../../AuthContext.js'
 import { AppError } from '../../../data/errors.js'
-import { COMPANY, COMPANY_PAYLOAD, COMPANY_ROW, FOUNDER, IDENTITY_ID, LOOKUPS, MY_PROFILE, PREVIEW_OK, SNAPSHOTS } from '../../../shared/alumni/alumni.fixtures.js'
+import { cairoToday } from '../../../lib/nationalId.js'
+import { COMPANY, COMPANY_PAYLOAD, COMPANY_ROW, FIGURES, FOUNDER, IDENTITY_ID, LOOKUPS, MY_PROFILE, PREVIEW_OK } from '../../../shared/alumni/alumni.fixtures.js'
 
 const mocks = vi.hoisted(() => ({
-  me: vi.fn(), company: vi.fn(), saveFounder: vi.fn(), saveMember: vi.fn(), saveCompany: vi.fn(), upsert: vi.fn(), preview: vi.fn(), createInvitation: vi.fn(),
+  me: vi.fn(), company: vi.fn(), saveFounder: vi.fn(), saveMember: vi.fn(), saveCompany: vi.fn(), saveFigures: vi.fn(), figures: vi.fn(), preview: vi.fn(), createInvitation: vi.fn(),
   notifications: vi.fn(), unread: vi.fn(), setRead: vi.fn(), markAll: vi.fn(), opportunities: vi.fn(), applications: vi.fn(), apply: vi.fn(), programs: vi.fn(), certificates: vi.fn(),
 }))
 
 vi.mock('../../../data/alumni.js', async () => {
   const { useQuery } = await import('@tanstack/react-query')
   return {
-    alumniKeys: { root: () => ['alumni'], lookups: () => ['alumni', 'lookups'], me: () => ['alumni', 'me'], myCompany: (id) => ['alumni', 'company', id] },
+    alumniKeys: { root: () => ['alumni'], lookups: () => ['alumni', 'lookups'], me: () => ['alumni', 'me'], myCompany: (id) => ['alumni', 'company', id], stamps: (id) => ['alumni', 'stamps', id] },
+    useAlumniStamps: () => ({ data: null }),
     useAlumniLookups: () => useQuery({ queryKey: ['alumni', 'lookups'], queryFn: async () => (await import('../../../shared/alumni/alumni.fixtures.js')).LOOKUPS, staleTime: Infinity }),
     useMyAlumniProfile: (o = {}) => useQuery({ queryKey: ['alumni', 'me'], queryFn: mocks.me, ...o }),
     useMyCompanyProfile: (id) => useQuery({ queryKey: ['alumni', 'company', id], queryFn: () => mocks.company(id), enabled: Boolean(id) }),
@@ -28,10 +30,19 @@ vi.mock('../../../data/alumni.js', async () => {
     saveMyCompanyProfile: (...a) => mocks.saveCompany(...a),
     removeCompanyTeamMember: vi.fn(),
     setCompanyCeo: vi.fn(),
-    upsertCompanySnapshot: (...a) => mocks.upsert(...a),
     previewNationalId: (...a) => mocks.preview(...a),
     createAlumniInvitation: (...a) => mocks.createInvitation(...a),
     revokeAlumniInvitation: vi.fn(),
+  }
+})
+vi.mock('../../../data/alumniQuarters.js', async () => {
+  const { useQuery } = await import('@tanstack/react-query')
+  const wrap = (fn) => ({ mutateAsync: (v) => fn(v), isPending: false })
+  return {
+    NO_DRAFT: '-infinity',
+    getCompanyFigures: (...a) => mocks.figures(...a),
+    useCompanyFigures: (id) => useQuery({ queryKey: ['alumni', 'quarters', 'figures', id], queryFn: () => mocks.figures(id), enabled: Boolean(id) }),
+    useQuarterMutations: () => ({ saveFigures: wrap(mocks.saveFigures), confirmFigures: wrap(vi.fn()), closeQuarter: wrap(vi.fn()), reopenQuarter: wrap(vi.fn()), correctSnapshot: wrap(vi.fn()), refreezeQuarter: wrap(vi.fn()) }),
   }
 })
 vi.mock('../../../data/alumniFounder.js', async () => {
@@ -96,6 +107,7 @@ beforeEach(() => {
   vi.clearAllMocks()
   mocks.me.mockResolvedValue(MY_PROFILE)
   mocks.company.mockResolvedValue(COMPANY_PAYLOAD)
+  mocks.figures.mockResolvedValue(FIGURES)
   mocks.preview.mockResolvedValue(PREVIEW_OK)
   mocks.notifications.mockResolvedValue({ rows: [], hasMore: false })
   mocks.unread.mockResolvedValue(0)
@@ -147,7 +159,7 @@ describe('Founder profile page', () => {
     await user.type(name, 'Sara A. Ali')
     await user.click(within(await screen.findByTestId('save-bar')).getByRole('button', { name: 'Save' }))
     await waitFor(() => expect(mocks.saveFounder).toHaveBeenCalledTimes(1))
-    expect(mocks.saveFounder).toHaveBeenCalledWith({ name_en: 'Sara A. Ali' })
+    expect(mocks.saveFounder).toHaveBeenCalledWith({ name_en: 'Sara A. Ali' }, FOUNDER.updated_at) // + the version of the profile the form loaded (m60)
   })
 
   it('the role in a company is saved through the team member RPC (role only), in the same Save', async () => {
@@ -175,7 +187,7 @@ describe('Founder profile page', () => {
     await user.type(id, '29501010101234')
     expect(await screen.findByTestId('national-id-derived')).toHaveTextContent('January 1, 1995')
     await user.click(within(screen.getByTestId('save-bar')).getByRole('button', { name: 'Save' }))
-    await waitFor(() => expect(mocks.saveFounder).toHaveBeenCalledWith({ national_id: '29501010101234' }))
+    await waitFor(() => expect(mocks.saveFounder).toHaveBeenCalledWith({ national_id: '29501010101234' }, FOUNDER.updated_at))
   })
 
   it('a number that belongs to somebody else is a conflict message, and the form keeps the edits', async () => {
@@ -230,7 +242,7 @@ describe('Founder company page', () => {
   const ROUTE = '/alumni/founder/company/c1?lang=en'
   const PATH = '/alumni/founder/company/:id'
 
-  it('the company card, the completeness, the team, the yearly figures with a trend and the DERIVED programs', async () => {
+  it('the company card, the completeness, the team, the quarterly figures with the banner and the DERIVED programs', async () => {
     renderPage(<FounderCompanyPage />, { route: ROUTE, path: PATH })
     expect(await screen.findByTestId('company-name')).toHaveTextContent('Nile Labs')
     const card = screen.getByTestId('company-card')
@@ -239,8 +251,9 @@ describe('Founder company page', () => {
     expect(within(card).getByRole('link', { name: 'Website' })).toHaveAttribute('rel', 'noopener noreferrer')
     expect(screen.getByRole('progressbar', { name: 'Company profile' })).toHaveAttribute('aria-valuenow', '90')
     expect(screen.getAllByTestId('team-member')).toHaveLength(3)
-    expect(screen.getAllByTestId('trend-chart')).toHaveLength(3)
-    expect(screen.getAllByTestId('metrics-year').map((y) => y.textContent)).toEqual(['2024', '2023'])
+    expect(await screen.findByTestId('figures-panel')).toBeInTheDocument()
+    expect((await screen.findAllByTestId('grid-quarter')).map((y) => y.textContent)).toEqual(['Q2 2026', 'Q1 2026'])
+    expect(screen.getAllByTestId('figures-banner')).toHaveLength(2) // the company page top + the figures panel: both say "update or confirm"
     expect(await screen.findByTestId('program-entry')).toHaveTextContent('Finland')
     // no manager-only value is ever rendered
     expect(document.body.textContent).not.toMatch(/Hint|reviewed|directory_hidden/)
@@ -320,17 +333,16 @@ describe('Founder company page', () => {
     await waitFor(() => expect(mocks.saveCompany).toHaveBeenCalledWith('c1', { operating_status: 'open', closed_on: null, closing_reason: null, after_closing: null, closing_note: null }, expect.any(String)))
   })
 
-  it('a yearly figure is saved through its own call with only the changed keys; the invitation of a co-founder shows the link once', async () => {
+  it('the figures of the quarter are saved through their own call with only the changed keys and the version of the draft; the invitation of a co-founder shows the link once', async () => {
     const user = userEvent.setup()
-    mocks.upsert.mockResolvedValue({ saved: true })
+    mocks.saveFigures.mockResolvedValue({ saved: true, changed: true, draft: { ...FIGURES.draft, challenges: 'Hiring', updated_at: '2026-10-15T09:00:00Z' } })
     mocks.createInvitation.mockResolvedValue({ id: 'i1', email: 'karim@example.com', link: 'http://app.test/invite/tok', expires_at: '2026-10-28T00:00:00Z' })
     renderPage(<FounderCompanyPage />, { route: ROUTE, path: PATH })
     await screen.findByTestId('company-name')
-    await user.click(screen.getByRole('button', { name: 'Edit 2024' }))
-    const dialog = await screen.findByRole('dialog')
-    await user.type(within(dialog).getByLabelText('Challenges'), 'Hiring')
-    await user.click(within(dialog).getByRole('button', { name: 'Save' }))
-    await waitFor(() => expect(mocks.upsert).toHaveBeenCalledWith('c1', 2024, { challenges: 'Hiring' }))
+    const form = await screen.findByTestId('figures-form')
+    await user.type(within(form).getByLabelText('Challenges'), 'Hiring')
+    await user.click(within(form).getByTestId('figures-save'))
+    await waitFor(() => expect(mocks.saveFigures).toHaveBeenCalledWith({ companyId: 'c1', data: { challenges: 'Hiring' }, expected: FIGURES.draft.updated_at })) // + the version of the draft the form loaded
 
     await user.type(screen.getByLabelText("Co-founder's e-mail"), 'karim@example.com')
     await user.click(screen.getByRole('button', { name: 'Create invitation link' }))
@@ -453,7 +465,11 @@ describe('Founder notifications page', () => {
 
 // ============================================================================ opportunities
 describe('Founder opportunities page', () => {
-  const future = (days) => new Date(Date.now() + days * 86_400_000).toISOString().slice(0, 10)
+  // deadlines on the calendar basis the page counts from (today in Cairo), so the count never depends on the machine's time zone or time of day
+  const future = (days) => {
+    const [y, m, d] = cairoToday().split('-').map(Number)
+    return new Date(Date.UTC(y, m - 1, d + days)).toISOString().slice(0, 10)
+  }
   const list = [
     { opportunity_id: 'o1', type: 'grant', title_en: 'Startup Grant', title_ar: 'منحة', description_en: 'Cash for pilots', description_ar: null, deadline: future(30), eligibility: 'Registered startups', link: null, image_url: null, order_index: 1 },
     { opportunity_id: 'o2', type: 'investment', title_en: 'Angel Round', title_ar: 'جولة', description_en: 'Pitch', description_ar: null, deadline: future(3), eligibility: null, link: 'https://example.com/angels', image_url: null, order_index: 2 },
@@ -562,7 +578,7 @@ describe('Founder progress page (real data only)', () => {
     expect(screen.getByText('No company yet')).toBeInTheDocument()
   })
 
-  it('programs, certificates and the yearly trend of a complete founder; nothing is invented', async () => {
+  it('programs, certificates and the quarterly figures of a complete founder; nothing is invented', async () => {
     mocks.me.mockResolvedValue({ founder: { ...FOUNDER, completeness: { percent: 100, missing: [] } }, companies: [{ ...COMPANY_ROW, completeness: { percent: 100, missing: [] } }] })
     mocks.programs.mockResolvedValue([{ project_id: 'p1', status: 'attended', completed: true, project_name_en: 'Cohort 1', project_name_ar: 'الدفعة 1', program_name_en: 'Finland', program_name_ar: 'فنلندا' }])
     mocks.certificates.mockResolvedValue([{ certificate_id: 'ce1', project_id: 'p1', project_name: 'Cohort 1', program_name: 'Finland', issued_at: '2026-04-01T00:00:00Z', code: 'ABC' }])
@@ -572,7 +588,8 @@ describe('Founder progress page (real data only)', () => {
     expect(screen.queryByTestId('next-step')).not.toBeInTheDocument()
     expect(within(screen.getByTestId('progress-programs')).getByText('Cohort 1')).toBeInTheDocument()
     expect(within(screen.getByTestId('progress-certificates')).getByText('Cohort 1')).toBeInTheDocument()
-    expect(await screen.findAllByTestId('trend-chart')).toHaveLength(3)
+    expect(await screen.findByTestId('figures-panel')).toBeInTheDocument()
+    expect((await screen.findAllByTestId('chart-card')).length).toBe(3)
   })
 
   it('a withdrawn program does not count as joined; no certificates is said plainly', async () => {
@@ -597,11 +614,11 @@ describe('Home Alumni cards', () => {
     expect(screen.getByRole('link', { name: 'My progress' })).toHaveAttribute('href', '/alumni/founder/progress')
   })
 
-  it('"yearly figures are due" appears when the server says the annual update is missing; the next step then points at it', async () => {
-    mocks.me.mockResolvedValue({ founder: { ...FOUNDER, completeness: { percent: 100, missing: [] } }, companies: [{ ...COMPANY_ROW, completeness: { percent: 90, missing: ['annual_update'] } }] })
+  it('"update your figures for Q4 2026" appears when the quarter is open and not confirmed; the next step then points at the figures of that company', async () => {
+    mocks.me.mockResolvedValue({ founder: { ...FOUNDER, completeness: { percent: 100, missing: [] } }, companies: [{ ...COMPANY_ROW, completeness: { percent: 90, missing: ['annual_update'] }, figures: { status: 'not_updated', period: '2026-Q4', deadline: '2026-12-31', updated_at: null } }] })
     open()
-    expect(await screen.findByTestId('annual-due')).toBeInTheDocument()
-    expect(screen.getByTestId('home-next-step')).toHaveAttribute('href', '/alumni/founder/company/c1#metrics')
+    expect(await screen.findByTestId('annual-due')).toHaveTextContent('Update your figures for Q4 2026')
+    expect(screen.getByTestId('home-next-step')).toHaveAttribute('href', '/alumni/founder/progress?company=c1')
   })
 
   it('a founder with no company is pointed at "create your company"', async () => {
@@ -661,7 +678,7 @@ describe('Founder shell navigation', () => {
 describe('fixtures', () => {
   it('follow the contract', () => {
     expect(Object.keys(LOOKUPS)).toEqual(expect.arrayContaining(['governorates', 'sectors', 'stages', 'startup_types', 'legal_statuses', 'genders']))
-    expect(SNAPSHOTS[0]).toHaveProperty('revenue_total')
+    expect(FIGURES.snapshots[0]).toHaveProperty('revenue_total')
     expect(COMPANY_PAYLOAD.company).not.toHaveProperty('internal')
   })
 })

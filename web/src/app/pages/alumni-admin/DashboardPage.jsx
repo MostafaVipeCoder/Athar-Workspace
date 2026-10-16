@@ -2,6 +2,8 @@ import { Link } from 'react-router-dom'
 import { BarChart3, Bell, Building2, CalendarCheck, ClipboardCheck, Gauge, Layers, MailPlus, Users } from 'lucide-react'
 import { useAlumniAnalytics, useAlumniInvitations } from '../../../data/alumni.js'
 import { useAlumniBroadcasts, useAlumniOverview } from '../../../data/alumniAdmin.js'
+import { useAlumniQuarterStatus } from '../../../data/alumniQuarters.js'
+import { periodLabel } from '../../../lib/alumniQuarters.js'
 import { useLanguage } from '../../../i18n/LanguageProvider.jsx'
 import { buttonClass } from '../../../ui/buttonStyles.js'
 import { Badge } from '../../../ui/Badge.jsx'
@@ -12,6 +14,7 @@ import { barRows, readRate, statusTone } from './adminLogic.js'
 import { useAdminFormat, useLabels } from './hooks.js'
 import './i18n.common.js'
 import './dashboard.i18n.js'
+import './quarters.i18n.js'
 
 const ROUTE = '/alumni/admin'
 
@@ -20,7 +23,8 @@ const ROUTE = '/alumni/admin'
  * one shows its error with Try again and the rest of the page stays.
  */
 export default function DashboardPage() {
-  const { t, tn, pick } = useLanguage()
+  const { t, tn, pick, lang } = useLanguage()
+  const quarter = useAlumniQuarterStatus({ limit: 1 }, { meta: { silent: true } })
   const fmt = useAdminFormat()
   const labels = useLabels()
   const overview = useAlumniOverview()
@@ -68,6 +72,11 @@ export default function DashboardPage() {
                   </>
                 )}
               </Query>
+              {quarter.data && (
+                <KpiCard testId="kpi-quarter" label={t('alumni.admin.qs.kpiTitle', { quarter: periodLabel(quarter.data.period.key, lang) })} icon={CalendarCheck} to={`${ROUTE}/quarters`}
+                  value={`${fmt.num(quarter.data.counts.confirmed + quarter.data.counts.closed)} / ${fmt.num(quarter.data.counts.total)}`}
+                  hint={t('alumni.admin.qs.kpiHint', { updated: fmt.num(quarter.data.counts.updated), none: fmt.num(quarter.data.counts.not_updated) })} />
+              )}
               <KpiCard testId="kpi-founders" label={d('kpiFounders')} icon={Users} value={d('kpiFoundersValue', { accounts: fmt.num(o.founders.with_account), total: fmt.num(o.founders.total) })}
                 hint={d('kpiFoundersHint', { linked: fmt.num(o.founders.alumni_founders), withId: fmt.num(o.founders.with_national_id) })} />
               <KpiCard testId="kpi-completeness" label={d('kpiCompleteness')} icon={ClipboardCheck} to={`${ROUTE}/directory?incomplete=true`}
@@ -88,7 +97,7 @@ export default function DashboardPage() {
             </section>
 
             <div className="grid gap-4 lg:grid-cols-2">
-              <SectionCard id="attention" title={d('attention')} testId="dash-attention">
+              <SectionCard id="attention" title={d('attention')} testId="dash-attention" action={<Link to={`${ROUTE}/attention`} className="inline-flex min-h-11 items-center text-sm font-semibold text-primary hover:underline" data-testid="dash-open-queue">{d('seeQueue')}</Link>}>
                 <Attention o={o} d={d} fmt={fmt} />
               </SectionCard>
               <SectionCard id="by-sector" title={d('bySector')}>
@@ -158,7 +167,7 @@ function Attention({ o, d, fmt }) {
     { key: 'incomplete', label: d('attIncomplete'), count: o.completeness.incomplete, to: `${ROUTE}/directory?incomplete=true` },
     { key: 'never', label: d('attNever'), count: o.review.never, to: `${ROUTE}/directory?reviewed=false` },
     { key: 'changed', label: d('attChanged'), count: o.review.changed_since, to: `${ROUTE}/directory?reviewed=true` },
-    { key: 'annual', label: d('attAnnual'), count: annual, to: `${ROUTE}/workspace?incomplete=true` },
+    { key: 'annual', label: d('attAnnual'), count: annual, to: `${ROUTE}/quarters?status=not_updated` },
     { key: 'pending', label: d('attPending'), count: o.invitations.pending, to: `${ROUTE}/invitations` },
     { key: 'candidates', label: d('attCandidates'), count: o.companies.candidates, to: `${ROUTE}/directory?scope=candidates` },
   ].filter((i) => i.count > 0)

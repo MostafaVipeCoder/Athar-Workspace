@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { DEFAULT_TEMPLATES, bookingColumns, confirmedBySlot, emailIndex, groupByDay, mergeProviders, normalizeBookingConfig, planSlots, providerName, slotState, splitPlan, syncState, validateBookingConfig } from './bookingConfig.js'
+import { DEFAULT_TEMPLATES, SYNC_RETRYABLE, SYNC_STATES, SYNC_TONE, bookingColumns, confirmedBySlot, emailIndex, googleCalendarEventUrl, groupByDay, mergeProviders, normalizeBookingConfig, overviewIndex, planSlots, providerName, slotState, splitPlan, syncCodeKey, syncState, validateBookingConfig } from './bookingConfig.js'
 
 describe('bookingConfig: withdrawn providers (m40)', () => {
   it('a provider whose list item was marked WITHDRAWN is kept as a named "withdrawn" row, not an anonymous orphan', () => {
@@ -77,6 +77,38 @@ describe('bookingConfig', () => {
     const cancelled = { ...b, status: 'cancelled' }
     expect(syncState(cancelled, [pending, { booking_id: 'b1', kind: 'calendar_cancel', status: 'done', created_at: '3' }], []).key).toBe('cancelled')
     expect(syncState(cancelled, [pending, { booking_id: 'b1', kind: 'calendar_cancel', status: 'pending', created_at: '3' }], []).key).toBe('waiting_connection')
+  })
+
+  it('m63: the database-derived state wins over the queue rows; an unknown state degrades to none; every state has a tone and a label key', () => {
+    const b = { id: 'b1', status: 'confirmed' }
+    const idx = overviewIndex({ bookings: [{ booking_id: 'b1', state: 'shadow', job: { id: 'j' } }, { booking_id: 'b2', state: 'martian' }] })
+    expect(Object.keys(idx)).toEqual(['b1', 'b2'])
+    expect(syncState(b, [{ booking_id: 'b1', kind: 'calendar_create', status: 'done', created_at: '1' }], [], idx)).toMatchObject({ key: 'shadow', job: { id: 'j' } })
+    expect(syncState({ id: 'b2' }, [], [], idx).key).toBe('none')
+    expect(syncState({ id: 'b3', status: 'confirmed' }, [], [], idx).key).toBe('none') // not in the overview: the queue rows decide (none here)
+    expect(overviewIndex(null)).toEqual({})
+    for (const k of SYNC_STATES) expect(SYNC_TONE[k], k).toBeTruthy()
+    expect(SYNC_RETRYABLE).toEqual(expect.arrayContaining(['failed', 'retrying', 'needs_connection']))
+    expect(SYNC_RETRYABLE).not.toContain('synced')
+  })
+
+  it('m63: machine codes map to a message key (the status after the colon is dropped, anything unknown is generic)', () => {
+    expect(syncCodeKey('rate_limited:429')).toBe('rate_limited')
+    expect(syncCodeKey('server_error:503')).toBe('server_error')
+    expect(syncCodeKey('shared_link_required')).toBe('shared_link_required')
+    expect(syncCodeKey('a@b.com said no')).toBe('unknown')
+    expect(syncCodeKey(null)).toBe('unknown')
+  })
+
+  it('m63: the Google Calendar link is the htmlLink of Google, else the eid link built from the event id and the calendar account (no padding)', () => {
+    expect(googleCalendarEventUrl({ job: { html_link: 'https://www.google.com/calendar/event?eid=abc' } })).toBe('https://www.google.com/calendar/event?eid=abc')
+    expect(googleCalendarEventUrl({ job: { html_link: 'https://evil.example/x' }, event_id: 'abc12', calendar_email: 'pm@athareg.com' })).toMatch(/^https:\/\/calendar\.google\.com\/calendar\/event\?eid=/)
+    const url = googleCalendarEventUrl({ event_id: 'abc12', calendar_email: 'pm@athareg.com' })
+    const enc = decodeURIComponent(url.split('eid=')[1])
+    expect(atob(enc + '='.repeat((4 - (enc.length % 4)) % 4))).toBe('abc12 pm@athareg.com')
+    expect(url).not.toContain('%3D')
+    expect(googleCalendarEventUrl({ event_id: 'abc12' })).toBeNull()
+    expect(googleCalendarEventUrl(null)).toBeNull()
   })
 
   it('merges list items with provider rows (by reference) and keeps orphans', () => {

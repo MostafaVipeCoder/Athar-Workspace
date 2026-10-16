@@ -70,10 +70,11 @@ export async function exportWorkbook(sheets, filename = 'export') {
 }
 
 /** Parse a workbook File/ArrayBuffer into { [sheetName]: rows[] } (objects keyed by header). Used by Agenda import (01-9). */
-export async function parseWorkbook(fileOrBuffer, { cellDates = true } = {}) {
+export async function parseWorkbook(fileOrBuffer, { cellDates = true, codepage } = {}) {
   const XLSX = await loadXlsx()
   const buffer = fileOrBuffer instanceof ArrayBuffer ? fileOrBuffer : await fileOrBuffer.arrayBuffer()
-  const wb = XLSX.read(buffer, { type: 'array', cellDates })
+  // `codepage` (65001 = UTF-8) matters for a .csv without a BOM: SheetJS would read it as Latin-1 and turn Arabic into mojibake; .xlsx files are Unicode already and ignore it
+  const wb = XLSX.read(buffer, { type: 'array', cellDates, ...(codepage ? { codepage } : {}) })
   const out = {}
   for (const name of wb.SheetNames) out[name] = XLSX.utils.sheet_to_json(wb.Sheets[name], { defval: '' })
   return out

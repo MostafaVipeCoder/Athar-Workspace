@@ -26,8 +26,6 @@ const { CompletenessMeter } = await import('./blocks.jsx')
 const { default: SaveBar } = await import('./SaveBar.jsx')
 const { useDraftForm } = await import('./useDraftForm.js')
 const { default: TeamEditor } = await import('./TeamEditor.jsx')
-const { default: MetricsTable } = await import('./MetricsTable.jsx')
-const { default: TrendBars } = await import('./TrendBars.jsx')
 const { default: ProgramsReadOnlyList } = await import('./ProgramsReadOnlyList.jsx')
 const { CompanyStatusSection, DirectoryVisibilitySection } = await import('./CompanySections.jsx')
 
@@ -456,93 +454,6 @@ describe('TeamEditor (a founder\'s view of his company)', () => {
   it('read-only (canEdit false) shows no action', () => {
     setup({ canEdit: false })
     expect(screen.queryByRole('button', { name: /Make CEO|Add a co-founder|Edit|Remove/ })).not.toBeInTheDocument()
-  })
-})
-
-describe('MetricsTable', () => {
-  it('metrics as rows, years as columns (newest first), money in EGP, the source of each year', () => {
-    renderWithProviders(<MetricsTable snapshots={SNAPSHOTS} onSave={vi.fn()} />, { route: EN })
-    expect(screen.getAllByTestId('metrics-year').map((y) => y.textContent)).toEqual(['2024', '2023'])
-    const table = screen.getByRole('table')
-    expect(within(table).getByRole('row', { name: /Revenue/ })).toHaveTextContent('EGP 260,000')
-    expect(within(table).getByRole('row', { name: /Revenue/ })).toHaveTextContent('EGP 120,000')
-    expect(within(table).getByRole('row', { name: /Employees/ })).toHaveTextContent('12')
-    expect(within(table).getByText('By the Athar team')).toBeInTheDocument()
-    expect(within(table).getByText('By a founder')).toBeInTheDocument()
-  })
-
-  it('empty state with the add action; "add year" offers the missing years only', async () => {
-    const user = userEvent.setup()
-    renderWithProviders(<MetricsTable snapshots={[]} onSave={vi.fn()} />, { route: EN })
-    expect(screen.getByText('No yearly figures yet')).toBeInTheDocument()
-    await user.click(screen.getByRole('button', { name: 'Add a year' }))
-    const dialog = await screen.findByRole('dialog')
-    const years = within(dialog).getAllByRole('option').map((o) => o.textContent)
-    expect(years).toHaveLength(5)
-    expect(years[0]).toBe(String(new Date().getFullYear()))
-  })
-
-  it('editing a year sends only the changed keys; a cleared figure is null', async () => {
-    const user = userEvent.setup()
-    const onSave = vi.fn().mockResolvedValue({})
-    renderWithProviders(<MetricsTable snapshots={SNAPSHOTS} onSave={onSave} />, { route: EN })
-    await user.click(screen.getByRole('button', { name: 'Edit 2024' }))
-    const dialog = await screen.findByRole('dialog')
-    const revenue = within(dialog).getByLabelText('Revenue (total of the year)')
-    expect(revenue).toHaveValue('260000')
-    await user.clear(revenue)
-    await user.type(revenue, '300000')
-    await user.clear(within(dialog).getByLabelText('Freelancers'))
-    await user.click(within(dialog).getByRole('button', { name: 'Save' }))
-    await waitFor(() => expect(onSave).toHaveBeenCalledWith(2024, { revenue_total: '300000', freelancers: null }))
-  })
-
-  it('"female employees" cannot exceed the total: the message shows and nothing is sent', async () => {
-    const user = userEvent.setup()
-    const onSave = vi.fn()
-    renderWithProviders(<MetricsTable snapshots={SNAPSHOTS} onSave={onSave} />, { route: EN })
-    await user.click(screen.getByRole('button', { name: 'Edit 2024' }))
-    const dialog = await screen.findByRole('dialog')
-    const female = within(dialog).getByLabelText('Female employees')
-    await user.clear(female)
-    await user.type(female, '20')
-    await user.click(within(dialog).getByRole('button', { name: 'Save' }))
-    expect(await within(dialog).findByText('cannot be more than the total')).toBeInTheDocument()
-    expect(onSave).not.toHaveBeenCalled()
-  })
-
-  it('a server refusal stays inside the dialog (and names the field)', async () => {
-    const user = userEvent.setup()
-    const refusal = Object.assign(new Error('x'), { messageKey: 'alumni.err.invalid', detail: 'revenue_total:out_of_range', cause: { hint: 'alumni_invalid', details: 'revenue_total:out_of_range', message: 'alumni_invalid: revenue_total:out_of_range' } })
-    const onSave = vi.fn().mockRejectedValue(refusal)
-    renderWithProviders(<MetricsTable snapshots={SNAPSHOTS} onSave={onSave} />, { route: EN })
-    await user.click(screen.getByRole('button', { name: 'Edit 2024' }))
-    const dialog = await screen.findByRole('dialog')
-    await user.type(within(dialog).getByLabelText('Needs'), ' and mentors')
-    await user.click(within(dialog).getByRole('button', { name: 'Save' }))
-    expect(await within(dialog).findByRole('alert')).toHaveTextContent('Revenue: is out of range')
-  })
-
-  it('a founder cannot delete a year (no delete action unless onDelete is given: managers)', () => {
-    const { rerender } = renderWithProviders(<MetricsTable snapshots={SNAPSHOTS} onSave={vi.fn()} />, { route: EN })
-    expect(screen.queryByRole('button', { name: /Delete 2024/ })).not.toBeInTheDocument()
-    rerender(<MetricsTable snapshots={SNAPSHOTS} onSave={vi.fn()} onDelete={vi.fn()} />)
-    expect(screen.getByRole('button', { name: 'Delete 2024' })).toBeInTheDocument()
-  })
-})
-
-describe('TrendBars', () => {
-  it('one chart per metric that has a figure, with the change against the previous year and a text alternative', () => {
-    renderWithProviders(<TrendBars snapshots={SNAPSHOTS} />, { route: EN })
-    const charts = screen.getAllByTestId('trend-chart')
-    expect(charts).toHaveLength(3)
-    expect(within(charts[0]).getByText('Revenue (total of the year)')).toBeInTheDocument()
-    expect(within(charts[0]).getByTestId('trend-change')).toHaveTextContent('+117% compared with 2023')
-    expect(within(charts[0]).getByRole('img')).toHaveAccessibleName(/2023 EGP.120,000, 2024 EGP.260,000/)
-  })
-  it('nothing is drawn without data: no invented zeros', () => {
-    const { container } = renderWithProviders(<TrendBars snapshots={[{ year: 2024, revenue_total: null, funding_raised_total: null, employees_total: null }]} />, { route: EN })
-    expect(container.querySelector('[data-testid=trend-bars]')).toBeNull()
   })
 })
 

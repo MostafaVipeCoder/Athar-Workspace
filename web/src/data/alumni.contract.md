@@ -40,8 +40,6 @@ Shared (`common`) i18n: `alumni.common.*` (lookups labels are NOT i18n: they com
 | `saveMyCompanyProfile(id\|null, patch, expected)` | `save_my_company_profile(p_company, p_patch, p_expected)` | founder | `{ saved:true, ...company payload }` (null id creates; the founder becomes primary) |
 | `saveCompanyTeamMember(company, founder\|null, patch)` | `save_company_team_member` | founder (member) / manager | `{ saved, founder_id, ...payload }` |
 | `removeCompanyTeamMember`, `setCompanyCeo` | `remove_company_team_member`, `set_company_ceo` | founder (records only) / manager | `{ saved, ...payload }` |
-| `upsertCompanySnapshot(company, year, data)` | `upsert_company_snapshot` | founder (member) / manager | `{ saved, snapshot, snapshots[] }` |
-| `deleteCompanySnapshot(company, year)` | `delete_company_snapshot` | manager | `{ deleted, snapshots[] }` |
 | `listAlumniDirectory({ filters, limit, offset, sort })` | `list_alumni_directory` | manager (all alumni) / founder, PM (visible ones) | `{ audience, total, limit, offset, rows[] }`, 3.4 |
 | `listPublicAlumniDirectory` | `list_public_alumni_directory` | anon | same envelope, whitelisted rows |
 | `getAlumniCompany(id)` | `get_alumni_company` | manager | company payload + manager fields |
@@ -105,8 +103,7 @@ Used from the Alumni pages but **not** wrapped here (direct, existing RLS): `not
   "ceo_founder_id": "uuid",
   "programs": [{ "program_id": "uuid", "program_name_en": "", "program_name_ar": "", "program_type": "accelerator", "project_id": "uuid",
                  "project_name_en": "", "project_name_ar": "", "completed": false, "start_date": null, "end_date": null, "support": ["mentoring", "training"] }],
-  "snapshots": [{ "id": "uuid", "year": 2024, "revenue_total": 260000.0, "funding_raised_total": 100000.0, "employees_total": 12, "employees_female": 4, "freelancers": 3,
-                  "traction": "", "challenges": null, "needs": "", "source": "founder", "updated_at": "..." }] }
+  "figures_note": "no yearly rows: the figures come from get_company_figures (section 9)" }
 ```
 
 - `internal`, `created_by`, `origin_project_id` and the extra team keys (`governorate`, `id_masked`, `email`, `phone`, `education_status`) are present **only in the manager payload**. A founder payload has `directory_blocked` (boolean) instead of the notes.
@@ -173,3 +170,54 @@ Filters: `q, program_id, project_id, sector, subsector, stage, startup_type, leg
 ## 7. Tests the builders add
 
 Components render with the sample payloads above (Arabic + English, 375 px); `NationalIdField` never renders the full number unless it is the owner's own form; a founder payload test proves no `internal` and no other founder's derived values are rendered; the export page test proves the header texts and order are used unchanged. Keep `npm run lint`, `npx vitest run`, `npm run build` green.
+
+## 8. m60 additions: editing by both sides, the version token, the history, the queue (owner decisions 20.3 / 20.4)
+
+> Note: owner decision 21 (2026-10-15, later the same day) replaces the per-edit history by quarterly snapshots. What stays: sections 8.1 - 8.3 (tokens, stamps, adoption) and 8.5 (the queue). Section 8.4 (the log, its viewer, "as of") was REMOVED by m65 and the yearly-row RPCs by m66; the figures are section 9.
+
+### 8.1 The version token (optimistic concurrency) and `p_reason`
+| RPC | Token (`p_expected`) | Notes |
+|---|---|---|
+| `save_alumni_company` / `save_my_company_profile` | `company.updated_at` | as before (m49) |
+| `save_my_founder_profile(p_patch, p_expected)` | `get_my_alumni_profile().founder.updated_at` (the form `version` is `updated_at|role keys`: send the part before `|`) | NEW: a founder profile can now be stale |
+| `save_alumni_founder(p_founder, p_patch, p_expected, p_reason)` | `get_alumni_founder().updated_at` | NEW 4-argument form (the 2-argument form is dropped) |
+
+A stale write raises `P0001`, hint `alumni_stale`, `detail` = the current version (never 40001: PostgREST retries that for ever). Optional arguments are sent only when set, so older pins stay valid. `p_reason` (<= 300 chars, manager RPCs) is stored with the history entries of that save.
+The client resolves a stale save with `shared/alumni/useStaleResolver` (a refetch, `lib/alumniConflicts.findConflicts`: only the fields BOTH sides changed to different values are asked about, in `ConflictDialog` / the inline `ConflictList`; `useDraftForm.rebase(initial, version, keepKeys)` keeps the edits on top).
+
+### 8.2 Who edited it, when (stamps)
+Every editable row has `updated_at`, `updated_by`, `updated_source` (`founder | manager | import | system`): companies, founders, company_founders, company_internal, founder_identities, company_figures. `get_alumni_stamps(p_company)` returns `{ company, sections: { basics | classification | location | online | status | directory | manager: { at, source, role, edits, name? } }, founders: [{ founder_id, updated_at, source }] }`; `name` and `reviewed_by_name` are present for a manager only (a founder sees the kind of editor, never a name). Client: `useAlumniStamps(companyId)`, `shared/alumni/StampLine` ("Last edited by <who> on <date>").
+
+### 8.3 The invited founder completes his own data
+A manager-typed founder RECORD of the invited company whose e-mail equals the invitation's e-mail is ADOPTED by the new account (`handle_new_user`, `accept_invitation`): one person, one row, nothing the manager typed is lost, the manager's values are what the founder sees first. `create_alumni_invitation` accepts the e-mail of a record without an account (it used to answer `already_member`).
+
+### 8.4 (removed)
+The append-only log, `list_alumni_history`, `alumni_state_as_of` / `alumni_state_diff` and their client code were removed by m65 (owner decision 21). Only the stamps of 8.2 remain.
+
+### 8.5 The needs-attention queue
+`list_alumni_attention(p_filters, p_rules, p_limit, p_offset, p_sort)` (manager only) -> `{ total, limit, offset, sort, as_of, rules: [{ key, severity, section, selected, count }], counts: { total, with_issues, complete, by_rule: { <item>: n } }, rows: [{ id, name_en, name_ar, logo_path, is_alumni, missing: [items], required_missing, recommended_missing, completeness_percent, last_update: { at, source }, has_account, pending_invitations, ceo: { founder_id, name_en, name_ar, email, phone, has_account } | null, programs: [{ program_name_en, program_name_ar }] }] }`. Filters: `scope (all | alumni | candidates), q, program_id, project_id, missing (one item), severity, has_account, invited`. Sorts: `missing | completeness | name | updated`. `p_rules` = the item keys the manager chose (null = every item; an empty or unknown list is refused with `alumni_invalid`). The catalogue (15 items): required `ceo, ceo_id, contact, sector, governorate, latest_figures`; recommended `description, logo, established_on, stage, startup_type, subsector, legal_status, online_presence, ceo_education`. One set-based statement (no per-company call). A row links to `/alumni/admin/company/<id>?focus=<item>#<section>` (`lib/alumniAttention.fixPath`); when the CEO is missing the row shows that one root cause (the three CEO-dependent items are hidden, the server still counts them). Client: `listAlumniAttention`, `useAlumniAttention`, `lib/alumniAttention.js` (URL state, the per-browser rule choice under `athar.alumniAdmin.attentionRules.v1`, the Excel rows).
+
+## 9. Quarterly figures, reminders, performance (m66 - m69; owner decision 21). Client: `data/alumniQuarters.js`
+Draft = `company_figures` (one row per company, free-form, `updated_at` token, `'-infinity'` = "I loaded no draft"); snapshot = one FROZEN row per company per quarter `YYYY-Qn` (Africa/Cairo). Only snapshots feed graphs, aggregates, the directory table, analytics and the Excel export (through the view `alumni_year_rollup`: revenue = sum of the year's reported quarters; the other figures = the latest reported quarter; `employees_female` comes from the SAME quarter as `employees_total` and never exceeds it).
+| Client | RPC | Who | Returns |
+|---|---|---|---|
+| `getCompanyFigures(company)` | `get_company_figures` | founder (member) / manager | `{ company_id, calendar_period, target_period, deadline, status, target_status, draft, snapshots[] }` |
+| `saveCompanyFigures(company, data, expected)` | `save_company_figures` | founder of an ALUMNI company / manager | `{ saved, changed, ...figures }` (stale = `alumni_stale`) |
+| `confirmCompanyFigures(company)` | `confirm_company_figures` | founder of an alumni company | `{ confirmed, period, ...figures }` |
+| `closeAlumniQuarter / reopenAlumniQuarter / refreezeAlumniQuarter(period, company?)` | `close_alumni_quarter`, `reopen_alumni_quarter`, `refreeze_alumni_quarter` | manager | counts |
+| `correctAlumniSnapshot(company, period, data)` | `correct_alumni_snapshot` | manager | `{ saved, changed, backfilled?, snapshots[] }`; `data` may hold the figures, `team_size`, `female_founders`, `operating_status` (open / closed / null), `closed_on` (date / null, not after the quarter end) |
+| `getAlumniPortfolio({ filters, from, to })` | `get_alumni_portfolio` | manager | per-quarter indicators (reporting companies, sums, medians, survival and closing rates) |
+| `listAlumniQuarterStatus(...)` | `list_alumni_quarter_status` | manager | status per company for a quarter |
+| settings / templates | `get/set_alumni_quarter_settings`, `save/reset/preview_alumni_reminder_template` | manager | schedule, platform address, wording ar / en |
+| `previewAlumniReminders`, `sendAlumniReminders` | `preview_alumni_reminders`, `send_alumni_reminders` | manager | audience counts; send is idempotent per token; > 100 recipients need the exact count |
+| `listAlumniReminderCampaigns` | `list_alumni_reminder_campaigns` | manager | sends with counts and delivery states |
+
+Snapshot JSON: `{ id, period_key, year, status (frozen | reopened), reported, confirmed, frozen_at, frozen_source, corrected, corrected_at, previous_values, revenue_total, funding_raised_total, employees_total, employees_female, freelancers, team_size, female_founders, traction, challenges, needs, operating_status, closed_on }`. `operating_status` / `closed_on` are the company's state at the QUARTER END. Authenticated roles read `company_snapshots` only through column grants (no actor columns).
+
+## 10. Closed companies: "What are you doing now?" (m70; owner decision 22). Client: `data/alumniClosed.js`, `lib/alumniClosed.js`, `shared/alumni/i18n.closed.js`
+| Function | RPC | Who | Returns |
+|---|---|---|---|
+| `getCompanyAfterClosing(companyId)` | `get_company_after_closing` | founder of the company / manager | `{ company_id, closed, closed_on, current_period, answered_this_period, answer: null \| { answer_type, venture_name, field, venture_stage, venture_url, venture_description, wants_programs, employer, job_title, other_text, answered_at, answered_source } }` |
+| `saveCompanyAfterClosing(companyId, data)` | `save_company_after_closing` | same; only a CLOSED alumni company (`alumni_not_closed`) | `{ saved: true, ...get }`; the WHOLE answer is replaced (latest kept with its date, no history); `data` = `lib/alumniClosed.buildClosedPayload` (the fields of the chosen type only) |
+| `listClosedFollowups({ filters, status, type, interested, limit, offset, sort, dir })` | `list_alumni_closed_followups` | manager | `{ current_period, counts{total, answered, not_answered, new_startup, employed, other, interested}, total, rows[{ id, name_*, closed_on, founder{name_*, with_account}, answer\|null, reminders{count, last_at} }] }` |
+Answer types are the keys of the `after_closing` vocabulary (`new_startup`, `employed`, `other`); `field` / `venture_stage` are `sector` / `stage` lookup keys. The directory table and the Excel export derive "After closing" from the answer of a closed company (typed value otherwise). Reminders: `getAlumniQuarterSettings()` also returns `closed_templates` / `closed_placeholders`; the template functions take a `variant` (`figures` | `closed`), `previewAlumniReminders` returns `{ ...figures, closed: {...}, total }`, `sendAlumniReminders` takes `audience` (`all` | `figures` | `closed`). The closed reminder's link is `/alumni/founder/after-closing?company=<id>`; the figures link of a closed company redirects there.

@@ -135,14 +135,6 @@ export function completenessTone(percent) {
   return 'danger'
 }
 
-/** The years the yearly table offers to add: this year (Cairo is close enough for a year) back to `span` years, minus the years that already have a row. */
-export function missingYears(snapshots, now = new Date(), span = 5) {
-  const have = new Set((snapshots ?? []).map((s) => Number(s.year)))
-  const out = []
-  for (let y = now.getFullYear(); y > now.getFullYear() - span; y -= 1) if (!have.has(y)) out.push(y)
-  return out
-}
-
 /** `Kind: url` pairs of a company's social entries, for display (the export builds its own text on the server). */
 const SOCIAL_KINDS = Object.freeze(['facebook', 'instagram', 'x', 'tiktok', 'youtube', 'telegram', 'whatsapp'])
 export const LINK_KINDS = Object.freeze([...SOCIAL_KINDS, 'deck', 'video', 'other'])

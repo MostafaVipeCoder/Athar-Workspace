@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
-  analyticsSheets, archivePatch, audienceKey, audienceReady, audienceToRpc, barRows, chunkRows, deadlineState, defaultSnapshotYear, emptyOppForm, filterPreviewRows, invitationsAsTsv,
+  analyticsSheets, archivePatch, audienceKey, audienceReady, audienceToRpc, barRows, chunkRows, deadlineState, emptyOppForm, filterPreviewRows, invitationsAsTsv,
   lookupKeyFromLabel, matchCompanyByName, mergePreviews, missingLanguage, oppFormToPatch, oppStatus, oppToForm, parseInviteLines, parseNumberInput, publishPatch, readRate, restorePatch,
   sharePct, snapshotPatch, snapshotToForm, splitLine, toImportRows, unpublishPatch, validateMessage, validateOpp, validateSnapshotForm, yearOptions, yearSeries,
 } from './adminLogic.js'
@@ -141,10 +141,8 @@ describe('the yearly grid', () => {
     expect(snapshotPatch(base, base)).toEqual({})
     expect(snapshotPatch(base, { ...base, revenue_total: 'abc' })).toEqual({})
   })
-  it('defaults to the latest year with data, else last year; offers the recent years', () => {
+  it('offers the latest year with data and the recent years', () => {
     const now = new Date(2026, 9, 14)
-    expect(defaultSnapshotYear(2024, now)).toBe(2024)
-    expect(defaultSnapshotYear(null, now)).toBe(2025)
     expect(yearOptions(2024, now, 3)).toEqual([2026, 2025, 2024])
     expect(yearOptions(2030, now, 2)).toEqual([2030, 2029])
   })

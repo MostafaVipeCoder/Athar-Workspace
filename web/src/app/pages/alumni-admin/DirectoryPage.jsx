@@ -15,6 +15,7 @@ import { LABEL_CLASS, SELECT_CLASS } from '../../../ui/Field.jsx'
 import { AdminPage, Pagination, Segmented } from './ui.jsx'
 import DirectoryFilters from './DirectoryFilters.jsx'
 import DirectoryTable from './DirectoryTable.jsx'
+import AreaTabs from './AreaTabs.jsx'
 import ColumnChooser from './ColumnChooser.jsx'
 import CompanyDrawer from './CompanyDrawer.jsx'
 import ExportDialog from './ExportDialog.jsx'
@@ -24,6 +25,7 @@ import { yearOptions } from './adminLogic.js'
 import { useAdminErrorText, useAdminFormat, useDebounced, useLabels } from './hooks.js'
 import './i18n.common.js'
 import './directory.i18n.js'
+import '../../../shared/alumni/i18n.edit.js'
 
 /**
  * M2: the manager directory. Filters, sort, page and year live in the URL; the columns and the saved views in this browser. ONE page of rows is requested at a time
@@ -127,6 +129,8 @@ export default function DirectoryPage() {
         </>
       }
     >
+      <AreaTabs />
+
       <div className="space-y-3">
         <div className="flex flex-wrap items-end gap-3">
           <SearchBar className="min-w-60 flex-1 sm:max-w-sm" label={d('searchLabel')} placeholder={d('searchPlaceholder')} value={qText} onChange={setQText} />

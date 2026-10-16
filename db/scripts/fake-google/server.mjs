@@ -539,6 +539,13 @@ export async function startFakeGoogle(options = {}) {
       return send(res, 200, { id: inj.id })
     }
     if (req.method === 'POST' && path === '/__control/clear-injections') { S.injections = []; return send(res, 200, { ok: true }) }
+    // the request log and the per-area counters back to zero (a test proves "zero Google calls" from here on)
+    if (req.method === 'POST' && path === '/__control/clear-calls') { S.calls = []; S.counters = { token: 0, gmailSend: 0, calendar: 0, revoke: 0, authorize: 0 }; return send(res, 200, { ok: true }) }
+    // an event gone for good (Google purges deleted events after a while: a get answers 404 although the id can never be inserted again in real life)
+    if (req.method === 'POST' && path === '/__control/purge-event') {
+      const map = S.events.get(String(body.email ?? '').toLowerCase())
+      return send(res, 200, { purged: Boolean(map?.delete(String(body.id ?? ''))) })
+    }
     if (req.method === 'POST' && path === '/__control/expire-access-tokens') { for (const a of S.access.values()) a.expiresAt = 0; return send(res, 200, { ok: true }) }
     if (req.method === 'POST' && path === '/__control/revoke-all') {
       const email = String(body.email ?? '').toLowerCase()

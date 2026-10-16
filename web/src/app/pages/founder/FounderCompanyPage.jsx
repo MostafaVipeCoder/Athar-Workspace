@@ -2,8 +2,9 @@ import { useCallback, useEffect, useState } from 'react'
 import { Link, useLocation, useParams } from 'react-router-dom'
 import { ArrowLeft, ExternalLink, Globe2, Layers, LineChart, MapPin, RefreshCw, Users } from 'lucide-react'
 import {
-  alumniKeys, getMyCompanyProfile, removeCompanyTeamMember, saveCompanyTeamMember, saveMyCompanyProfile, setCompanyCeo, upsertCompanySnapshot, useAlumniLookups, useMyCompanyProfile,
+  alumniKeys, getMyCompanyProfile, removeCompanyTeamMember, saveCompanyTeamMember, saveMyCompanyProfile, setCompanyCeo, useAlumniLookups, useAlumniStamps, useMyCompanyProfile,
 } from '../../../data/alumni.js'
+import { useCompanyFigures } from '../../../data/alumniQuarters.js'
 import { publicThumbUrl, removeObjects } from '../../../data/storage.js'
 import { useLanguage } from '../../../i18n/LanguageProvider.jsx'
 import { Badge } from '../../../ui/Badge.jsx'
@@ -19,11 +20,12 @@ import { useAuth } from '../../AuthContext.js'
 import { CompletenessMeter, ProfileSection } from '../../../shared/alumni/blocks.jsx'
 import { scrollToSection } from '../../../shared/alumni/scrollToSection.js'
 import { CompanyBasicsSection, CompanyClassificationSection, CompanyLocationSection, CompanyOnlineSection, CompanyStatusSection, DirectoryVisibilitySection } from '../../../shared/alumni/CompanySections.jsx'
-import MetricsTable from '../../../shared/alumni/MetricsTable.jsx'
+import FiguresPanel, { FiguresBanner } from '../../../shared/alumni/FiguresPanel.jsx'
+import StampLine from '../../../shared/alumni/StampLine.jsx'
+import { useStaleResolver } from '../../../shared/alumni/useStaleResolver.jsx'
 import ProgramsReadOnlyList from '../../../shared/alumni/ProgramsReadOnlyList.jsx'
 import SaveBar from '../../../shared/alumni/SaveBar.jsx'
 import TeamEditor from '../../../shared/alumni/TeamEditor.jsx'
-import TrendBars from '../../../shared/alumni/TrendBars.jsx'
 import UnsavedGuard from '../../../shared/alumni/UnsavedGuard.jsx'
 import { useDraftForm } from '../../../shared/alumni/useDraftForm.js'
 import { useAlumniErrorText } from '../../../shared/alumni/useAlumniErrorText.js'
@@ -34,6 +36,8 @@ import './alumni.i18n.js'
 import './alumni.company.i18n.js'
 import '../../../shared/alumni/i18n.js'
 import '../../../shared/alumni/i18n.company.js'
+import '../../../shared/alumni/i18n.edit.js'
+import '../../../shared/alumni/i18n.quarters.js'
 
 const sectionOfField = (field) => (['name_en', 'name_ar', 'description_en', 'description_ar', 'logo_path', 'established_on'].includes(field) ? 'basics'
   : ['startup_type', 'sector', 'subsector', 'stage', 'legal_status'].includes(field) ? 'classification'
@@ -109,6 +113,11 @@ function CompanyEditor({ payload }) {
   const errorText = useAlumniErrorText()
   const { refresh, fetchFresh } = useAlumniRefresh()
   const { company } = payload
+  const stamps = useAlumniStamps(company.id)
+  const figs = useCompanyFigures(company.id)
+  // owner decision 21: no per-section history; the company row and each figure form carry their own "last modified"
+  const stampOf = () => null
+  const companyStamp = stamps.data?.company?.updated_at ? { at: stamps.data.company.updated_at, source: stamps.data.company.source } : null
   const hash = location.hash
   // a link such as /company/<id>#metrics (the Progress page, the Home) lands on its section
   useEffect(() => { if (hash) scrollToSection(hash.slice(1)) }, [hash])
@@ -124,6 +133,8 @@ function CompanyEditor({ payload }) {
   const [serverErrors, setServerErrors] = useState({})
   const [stale, setStale] = useState(false)
   const [busy, setBusy] = useState(false)
+  // the Athar team (or a co-founder) saved this company while I was editing: load their version, keep my edits, ask only where we both changed the same field
+  const resolver = useStaleResolver({ form, toForm: (p) => companyToForm(p.company), versionOf: (p) => p.company.updated_at, whoOf: (p) => p.company.updated_source, audience: 'founder' })
 
   const patch = buildCompanyPatch(base, values)
   const changeCount = Object.keys(patch).length
@@ -143,6 +154,7 @@ function CompanyEditor({ payload }) {
 
   function undo() {
     form.reset()
+    resolver.clearNotice()
     setServerErrors({})
     setSubmitted(false)
     setStale(false)
@@ -159,6 +171,7 @@ function CompanyEditor({ payload }) {
       await refresh()
       form.rebase(companyToForm(saved.company), saved.company.updated_at)
       setStale(false)
+      resolver.clearNotice()
       toast.success(t('alumni.founder.saved'))
     } catch (err) {
       const parsed = parseAlumniError(err)
@@ -177,11 +190,10 @@ function CompanyEditor({ payload }) {
     }
   }
 
-  // someone else saved first: take their version and put MY edits back on top (only the keys I changed)
+  // someone else saved first: take their version and put MY edits back on top (only the keys I changed); a field we BOTH changed to different values is decided by me, in a dialog
   async function reloadKeepingMine() {
-    const fresh = await fetchFresh(alumniKeys.myCompany(company.id), () => getMyCompanyProfile(company.id))
-    form.rebase(companyToForm(fresh.company), fresh.company.updated_at, Object.keys(patch))
-    setStale(false)
+    const r = await resolver.resolve({ fetchFresh: () => fetchFresh(alumniKeys.myCompany(company.id), () => getMyCompanyProfile(company.id)), keys: Object.keys(patch) })
+    if (r !== 'failed') setStale(false)
   }
 
   const team = {
@@ -189,8 +201,6 @@ function CompanyEditor({ payload }) {
     remove: async (founderId) => { await removeCompanyTeamMember(company.id, founderId); await refresh() },
     ceo: async (founderId) => { await setCompanyCeo(company.id, founderId); await refresh() },
   }
-  const saveYear = async (year, data) => { await upsertCompanySnapshot(company.id, year, data); await refresh() }
-
   const sections = [
     { id: 'basics', label: t('alumni.founder.nav.basics') }, { id: 'classification', label: t('alumni.founder.nav.classification') },
     { id: 'location', label: t('alumni.founder.nav.location') }, { id: 'online', label: t('alumni.founder.nav.online') },
@@ -209,6 +219,10 @@ function CompanyEditor({ payload }) {
         </div>
       )}
       <CompanyCard company={company} programsCount={payload.programs?.length ?? 0} />
+      <StampLine stamp={companyStamp} />
+      {figs.data && (
+        <FiguresBanner status={figs.data.status} period={figs.data.calendar_period} deadline={figs.data.deadline} className="cursor-pointer" />
+      )}
       <div className="rounded-card border bg-card p-4">
         <CompletenessMeter
           title={t('alumni.founder.company.completeness')}
@@ -228,21 +242,23 @@ function CompanyEditor({ payload }) {
         </div>
       )}
 
-      <CompanyBasicsSection values={values} set={set} setMany={setMany} errors={errors} userId={user?.id} track={form.track} disabled={busy} />
-      <CompanyClassificationSection values={values} set={set} setMany={setMany} errors={errors} disabled={busy} />
-      <CompanyLocationSection values={values} set={set} setMany={setMany} errors={errors} disabled={busy} />
-      <CompanyOnlineSection values={values} set={set} errors={errors} disabled={busy} />
-      <CompanyStatusSection values={values} set={set} setMany={setMany} errors={errors} disabled={busy} />
-      <DirectoryVisibilitySection values={values} set={set} errors={errors} disabled={busy} blocked={company.directory_blocked} isAlumni={company.is_alumni} />
+      {resolver.dialog}
+      {resolver.notice}
 
-      <ProfileSection id="team" icon={Users} title={t('alumni.founder.company.teamTitle')} description={t('alumni.founder.company.teamDesc')}>
+      <CompanyBasicsSection values={values} set={set} setMany={setMany} errors={errors} userId={user?.id} track={form.track} disabled={busy} stamp={stampOf('basics')} />
+      <CompanyClassificationSection values={values} set={set} setMany={setMany} errors={errors} disabled={busy} stamp={stampOf('classification')} />
+      <CompanyLocationSection values={values} set={set} setMany={setMany} errors={errors} disabled={busy} stamp={stampOf('location')} />
+      <CompanyOnlineSection values={values} set={set} errors={errors} disabled={busy} stamp={stampOf('online')} />
+      <CompanyStatusSection values={values} set={set} setMany={setMany} errors={errors} disabled={busy} stamp={stampOf('status')} />
+      <DirectoryVisibilitySection values={values} set={set} errors={errors} disabled={busy} blocked={company.directory_blocked} isAlumni={company.is_alumni} stamp={stampOf('directory')} />
+
+      <ProfileSection id="team" icon={Users} title={t('alumni.founder.company.teamTitle')} description={t('alumni.founder.company.teamDesc')} stamp={stampOf('team')}>
         <TeamEditor team={payload.team} counts={payload.counts} ceoFounderId={payload.ceo_founder_id} onSaveMember={team.save} onRemove={team.remove} onSetCeo={team.ceo} />
         <CoFounderInvite companyId={company.id} />
       </ProfileSection>
 
-      <ProfileSection id="metrics" icon={LineChart} title={t('alumni.founder.company.metricsTitle')} description={t('alumni.founder.company.metricsDesc')}>
-        <TrendBars snapshots={payload.snapshots} />
-        <MetricsTable snapshots={payload.snapshots} onSave={saveYear} />
+      <ProfileSection id="metrics" icon={LineChart} title={t('alumni.founder.company.metricsTitle')} description={t('alumni.founder.company.metricsDesc')} >
+        <FiguresPanel companyId={company.id} audience="founder" companyName={company.name_en || company.name_ar} />
       </ProfileSection>
 
       <ProfileSection id="programs" icon={Layers} title={t('alumni.founder.company.programsTitle')} description={t('alumni.founder.company.programsDesc')}>

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { barRatios, buildMilestones, lastChange, milestonePercent, nextMilestone, overallCompleteness, reportedYears, snapshotSeries } from './alumniProgress.js'
+import { buildMilestones, milestonePercent, nextMilestone, overallCompleteness, MILESTONE_KEYS } from './alumniProgress.js'
 
 const company = (over = {}) => ({ id: 'c1', completeness: { percent: 80, missing: ['description', 'annual_update'] }, latest_snapshot_year: null, ...over })
 const profile = (over = {}) => ({ founder: { completeness: { percent: 75, missing: ['education_status'] } }, companies: [company()], ...over })
@@ -51,34 +51,5 @@ describe('overallCompleteness', () => {
     expect(overallCompleteness(profile())).toBe(Math.round((75 * 4 + 80 * 10) / 14))
     expect(overallCompleteness({ founder: { completeness: { percent: 50 } }, companies: [] })).toBe(50)
     expect(overallCompleteness({})).toBeNull()
-  })
-})
-
-const snaps = [
-  { year: 2024, revenue_total: 260000, employees_total: 12, funding_raised_total: null },
-  { year: 2022, revenue_total: 100000, employees_total: 5, funding_raised_total: 0 },
-  { year: 2023, revenue_total: '180000.50', employees_total: null, funding_raised_total: 50000 },
-]
-describe('snapshotSeries / lastChange / barRatios', () => {
-  it('oldest first, years without a figure dropped, numeric strings accepted, zero kept', () => {
-    expect(snapshotSeries(snaps, 'revenue_total')).toEqual([{ year: 2022, value: 100000 }, { year: 2023, value: 180000.5 }, { year: 2024, value: 260000 }])
-    expect(snapshotSeries(snaps, 'employees_total')).toEqual([{ year: 2022, value: 5 }, { year: 2024, value: 12 }])
-    expect(snapshotSeries(snaps, 'funding_raised_total')).toEqual([{ year: 2022, value: 0 }, { year: 2023, value: 50000 }])
-    expect(snapshotSeries(null, 'revenue_total')).toEqual([])
-  })
-  it('the change compares the latest figure with the previous reported year', () => {
-    expect(lastChange(snapshotSeries(snaps, 'employees_total'))).toEqual({ year: 2024, value: 12, prevYear: 2022, prevValue: 5, delta: 7, pct: 140 })
-    expect(lastChange([{ year: 2024, value: 1 }])).toBeNull()
-    expect(lastChange([{ year: 2023, value: 0 }, { year: 2024, value: 5 }]).pct).toBeNull()
-  })
-  it('bar heights are ratios of the largest value', () => {
-    const { max, bars } = barRatios(snapshotSeries(snaps, 'revenue_total'))
-    expect(max).toBe(260000)
-    expect(bars.map((b) => Math.round(b.ratio * 100))).toEqual([38, 69, 100])
-    expect(barRatios([{ year: 2024, value: 0 }]).bars[0].ratio).toBe(0)
-    expect(barRatios([]).max).toBe(0)
-  })
-  it('reportedYears lists the years that carry any figure, newest first', () => {
-    expect(reportedYears([{ year: 2023, traction: 'x' }, { year: 2021 }, { year: 2024, revenue_total: 0 }])).toEqual([2024, 2023])
   })
 })

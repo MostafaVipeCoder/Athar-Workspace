@@ -11,7 +11,8 @@
     "preview": "vite preview --host 127.0.0.1 --port 4174",
     "lint": "eslint .",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "test:edge": "node --test \"../supabase-new/functions/_shared/tests/*.test.js\""
   },
   "dependencies": {
     "@jsquash/jpeg": "1.6.0",
@@ -20,6 +21,7 @@
     "@tanstack/react-query": "^5.104.1",
     "@xyflow/react": "^12.8.4",
     "clsx": "^2.1.1",
+    "dompurify": "^3.2.6",
     "lucide-react": "^1.55.0",
     "qrcode-generator": "^2.0.4",
     "react": "^19.3.0",

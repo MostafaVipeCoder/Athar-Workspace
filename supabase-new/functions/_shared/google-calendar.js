@@ -146,9 +146,22 @@ export function buildEventInsert({ bookingId, summary, description = '', startsA
   return { id, event, query: { conferenceDataVersion: meetMode === 'unique' ? 1 : 0, sendUpdates } }
 }
 
-/** Body + query of `events.patch` for a reschedule / attendee change (the Meet link and the event id never change). */
-export function buildEventPatch({ startsAt = null, endsAt = null, timeZone = null, attendees = null, summary = null, sendUpdates = 'all' } = {}) {
+/**
+ * Body + query of `events.patch` for a reschedule / attendee change (the Meet link and the event id never change).
+ * `status: 'confirmed'` brings back an event that was deleted earlier (a restored booking); `conferenceRequestId` asks for a Meet link on an
+ * event that has none yet (conferenceDataVersion=1 on the URL).
+ */
+export function buildEventPatch({ startsAt = null, endsAt = null, timeZone = null, attendees = null, summary = null, status = null, conferenceRequestId = null, sendUpdates = 'all' } = {}) {
   const event = {}
+  if (status !== null) {
+    if (!['confirmed', 'cancelled'].includes(status)) throw new CalendarConfigError('invalid_status', 'status')
+    event.status = status
+  }
+  if (conferenceRequestId !== null) {
+    const rid = String(conferenceRequestId)
+    if (!/^[A-Za-z0-9_-]{5,64}$/.test(rid)) throw new CalendarConfigError('invalid_request_id', 'conferenceRequestId')
+    event.conferenceData = { createRequest: { requestId: rid, conferenceSolutionKey: { type: 'hangoutsMeet' } } }
+  }
   if (startsAt !== null || endsAt !== null) {
     if (startsAt === null || endsAt === null) throw new CalendarConfigError('invalid_time', 'startsAt')
     const s = Date.parse(startsAt)
@@ -160,7 +173,7 @@ export function buildEventPatch({ startsAt = null, endsAt = null, timeZone = nul
   }
   if (attendees !== null) event.attendees = attendees.map((a) => ({ email: a.email }))
   if (summary !== null) event.summary = cleanText(summary, 250)
-  return { event, query: { sendUpdates } }
+  return { event, query: { sendUpdates, ...(conferenceRequestId !== null ? { conferenceDataVersion: 1 } : {}) } }
 }
 
 // ------------------------------------------------------------------------------------------------ reading an event back

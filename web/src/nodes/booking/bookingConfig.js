@@ -156,14 +156,48 @@ export function confirmedBySlot(bookings = []) {
 }
 
 // ------------------------------------------------------------------ calendar / e-mail state (design 07 section 2.2)
-export const SYNC_STATES = ['synced', 'legacy', 'pending', 'waiting_connection', 'processing', 'failed', 'dead', 'cancelled', 'none']
+// The states the DATABASE derives (m63 get_calendar_sync_overview) + the three the client derived before it existed (legacy / waiting_connection / processing / dead).
+export const SYNC_STATES = ['synced', 'migrated', 'pending', 'syncing', 'retrying', 'shadow', 'off', 'needs_connection', 'failed', 'cancelled', 'past', 'none', 'legacy', 'waiting_connection', 'processing', 'dead']
+export const SYNC_TONE = { synced: 'green', migrated: 'green', legacy: 'green', pending: 'blue', syncing: 'blue', processing: 'blue', retrying: 'amber', shadow: 'outline', off: 'neutral', needs_connection: 'amber', waiting_connection: 'amber', failed: 'red', dead: 'red', cancelled: 'neutral', past: 'neutral', none: 'outline' }
+/** States for which the PM can press "Retry" (a failed job starts again with a fresh counter; a backing-off or parked one becomes due now). */
+export const SYNC_RETRYABLE = ['failed', 'dead', 'retrying', 'needs_connection', 'waiting_connection']
+export const MAX_SYNC_ATTEMPTS = 6
+
+/** get_calendar_sync_overview -> { [bookingId]: entry } (empty when the overview is missing: the screens fall back to the queue rows). */
+export function overviewIndex(overview) {
+  return Object.fromEntries((overview?.bookings ?? []).map((e) => [e.booking_id, e]))
+}
+
+/** The i18n key suffix of a machine code ('rate_limited:429' -> 'rate_limited', 'server_error:503' -> 'server_error'); an unknown code -> 'unknown'. */
+export const SYNC_CODES = ['needs_connection', 'needs_reconnect', 'rate_limited', 'server_error', 'timeout', 'network', 'unauthorized', 'forbidden', 'bad_request', 'not_found', 'gone', 'conflict', 'conference_pending', 'conference_failed',
+  'shared_link_required', 'shared_link_invalid', 'invalid_timezone', 'invalid_time', 'legacy_event_missing', 'lease_expired', 'db_error', 'internal_error', 'deferred']
+export function syncCodeKey(code) {
+  const base = String(code ?? '').split(':')[0]
+  return SYNC_CODES.includes(base) ? base : 'unknown'
+}
+/** The localised sentence of a machine code ('rate_limited:429' -> "Google is limiting requests ..."). Never shows a server message: there is none. */
+export const syncProblemText = (t, code) => t(`booking.sync.err.${syncCodeKey(code)}`, { code: String(code ?? '') })
+
+/** "Open in Google Calendar": the htmlLink Google gave us when we have it, else the eid link Google builds from the event id and the calendar's account. */
+export function googleCalendarEventUrl(entry) {
+  const fromJob = entry?.job?.html_link
+  if (typeof fromJob === 'string' && /^https:\/\/(www\.)?google\.com\/calendar\//.test(fromJob)) return fromJob
+  if (!entry?.event_id || !entry?.calendar_email) return null
+  const raw = `${entry.event_id} ${entry.calendar_email}`
+  if (typeof btoa !== 'function') return null
+  const b64 = btoa(raw)
+  return `https://calendar.google.com/calendar/event?eid=${encodeURIComponent(b64.replace(/=+$/, ''))}`
+}
 
 /**
- * Calendar sync state of one booking from its integration_jobs rows (+ the usable Google connections):
- * { key, job } where key is one of SYNC_STATES. `waiting_connection` = a pending job with no connection to run on (the
- * OAuth work of design 07 has not shipped): it stays pending and the UI says so, never blocks the booking.
+ * Calendar sync state of one booking: { key, job, entry } where key is one of SYNC_STATES.
+ * With the m63 overview (`index` = overviewIndex(get_calendar_sync_overview), built once by the caller) the DATABASE decides (it knows the mode, the calendar
+ * owner, the migrated bookings and the parked jobs); without it the state is derived from the queue rows like before: `waiting_connection` = a pending job with
+ * no connection to run on.
  */
-export function syncState(booking, jobs = [], connections = []) {
+export function syncState(booking, jobs = [], connections = [], index = null) {
+  const entry = index ? index[booking.id] : null
+  if (entry) return { key: SYNC_STATES.includes(entry.state) ? entry.state : 'none', job: entry.job ?? null, entry }
   const own = jobs.filter((j) => j.booking_id === booking.id).sort((a, b) => String(a.created_at).localeCompare(String(b.created_at)))
   const last = own[own.length - 1] ?? null
   const hasConnection = connections.some((c) => c.status === 'active')

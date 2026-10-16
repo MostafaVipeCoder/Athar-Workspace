@@ -19,8 +19,11 @@ export default function NetworkShell() {
     { to: '/alumni/admin/invitations', label: t('nav.invitations') },
     { to: '/alumni/admin/opportunities', label: t('nav.opportunities') },
     { to: '/alumni/admin/notifications', label: t('nav.notifications') },
-    { to: '/alumni/admin/analytics', label: t('nav.analytics') },
-    { to: '/alumni/admin/workspace', label: t('nav.workspace') },
+    // nine links do not fit one line next to the logo and the account (the slot is 686 px at every desktop width, 5 links + the button fill it): the last four sit in a "More" menu (the active one names the button)
+    { to: '/alumni/admin/quarters', label: t('nav.quarters'), more: true },
+    { to: '/alumni/admin/analytics', label: t('nav.analytics'), more: true },
+    { to: '/alumni/admin/workspace', label: t('nav.workspace'), more: true },
+    { to: '/alumni/admin/experts', label: t('nav.experts'), more: true },
   ]
   return (
     <div className="flex min-h-dvh flex-col bg-background">

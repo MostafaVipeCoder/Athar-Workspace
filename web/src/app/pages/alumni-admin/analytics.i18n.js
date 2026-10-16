@@ -3,7 +3,7 @@ import { registerMessages } from '../../../i18n/core.js'
 registerMessages('alumni.admin.ana', {
   en: {
     title: 'Analytics', titleImpact: 'Impact', subtitle: 'Aggregates of the alumni registry, filtered as you wish. Every number is read from the database; a figure nobody reported is shown as missing, never estimated.',
-    subtitleImpact: 'The cumulative impact of all alumni companies: survival, jobs, revenue and funding, from the yearly figures the companies reported.',
+    subtitleImpact: 'The cumulative impact of all alumni companies: survival, jobs, revenue and funding, from the closed quarters the companies reported.',
     views: 'View', viewAnalytics: 'Analytics (with filters)', viewImpact: 'Impact (all alumni)',
     year: 'Figures of the year', yearLatest: 'Latest year with data', filters: 'Filters', hideFilters: 'Hide filters', exportExcel: 'Export to Excel', exportFile: 'alumni-analytics', exportOwner: 'Export the owner\'s Excel',
     emptyTitle: 'No alumni company matches', emptyBody: 'The analytics count alumni companies. Change the filters, or mark companies as alumni in the directory.', loadFailed: 'The analytics could not be loaded.',
@@ -15,7 +15,7 @@ registerMessages('alumni.admin.ana', {
     notReported: 'Not reported',
     secStatus: 'Operating status', secGender: 'CEO gender (from the national ID)', secAge: 'CEO age category (from the national ID)', secSector: 'By sector', secStage: 'By stage', secType: 'By startup type', secLegal: 'By legal status', secLocation: 'By company location', secCeoGov: 'By CEO governorate (from the national ID)', secProgram: 'By program',
     sector: 'Sector', stage: 'Stage', startupType: 'Startup type', legalStatus: 'Legal status', companyLocation: 'Company location', ceoGovernorate: 'CEO governorate (national ID)', gender: 'CEO gender', ageCategory: 'CEO age category', program: 'Program', byYear: 'By year',
-    trend: 'Yearly totals', trendHint: 'Sums of the companies that reported each year (a year with few reports looks small: read it with the number of companies).', trendRevenue: 'Revenue', trendFunding: 'Funding raised (cumulative)', trendJobs: 'Employees',
+    trend: 'Yearly totals (from closed quarters)', trendHint: 'Sums of the companies that reported each year (a year with few reports looks small: read it with the number of companies).', trendRevenue: 'Revenue', trendFunding: 'Funding raised (cumulative)', trendJobs: 'Employees',
     tableYear: 'Year', tableReporting: 'Companies reporting', tableRevenue: 'Revenue', tableFunding: 'Funding raised', tableJobs: 'Employees', tableFemaleJobs: 'Female employees', tableFreelancers: 'Freelancers', noTrend: 'No yearly figures yet.',
     s_summary: 'Summary', s_metric: 'Metric', s_value: 'Value', s_label: 'Label', s_count: 'Companies', s_year: 'Year',
     m_companies: 'Alumni companies', m_open: 'Open', m_closed: 'Closed', m_survival: 'Still operating (%)', m_withProgram: 'Took part in a program', m_reporting: 'Companies reporting the year', m_founders: 'Founders', m_femaleFounders: 'Female founders', m_foundersUnder35: 'Founders below 35',
@@ -24,7 +24,7 @@ registerMessages('alumni.admin.ana', {
   },
   ar: {
     title: 'التحليلات', titleImpact: 'الأثر', subtitle: 'تجميعات سجل الخريجين، بالتصفية التي تريد. كل رقم يُقرأ من قاعدة البيانات، والرقم الذي لم يقدّمه أحد يظهر "غير مُبلَّغ" ولا يُقدَّر أبداً.',
-    subtitleImpact: 'الأثر التراكمي لكل الشركات الخريجة: البقاء والوظائف والإيرادات والتمويل، من الأرقام السنوية التي قدّمتها الشركات.',
+    subtitleImpact: 'الأثر التراكمي لكل شركات الألومناي: البقاء والوظائف والإيرادات والتمويل، من الأرباع المُغلقة التي أبلغت عنها الشركات.',
     views: 'العرض', viewAnalytics: 'التحليلات (مع التصفية)', viewImpact: 'الأثر (كل الخريجين)',
     year: 'أرقام سنة', yearLatest: 'آخر سنة لها بيانات', filters: 'التصفية', hideFilters: 'إخفاء التصفية', exportExcel: 'تصدير إلى إكسل', exportFile: 'تحليلات-الخريجين', exportOwner: 'تصدير إكسل المالك',
     emptyTitle: 'لا توجد شركة خريجة مطابقة', emptyBody: 'التحليلات تحسب الشركات الخريجة. غيّر التصفية، أو صنّف شركات كخريجة في الدليل.', loadFailed: 'تعذّر تحميل التحليلات.',
@@ -36,7 +36,7 @@ registerMessages('alumni.admin.ana', {
     notReported: 'غير مُبلَّغ',
     secStatus: 'حالة التشغيل', secGender: 'نوع الرئيس التنفيذي (من الرقم القومي)', secAge: 'الفئة العمرية للرئيس التنفيذي (من الرقم القومي)', secSector: 'حسب القطاع', secStage: 'حسب المرحلة', secType: 'حسب نوع الشركة', secLegal: 'حسب الوضع القانوني', secLocation: 'حسب موقع الشركة', secCeoGov: 'حسب محافظة الرئيس التنفيذي (من الرقم القومي)', secProgram: 'حسب البرنامج',
     sector: 'القطاع', stage: 'المرحلة', startupType: 'نوع الشركة', legalStatus: 'الوضع القانوني', companyLocation: 'موقع الشركة', ceoGovernorate: 'محافظة الرئيس التنفيذي (رقم قومي)', gender: 'نوع الرئيس التنفيذي', ageCategory: 'الفئة العمرية للرئيس التنفيذي', program: 'البرنامج', byYear: 'حسب السنة',
-    trend: 'المجاميع السنوية', trendHint: 'مجاميع الشركات التي قدّمت بيانات كل سنة (السنة القليلة التقارير تبدو صغيرة: اقرأها مع عدد الشركات).', trendRevenue: 'الإيرادات', trendFunding: 'التمويل المجمَّع (تراكمي)', trendJobs: 'الموظفون',
+    trend: 'المجاميع السنوية (من الأرباع المُغلقة)', trendHint: 'مجاميع الشركات التي قدّمت بيانات كل سنة (السنة القليلة التقارير تبدو صغيرة: اقرأها مع عدد الشركات).', trendRevenue: 'الإيرادات', trendFunding: 'التمويل المجمَّع (تراكمي)', trendJobs: 'الموظفون',
     tableYear: 'السنة', tableReporting: 'الشركات المُبلِّغة', tableRevenue: 'الإيرادات', tableFunding: 'التمويل المجمَّع', tableJobs: 'الموظفون', tableFemaleJobs: 'الموظفات', tableFreelancers: 'المستقلون', noTrend: 'لا توجد أرقام سنوية بعد.',
     s_summary: 'الملخص', s_metric: 'المؤشر', s_value: 'القيمة', s_label: 'التصنيف', s_count: 'الشركات', s_year: 'السنة',
     m_companies: 'الشركات الخريجة', m_open: 'مفتوحة', m_closed: 'مغلقة', m_survival: 'لا تزال تعمل (٪)', m_withProgram: 'شاركت في برنامج', m_reporting: 'الشركات المُبلِّغة للسنة', m_founders: 'المؤسسون', m_femaleFounders: 'المؤسِّسات', m_foundersUnder35: 'مؤسسون دون 35',

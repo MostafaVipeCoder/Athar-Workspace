@@ -30,12 +30,16 @@ export default function ProgramForm({ initial, onSubmit, submitLabel, busy, cove
       <BilingualField label={t('programs.form.name')} required value={values.name} onChange={(v) => set('name', v)} error={errors.name && t(errors.name)} />
       <BilingualField label={t('programs.form.description')} as="textarea" value={values.description} onChange={(v) => set('description', v)} />
       <div className="grid gap-3 sm:grid-cols-3">
-        <Field label={t('programs.form.type')} list="program-types" value={values.program_type} onChange={(e) => set('program_type', e.target.value)} />
-        <datalist id="program-types">
+        {/* a real select: every option is visible at once (the type list is short); a legacy free-text value is kept as an extra option */}
+        <Field as="select" label={t('programs.form.type')} value={values.program_type ?? ''} onChange={(e) => set('program_type', e.target.value)}>
+          <option value="">{'—'}</option>
+          {values.program_type && !PROGRAM_TYPES.includes(values.program_type) && (
+            <option value={values.program_type}>{values.program_type}</option>
+          )}
           {PROGRAM_TYPES.map((x) => (
             <option key={x} value={x}>{t(`programs.type.${x}`)}</option>
           ))}
-        </datalist>
+        </Field>
         <Field label={t('programs.form.year')} type="number" inputMode="numeric" min="2000" max="2100" dir="ltr" value={values.year} onChange={(e) => set('year', e.target.value)} error={errors.year && t(errors.year)} />
         <Field as="select" label={t('programs.form.visibility')} value={values.visibility} onChange={(e) => set('visibility', e.target.value)} hint={t(`visibility.hint.${values.visibility}`)}>
           {VISIBILITY.map((v) => (

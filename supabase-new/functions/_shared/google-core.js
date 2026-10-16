@@ -162,6 +162,8 @@ function parseUrl(name, value) {
   return u
 }
 const isLoopbackHost = (u) => ['localhost', '127.0.0.1', '[::1]'].includes(u.hostname)
+/** The only hosts a fake-Google override may point at: this machine, or the host as seen from the local edge-runtime container. */
+const isLocalFakeHost = (u) => isLoopbackHost(u) || u.hostname === 'host.docker.internal'
 /** https everywhere, except a loopback address (Google itself allows http only for localhost) and the explicit fake-Google mode. */
 function requireSecureUrl(name, u, fake) {
   if (u.protocol !== 'https:' && !fake && !isLoopbackHost(u)) throw new ConfigError('https_required', [name])
@@ -197,7 +199,11 @@ export function getGoogleConfig(env) {
   const apiBase = trimSlash(get('GOOGLE_API_BASE') || DEFAULTS.apiBase)
   let revokeUrl = get('GOOGLE_REVOKE_URL')
   if (!revokeUrl) revokeUrl = get('GOOGLE_TOKEN_URL') ? tokenUrl.replace(/\/token\/?$/, '/revoke') : DEFAULTS.revokeUrl
-  for (const [n, v] of [['GOOGLE_AUTH_BASE', authBase], ['GOOGLE_TOKEN_URL', tokenUrl], ['GOOGLE_REVOKE_URL', revokeUrl], ['GOOGLE_API_BASE', apiBase]]) parseUrl(n, v)
+  for (const [n, v] of [['GOOGLE_AUTH_BASE', authBase], ['GOOGLE_TOKEN_URL', tokenUrl], ['GOOGLE_REVOKE_URL', revokeUrl], ['GOOGLE_API_BASE', apiBase]]) {
+    const u = parseUrl(n, v)
+    // ALLOW_FAKE_GOOGLE is a local-test switch: a leftover flag in a real environment must never send the client secret or a token to an arbitrary host
+    if (fake && overridden.includes(n) && !isLocalFakeHost(u)) throw new ConfigError('fake_host_not_local', [n])
+  }
 
   const policy = get('GOOGLE_PM_EMAIL_POLICY') || 'same_email'
   if (!['same_email', 'same_domain'].includes(policy)) throw new ConfigError('bad_value', ['GOOGLE_PM_EMAIL_POLICY'])

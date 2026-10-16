@@ -26,8 +26,6 @@ describe('data/alumni.js pins the RPC names and parameters of m49', () => {
     ['saveCompanyTeamMember (add a record)', () => A.saveCompanyTeamMember('c1', undefined, { name_en: 'Hana' }), 'save_company_team_member', { p_company: 'c1', p_founder: null, p_patch: { name_en: 'Hana' } }],
     ['removeCompanyTeamMember', () => A.removeCompanyTeamMember('c1', 'f1'), 'remove_company_team_member', { p_company: 'c1', p_founder: 'f1' }],
     ['setCompanyCeo', () => A.setCompanyCeo('c1', 'f1'), 'set_company_ceo', { p_company: 'c1', p_founder: 'f1' }],
-    ['upsertCompanySnapshot', () => A.upsertCompanySnapshot('c1', 2024, { revenue_total: 5 }), 'upsert_company_snapshot', { p_company: 'c1', p_year: 2024, p_data: { revenue_total: 5 } }],
-    ['deleteCompanySnapshot', () => A.deleteCompanySnapshot('c1', 2024), 'delete_company_snapshot', { p_company: 'c1', p_year: 2024 }],
     ['validateInvitation', () => A.validateInvitation('tok'), 'validate_invitation', { p_token: 'tok' }],
     ['acceptInvitation', () => A.acceptInvitation('tok'), 'accept_invitation', { p_token: 'tok' }],
     ['createAlumniInvitation', () => A.createAlumniInvitation({ companyId: 'c1', email: 'a@b.co', language: 'ar', appUrl: 'https://app.example.com' }), 'create_alumni_invitation', { p_company: 'c1', p_email: 'a@b.co', p_language: 'ar', p_app_url: 'https://app.example.com' }],
@@ -43,6 +41,13 @@ describe('data/alumni.js pins the RPC names and parameters of m49', () => {
     ['setCompaniesAlumni', () => A.setCompaniesAlumni(['c1', 'c2'], true), 'set_companies_alumni', { p_ids: ['c1', 'c2'], p_value: true }],
     ['exportAlumniRows', () => A.exportAlumniRows({ filters: { scope: 'all' }, year: 2023, lang: 'ar', asOf: '2026-10-14' }), 'export_alumni_rows', { p_filters: { scope: 'all' }, p_year: 2023, p_lang: 'ar', p_as_of: '2026-10-14' }],
     ['getAlumniAnalytics', () => A.getAlumniAnalytics({ filters: { q: 'x' }, year: 2024 }), 'get_alumni_analytics', { p_filters: { q: 'x' }, p_year: 2024 }],
+    // m60 / m65: the version of what the form loaded (optimistic concurrency, NO per-edit history or reason any more), the stamps and the needs-attention queue
+    ['saveAlumniCompany (with the version the form loaded)', () => A.saveAlumniCompany('c1', { stage: 'mvp' }, '2026-10-15T01:00:00+00:00'), 'save_alumni_company', { p_company: 'c1', p_patch: { stage: 'mvp' }, p_expected: '2026-10-15T01:00:00+00:00' }],
+    ['saveAlumniFounder (with the version)', () => A.saveAlumniFounder('f1', { phone: '1' }, '2026-10-15T01:00:00+00:00'), 'save_alumni_founder', { p_founder: 'f1', p_patch: { phone: '1' }, p_expected: '2026-10-15T01:00:00+00:00' }],
+    ['saveMyFounderProfile (with the version the form loaded)', () => A.saveMyFounderProfile({ phone: '1' }, '2026-10-15T01:00:00+00:00'), 'save_my_founder_profile', { p_patch: { phone: '1' }, p_expected: '2026-10-15T01:00:00+00:00' }],
+    ['getAlumniStamps', () => A.getAlumniStamps('c1'), 'get_alumni_stamps', { p_company: 'c1' }],
+    ['listAlumniAttention', () => A.listAlumniAttention({ filters: { scope: 'all', missing: 'sector' }, rules: ['sector', 'ceo'], limit: 5000, offset: 25, sort: 'name' }), 'list_alumni_attention', { p_filters: { scope: 'all', missing: 'sector' }, p_rules: ['sector', 'ceo'], p_limit: 5000, p_offset: 25, p_sort: 'name' }],
+    ['listAlumniAttention (defaults: every rule, the worst first)', () => A.listAlumniAttention(), 'list_alumni_attention', { p_filters: {}, p_rules: null, p_limit: 25, p_offset: 0, p_sort: 'missing' }],
   ]
   it.each(calls)('%s', async (_name, run, fn, args) => {
     await run()

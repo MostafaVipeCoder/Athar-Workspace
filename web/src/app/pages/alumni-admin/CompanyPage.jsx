@@ -1,45 +1,35 @@
-import { useCallback, useState } from 'react'
-import { Link, useNavigate, useParams } from 'react-router-dom'
-import { ArrowLeft, GitMerge, Layers, LineChart, MailPlus, RefreshCw, ShieldCheck, Users } from 'lucide-react'
-import { alumniKeys, deleteCompanySnapshot, getAlumniCompany, saveAlumniCompany, upsertCompanySnapshot, useAlumniCompany } from '../../../data/alumni.js'
-import { removeObjects } from '../../../data/storage.js'
+import { useEffect } from 'react'
+import { Link, useLocation, useParams, useSearchParams } from 'react-router-dom'
+import { ArrowLeft, GitMerge, Layers, LineChart, MailPlus, ShieldCheck, Users } from 'lucide-react'
+import { useAlumniCompany, useAlumniStamps } from '../../../data/alumni.js'
 import { useLanguage } from '../../../i18n/LanguageProvider.jsx'
 import { Badge } from '../../../ui/Badge.jsx'
-import { Button } from '../../../ui/Button.jsx'
 import { buttonClass } from '../../../ui/buttonStyles.js'
-import { EmptyState, ErrorState, Skeleton, SkeletonList } from '../../../ui/States.jsx'
-import { useToast } from '../../../ui/Toast.jsx'
-import { parseAlumniError } from '../../../lib/alumni.js'
-import { buildCompanyPatch, COMPANY_MISSING_SECTION, companyToForm, fieldErrorOf, validateCompanyForm } from '../../../lib/alumniForms.js'
-import { useAuth } from '../../AuthContext.js'
+import { EmptyState, ErrorState, Skeleton } from '../../../ui/States.jsx'
+import { COMPANY_MISSING_SECTION } from '../../../lib/alumniForms.js'
+import { RULE_SECTION } from '../../../lib/alumniAttention.js'
 import { CompletenessMeter, ProfileSection } from '../../../shared/alumni/blocks.jsx'
-import { scrollToSection } from '../../../shared/alumni/scrollToSection.js'
-import { CompanyBasicsSection, CompanyClassificationSection, CompanyLocationSection, CompanyOnlineSection, CompanyStatusSection, DirectoryVisibilitySection } from '../../../shared/alumni/CompanySections.jsx'
-import MetricsTable from '../../../shared/alumni/MetricsTable.jsx'
+import { highlightSection, scrollToSection } from '../../../shared/alumni/scrollToSection.js'
+import FiguresPanel from '../../../shared/alumni/FiguresPanel.jsx'
 import ProgramsReadOnlyList from '../../../shared/alumni/ProgramsReadOnlyList.jsx'
-import SaveBar from '../../../shared/alumni/SaveBar.jsx'
-import TrendBars from '../../../shared/alumni/TrendBars.jsx'
-import UnsavedGuard from '../../../shared/alumni/UnsavedGuard.jsx'
-import { useDraftForm } from '../../../shared/alumni/useDraftForm.js'
-import { useAlumniRefresh } from '../../../shared/alumni/useAlumniRefresh.js'
+import StampLine from '../../../shared/alumni/StampLine.jsx'
 import { CompanyLogo } from './ui.jsx'
 import ManagerFields from './ManagerFields.jsx'
 import CompanyAdminTeam from './CompanyAdminTeam.jsx'
+import CompanyProfileForm from './CompanyProfileForm.jsx'
 import { CertificateLinks, CompanyInvitations, CompanyMerge } from './CompanyExtras.jsx'
+import { useCompanyActions } from './useCompanyActions.js'
 import { reviewState } from './columns.js'
-import { useAdminErrorText, useLabels } from './hooks.js'
+import { useLabels } from './hooks.js'
 import './i18n.common.js'
 import './company.i18n.js'
+import './company.edit.i18n.js'
 import '../../../shared/alumni/i18n.js'
 import '../../../shared/alumni/i18n.company.js'
+import '../../../shared/alumni/i18n.edit.js'
+import '../../../shared/alumni/i18n.quarters.js'
 
-const sectionOfField = (field) => (['name_en', 'name_ar', 'description_en', 'description_ar', 'logo_path', 'established_on'].includes(field) ? 'basics'
-  : ['startup_type', 'sector', 'subsector', 'stage', 'legal_status'].includes(field) ? 'classification'
-  : ['governorate', 'location_en', 'location_ar'].includes(field) ? 'location'
-  : ['website_url', 'app_url', 'linkedin_url', 'links'].includes(field) || field.startsWith('links.') ? 'online'
-  : ['operating_status', 'closed_on', 'closing_reason', 'after_closing', 'closing_note'].includes(field) ? 'status' : 'directory')
-
-function Header({ company }) {
+function Header({ company, stamp }) {
   const { t, pick } = useLanguage()
   const d = (k, v) => t(`alumni.admin.co.${k}`, v)
   const labels = useLabels()
@@ -59,6 +49,7 @@ function Header({ company }) {
           {company.stage && <Badge tone="outline">{labels.label('stage', company.stage)}</Badge>}
         </div>
         {place && <p className="text-sm text-muted-foreground">{place}</p>}
+        <StampLine audience="manager" stamp={stamp?.updated_at ? { at: stamp.updated_at, source: stamp.source, name: stamp.name } : company.updated_source ? { at: company.updated_at, source: company.updated_source } : null} />
       </div>
     </header>
   )
@@ -75,139 +66,67 @@ function SectionChips({ sections }) {
   )
 }
 
-/** The editable profile of one company (or an empty one to create). The draft keeps the manager's edits; Save sends only what changed, with the version the form loaded. */
-function CompanyEditor({ payload, create = false }) {
+/**
+ * Everything about one company for a manager (design 09 M3): the editable profile (CompanyProfileForm), the manager-only fields, the team (every founder editable, national ID, bio,
+ * LinkedIn), the quarterly figures (the draft, the closed quarters with their graphs, close now / correct), the derived programs, invitations and merge. The company and every figure form show
+ * "last modified" (owner decision 21: no per-edit history). A deep link from the needs-attention queue (`?focus=<item>#<section>`) scrolls to the section, highlights it and opens the form that fixes the item.
+ */
+function CompanyEditor({ payload }) {
   const { t } = useLanguage()
   const d = (k, v) => t(`alumni.admin.co.${k}`, v)
-  const { user } = useAuth()
-  const navigate = useNavigate()
-  const toast = useToast()
-  const errorText = useAdminErrorText()
-  const { refresh, fetchFresh } = useAlumniRefresh()
+  const [search] = useSearchParams()
+  const location = useLocation()
   const company = payload.company
-  const form = useDraftForm(() => companyToForm(company), {
-    version: company.updated_at ?? 'new',
-    isDirty: (values, base) => Object.keys(buildCompanyPatch(base, values)).length > 0,
-    onDiscard: (paths) => removeObjects('public-assets', paths.flatMap((p) => [p, p.replace(/\.webp$/, '_t.webp')])),
-  })
-  const { values, base, set: setField, setMany: setManyFields } = form
-  const [submitted, setSubmitted] = useState(false)
-  const [serverErrors, setServerErrors] = useState({})
-  const [stale, setStale] = useState(false)
-  const [busy, setBusy] = useState(false)
+  const stamps = useAlumniStamps(company.id)
+  const actions = useCompanyActions()
+  const stampOf = () => null
 
-  const patch = buildCompanyPatch(base, values)
-  const changeCount = Object.keys(patch).length
-  const dirty = changeCount > 0
-  const clientErrors = validateCompanyForm(values)
-  const shown = Object.fromEntries(Object.entries(clientErrors).filter(([k]) => submitted || k !== 'name_ar').map(([k, key]) => [k, t(key)]))
-  const errors = { ...shown, ...serverErrors }
-  const set = useCallback((key, value) => { setField(key, value); setServerErrors((e) => (e[key] ? Object.fromEntries(Object.entries(e).filter(([k]) => k !== key)) : e)) }, [setField])
-  const setMany = useCallback((p) => { setManyFields(p); setServerErrors((e) => (Object.keys(p).some((k) => e[k]) ? Object.fromEntries(Object.entries(e).filter(([k]) => !(k in p))) : e)) }, [setManyFields])
-
-  function undo() { form.reset(); setServerErrors({}); setSubmitted(false); setStale(false) }
-
-  async function save() {
-    setSubmitted(true)
-    setServerErrors({})
-    const found = Object.keys(clientErrors)
-    if (found.length) { scrollToSection(sectionOfField(found[0])); return }
-    setBusy(true)
-    try {
-      const saved = await saveAlumniCompany(create ? null : company.id, patch, create ? null : form.version)
-      await refresh()
-      if (create) {
-        toast.success(d('created'))
-        navigate(`/alumni/admin/company/${saved.company.id}`, { replace: true })
-        return
-      }
-      form.rebase(companyToForm(saved.company), saved.company.updated_at)
-      setStale(false)
-      toast.success(d('saved'))
-    } catch (err) {
-      const parsed = parseAlumniError(err)
-      if (parsed.token === 'alumni_stale') setStale(true)
-      else {
-        const fe = fieldErrorOf(parsed)
-        if (fe) { setServerErrors({ [fe.field]: t(fe.key) }); scrollToSection(sectionOfField(fe.field)) }
-        toast.error(errorText(err))
-      }
-    } finally {
-      setBusy(false)
-    }
-  }
-  async function reloadKeepingMine() {
-    const fresh = await fetchFresh(alumniKeys.adminCompany(company.id), () => getAlumniCompany(company.id))
-    form.rebase(companyToForm(fresh.company), fresh.company.updated_at, Object.keys(patch))
-    setStale(false)
-  }
-
-  const saveYear = async (year, data) => { await upsertCompanySnapshot(company.id, year, data); await refresh(); toast.success(d('yearSaved')) }
-  const deleteYear = async (year) => { await deleteCompanySnapshot(company.id, year); await refresh(); toast.success(d('yearDeleted')) }
+  const focusRule = search.get('focus')
+  // a link such as /company/<id>?focus=sector#classification lands on its section, highlighted (once, after the first paint)
+  const target = (focusRule && RULE_SECTION[focusRule]) || location.hash.slice(1) || null
+  useEffect(() => {
+    if (!target) return undefined
+    const id = setTimeout(() => { scrollToSection(target, { smooth: false }); highlightSection(target) }, 150)
+    return () => clearTimeout(id)
+  }, [target])
 
   const sections = [
     { id: 'basics', label: t('alumni.common.basicsTitle') }, { id: 'classification', label: t('alumni.common.classificationTitle') }, { id: 'location', label: t('alumni.common.locationTitle') },
     { id: 'online', label: t('alumni.common.onlineTitle') }, { id: 'status', label: t('alumni.common.statusTitle') }, { id: 'directory', label: t('alumni.common.directoryTitle') },
-    ...(create ? [] : [{ id: 'manager', label: d('managerTitle') }, { id: 'team', label: d('teamTitle') }, { id: 'metrics', label: d('metricsTitle') }, { id: 'programs', label: d('programsTitle') }, { id: 'invitations', label: d('invTitle') }, { id: 'merge', label: d('mergeTitle') }]),
+    { id: 'manager', label: d('managerTitle') }, { id: 'team', label: d('teamTitle') }, { id: 'metrics', label: d('metricsTitle') }, { id: 'programs', label: d('programsTitle') },
+    { id: 'invitations', label: d('invTitle') }, { id: 'merge', label: d('mergeTitle') },
   ]
 
   return (
-    <div className="space-y-5 pb-24" data-testid="admin-company">
-      <UnsavedGuard when={dirty && !busy} />
+    <div className="space-y-5 pb-28" data-testid="admin-company">
       <Link to="/alumni/admin/directory" className="inline-flex min-h-11 items-center gap-1 text-sm font-semibold text-primary hover:underline"><ArrowLeft className="h-4 w-4 rtl:rotate-180" aria-hidden="true" />{d('back')}</Link>
-      {create ? (
-        <header className="space-y-1 rounded-card border bg-card p-4"><h1 className="text-section-title">{d('newTitle')}</h1><p className="text-sm text-muted-foreground">{d('newBody')}</p></header>
-      ) : (
-        <>
-          <Header company={company} />
-          <div className="rounded-card border bg-card p-4">
-            <CompletenessMeter percent={company.completeness?.percent} missing={company.completeness?.missing ?? []} labelFor={(k) => t(`alumni.common.missing.${k}`)} sectionFor={(k) => COMPANY_MISSING_SECTION[k]} />
-          </div>
-        </>
-      )}
+      <Header company={company} stamp={stamps.data?.company} />
+      <div className="rounded-card border bg-card p-4">
+        <CompletenessMeter percent={company.completeness?.percent} missing={company.completeness?.missing ?? []} labelFor={(k) => t(`alumni.common.missing.${k}`)} sectionFor={(k) => COMPANY_MISSING_SECTION[k]} />
+      </div>
       <SectionChips sections={sections} />
 
-      {stale && (
-        <div role="alert" className="space-y-2 rounded-card border border-destructive/40 bg-destructive/5 p-4 text-sm" data-testid="stale-banner">
-          <p className="font-bold">{d('stale')}</p>
-          <p>{d('staleBody')}</p>
-          <Button variant="outline" size="sm" onClick={reloadKeepingMine}><RefreshCw className="h-4 w-4" aria-hidden="true" />{d('staleReload')}</Button>
-        </div>
-      )}
+      <CompanyProfileForm payload={payload} />
 
-      <CompanyBasicsSection values={values} set={set} setMany={setMany} errors={errors} userId={user?.id} track={form.track} disabled={busy} />
-      <CompanyClassificationSection values={values} set={set} setMany={setMany} errors={errors} disabled={busy} />
-      <CompanyLocationSection values={values} set={set} setMany={setMany} errors={errors} disabled={busy} />
-      <CompanyOnlineSection values={values} set={set} errors={errors} disabled={busy} />
-      <CompanyStatusSection values={values} set={set} setMany={setMany} errors={errors} disabled={busy} />
-      <DirectoryVisibilitySection values={values} set={set} errors={errors} disabled={busy} blocked={Boolean(company.internal?.directory_hidden)} isAlumni={Boolean(company.is_alumni)} />
-
-      {!create && (
-        <>
-          <ProfileSection id="manager" icon={ShieldCheck} title={d('managerTitle')} description={d('managerDesc')}>
-            <ManagerFields company={company} />
-          </ProfileSection>
-          <ProfileSection id="team" icon={Users} title={d('teamTitle')} description={d('teamDesc')}>
-            <CompanyAdminTeam companyId={company.id} team={payload.team} counts={payload.counts} ceoFounderId={payload.ceo_founder_id} onChanged={refresh} />
-          </ProfileSection>
-          <ProfileSection id="metrics" icon={LineChart} title={d('metricsTitle')} description={d('metricsDesc')}>
-            <TrendBars snapshots={payload.snapshots} />
-            <MetricsTable snapshots={payload.snapshots} onSave={saveYear} onDelete={deleteYear} />
-          </ProfileSection>
-          <ProfileSection id="programs" icon={Layers} title={d('programsTitle')} description={d('programsDesc')}>
-            <ProgramsReadOnlyList programs={payload.programs} />
-            <CertificateLinks programs={payload.programs} />
-          </ProfileSection>
-          <ProfileSection id="invitations" icon={MailPlus} title={d('invTitle')}>
-            <CompanyInvitations companyId={company.id} />
-          </ProfileSection>
-          <ProfileSection id="merge" icon={GitMerge} title={d('mergeTitle')}>
-            <CompanyMerge company={company} onMerged={refresh} />
-          </ProfileSection>
-        </>
-      )}
-
-      <SaveBar visible={dirty || busy} count={changeCount} busy={busy} onSave={save} onUndo={undo} saveLabel={create ? d('createLabel') : undefined} className="bottom-0" />
+      <ProfileSection id="manager" icon={ShieldCheck} title={d('managerTitle')} description={d('managerDesc')} stamp={stampOf('manager')}>
+        <ManagerFields company={company} />
+      </ProfileSection>
+      <ProfileSection id="team" icon={Users} title={d('teamTitle')} description={d('teamDesc')} stamp={stampOf('team')}>
+        <CompanyAdminTeam companyId={company.id} team={payload.team} counts={payload.counts} ceoFounderId={payload.ceo_founder_id} onChanged={actions.refresh} founderStamps={stamps.data?.founders ?? []} autoOpen={focusRule} />
+      </ProfileSection>
+      <ProfileSection id="metrics" icon={LineChart} title={d('metricsTitle')} description={d('metricsDesc')} stamp={stampOf('metrics')}>
+        <FiguresPanel companyId={company.id} audience="manager" companyName={company.name_en || company.name_ar} />
+      </ProfileSection>
+      <ProfileSection id="programs" icon={Layers} title={d('programsTitle')} description={d('programsDesc')}>
+        <ProgramsReadOnlyList programs={payload.programs} />
+        <CertificateLinks programs={payload.programs} />
+      </ProfileSection>
+      <ProfileSection id="invitations" icon={MailPlus} title={d('invTitle')}>
+        <CompanyInvitations companyId={company.id} />
+      </ProfileSection>
+      <ProfileSection id="merge" icon={GitMerge} title={d('mergeTitle')}>
+        <CompanyMerge company={company} onMerged={actions.refresh} />
+      </ProfileSection>
     </div>
   )
 }
@@ -222,10 +141,23 @@ function Loading() {
   )
 }
 
+/** The empty company of /company/new: the same form, nothing else (the team, figures and history need a company to belong to). */
+function NewCompany() {
+  const { t } = useLanguage()
+  const d = (k, v) => t(`alumni.admin.co.${k}`, v)
+  return (
+    <div className="space-y-5 pb-28" data-testid="admin-company">
+      <Link to="/alumni/admin/directory" className="inline-flex min-h-11 items-center gap-1 text-sm font-semibold text-primary hover:underline"><ArrowLeft className="h-4 w-4 rtl:rotate-180" aria-hidden="true" />{d('back')}</Link>
+      <header className="space-y-1 rounded-card border bg-card p-4"><h1 className="text-section-title">{d('newTitle')}</h1><p className="text-sm text-muted-foreground">{d('newBody')}</p></header>
+      <CompanyProfileForm create payload={{ company: {}, team: [], counts: {}, programs: [], snapshots: [] }} />
+    </div>
+  )
+}
+
 /** M3: /alumni/admin/company/:id (and /company/new): everything about one company for a manager. */
 export default function CompanyPage() {
   const { id } = useParams()
-  if (id === 'new') return <CompanyEditor key="new" create payload={{ company: {}, team: [], counts: {}, programs: [], snapshots: [] }} />
+  if (id === 'new') return <NewCompany key="new" />
   return <Existing id={id} />
 }
 

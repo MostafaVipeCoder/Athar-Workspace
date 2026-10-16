@@ -77,13 +77,18 @@ export const routes = [
               { path: 'programs', ...page(() => import('./pages/ProgramsPage.jsx')) },
               { path: 'programs/:programId', ...page(() => import('./pages/ProgramPage.jsx')) },
               { path: 'programs/:programId/settings', ...page(() => import('./pages/ProgramSettingsPage.jsx')) },
-              { path: 'network/experts', ...soon(7, 'Athar Network: experts registry') },
+              // the Athar Network experts registry (m75 - m77): list, probable duplicates (super_admin) and the profile with its participation history
+              { path: 'network/experts', ...page(() => import('./pages/experts/ExpertsPage.jsx')) },
+              { element: <RequireAccess permission="experts:merge" />, children: [{ path: 'network/experts/duplicates', ...page(() => import('./pages/experts/DuplicatesPage.jsx')) }] },
+              { path: 'network/experts/:expertId', ...page(() => import('./pages/experts/ExpertProfilePage.jsx')) },
               { path: 'network/companies', ...soon(7, 'companies registry') },
               { path: 'network/companies/:companyId', ...soon(7, 'company record (registry)') },
               { path: 'library', ...soon(7, 'central resource library') },
               { element: <RequireAccess permission="form-library:manage" />, children: [{ path: 'form-library', ...soon(7, 'central form library') }] },
               // 08 section 14: staff management (super_admin). `/team` from the design table redirects here.
               { element: <RequireAccess permission="staff:manage" />, children: [{ path: 'admin/staff', ...page(() => import('./pages/staff/StaffPage.jsx')) }] },
+              // m62: the health of the whole e-mail queue (super_admin)
+              { element: <RequireAccess permission="staff:manage" />, children: [{ path: 'admin/email', ...page(() => import('./pages/staff/EmailHealthPage.jsx')) }] },
               { path: 'team', element: <Navigate to="/admin/staff" replace /> },
               ...(import.meta.env.DEV ? [{ path: 'dev/nodes', ...page(() => import('./pages/DevNodesPage.jsx')) }] : []),
             ],
@@ -99,6 +104,8 @@ export const routes = [
                   { index: true, ...page(() => import('./pages/ProjectPage.jsx')) },
                   { path: 'details', ...page(() => import('./pages/ProjectDetailsPage.jsx')) },
                   { path: 'participants', ...page(() => import('./pages/ParticipantsPage.jsx')) },
+                  // m62: the project's e-mail Outbox (delivery state, retry / cancel / mark sent / resend, "Send now")
+                  { path: 'outbox', ...page(() => import('./pages/OutboxPage.jsx')) },
                   { path: 'nodes/:nodeId', ...page(() => import('./pages/NodeRoutes.jsx'), 'NodeViewPage') },
                   { path: 'nodes/:nodeId/edit/*', ...page(() => import('./pages/NodeRoutes.jsx'), 'NodeEditPage') },
                   { path: 'nodes/:nodeId/settings', ...page(() => import('./pages/NodeRoutes.jsx'), 'NodeSettingsPage') },
@@ -162,6 +169,8 @@ export const routes = [
               { path: 'alumni/founder/notifications', ...page(() => import('./pages/founder/FounderNotificationsPage.jsx')) },
               { path: 'alumni/founder/profile', ...page(() => import('./pages/founder/FounderProfilePage.jsx')) },
               { path: 'alumni/founder/progress', ...page(() => import('./pages/founder/FounderProgressPage.jsx')) },
+              // owner decision 22: the question a CLOSED company answers (the reminder of a closed company opens it instead of the figures)
+              { path: 'alumni/founder/after-closing', ...page(() => import('./pages/founder/FounderAfterClosingPage.jsx')) },
               { path: 'alumni/founder/company/new', ...page(() => import('./pages/founder/FounderCompanyNewPage.jsx')) },
               { path: 'alumni/founder/company/:id', ...page(() => import('./pages/founder/FounderCompanyPage.jsx')) },
             ],
@@ -188,6 +197,18 @@ export const routes = [
               { path: 'alumni/admin/impact', ...analyticsView('impact') },
               { path: 'alumni/admin/workspace', ...page(() => import('./pages/alumni-admin/WorkspacePage.jsx')) },
               { path: 'alumni/admin/company/:id', ...page(() => import('./pages/alumni-admin/CompanyPage.jsx')) },
+              // m60 (owner decision 20.3): the needs-attention queue; owner decision 21 (m66-m68): the quarter status + reminders and the performance graphs (tabs next to the directory).
+              // The per-edit history viewer is gone: its old address lands on the quarter status.
+              { path: 'alumni/admin/attention', ...page(() => import('./pages/alumni-admin/AttentionPage.jsx')) },
+              { path: 'alumni/admin/quarters', ...page(() => import('./pages/alumni-admin/QuartersPage.jsx')) },
+              { path: 'alumni/admin/quarters/reminders', ...page(() => import('./pages/alumni-admin/RemindersPage.jsx')) },
+              { path: 'alumni/admin/closed', ...page(() => import('./pages/alumni-admin/ClosedFollowupPage.jsx')) },
+              { path: 'alumni/admin/performance', ...page(() => import('./pages/alumni-admin/PortfolioPage.jsx')) },
+              { path: 'alumni/admin/history', element: <Navigate to="/alumni/admin/quarters" replace /> },
+              // the Athar Network experts registry inside the alumni manager's shell (the same pages as /network/experts; the links follow the shell)
+              { path: 'alumni/admin/experts', ...page(() => import('./pages/experts/ExpertsPage.jsx')) },
+              { element: <RequireAccess permission="experts:merge" />, children: [{ path: 'alumni/admin/experts/duplicates', ...page(() => import('./pages/experts/DuplicatesPage.jsx')) }] },
+              { path: 'alumni/admin/experts/:expertId', ...page(() => import('./pages/experts/ExpertProfilePage.jsx')) },
             ],
           },
         ],

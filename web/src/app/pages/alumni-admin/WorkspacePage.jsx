@@ -1,60 +1,66 @@
 import { useEffect, useEffectEvent, useMemo, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { useQueryClient } from '@tanstack/react-query'
-import { FileSpreadsheet, History, NotebookPen, Save } from 'lucide-react'
-import { upsertCompanySnapshot } from '../../../data/alumni.js'
-import { useAlumniOverview, useAlumniPrograms, useAlumniTable, useSnapshotRows } from '../../../data/alumniAdmin.js'
+import { ExternalLink, FileSpreadsheet, NotebookPen, Save } from 'lucide-react'
+import { NO_DRAFT, saveCompanyFigures, useDraftRows } from '../../../data/alumniQuarters.js'
+import { useAlumniPrograms, useAlumniTable } from '../../../data/alumniAdmin.js'
 import { useLanguage } from '../../../i18n/LanguageProvider.jsx'
 import { Badge } from '../../../ui/Badge.jsx'
 import { Button } from '../../../ui/Button.jsx'
 import { SearchBar } from '../../../ui/SearchBar.jsx'
 import { SELECT_CLASS } from '../../../ui/Field.jsx'
+import { FigureStatusBadge } from '../../../shared/alumni/FiguresPanel.jsx'
+import { periodLabel } from '../../../lib/alumniQuarters.js'
 import { EmptyState, ErrorState, SkeletonList } from '../../../ui/States.jsx'
-import { useConfirm } from '../../../ui/ConfirmDialog.jsx'
 import { useToast } from '../../../ui/Toast.jsx'
 import UnsavedGuard from '../../../shared/alumni/UnsavedGuard.jsx'
 import { cn } from '../../../lib/cn.js'
+import { parseAlumniError } from '../../../lib/alumni.js'
+import { findConflicts } from '../../../lib/alumniConflicts.js'
+import { useEditText } from '../../../shared/alumni/useEditText.js'
 import { AdminPage, CheckRow, CompanyLogo, Pagination, Segmented } from './ui.jsx'
 import ExportDialog from './ExportDialog.jsx'
 import SnapshotNotes from './SnapshotNotes.jsx'
-import SnapshotHistory from './SnapshotHistory.jsx'
 import { parseState, mergeSearch, toRpcFilters } from './adminState.js'
-import { SNAP_FIELDS, defaultSnapshotYear, snapshotPatch, snapshotToForm, validateSnapshotForm, yearOptions } from './adminLogic.js'
+import { SNAP_FIELDS, snapshotPatch, snapshotToForm, validateSnapshotForm } from './adminLogic.js'
 import { useAdminErrorText, useDebounced } from './hooks.js'
 import './i18n.common.js'
 import './workspace.i18n.js'
+import './workspace.edit.i18n.js'
+import '../../../shared/alumni/i18n.quarters.js'
+import '../../../shared/alumni/i18n.edit.js'
 
 const PAGE_SIZE = 25
 const MONEY = new Set(['revenue_total', 'funding_raised_total'])
 
 /**
- * M9: the M&E workspace. One grid, one yearly row per company: type the five figures of the chosen year and save ONLY what changed (each row is one `upsert_company_snapshot`:
- * patch semantics, the database checks female <= total and the amounts). Edits survive paging and searching (they live here until saved or discarded). The yearly text fields
- * (traction, challenges, needs) and the history of a company (every year, source, who) open in dialogs.
+ * M9: the data-entry grid. One row per company: type the five figures of the CURRENT quarter's draft and save ONLY what changed (each row is one `save_company_figures`: patch
+ * semantics, the database checks female <= total and the amounts; a row a founder saved meanwhile is a conflict, never overwritten unseen). Edits survive paging and searching.
+ * The text fields (traction, challenges, needs) open in a dialog; the closed quarters of a company are on its page.
  */
 export default function WorkspacePage() {
-  const { t, tn, pick } = useLanguage()
+  const { t, tn, pick, lang } = useLanguage()
   const d = (k, v) => t(`alumni.admin.ws.${k}`, v)
   const toast = useToast()
-  const confirm = useConfirm()
   const qc = useQueryClient()
   const errorText = useAdminErrorText()
+  const e = useEditText()
   const [params, setParams] = useSearchParams()
   const state = useMemo(() => parseState(params), [params])
-  const overview = useAlumniOverview()
   const programs = useAlumniPrograms()
-  const year = state.year ?? (overview.data ? defaultSnapshotYear(overview.data.latest_year) : null)
   const filters = useMemo(() => toRpcFilters(state.filters), [state.filters])
-  const table = useAlumniTable({ filters, limit: PAGE_SIZE, offset: (state.page - 1) * PAGE_SIZE, sort: 'name', dir: 'asc', year }, { enabled: Boolean(year) })
+  const table = useAlumniTable({ filters, limit: PAGE_SIZE, offset: (state.page - 1) * PAGE_SIZE, sort: 'name', dir: 'asc' })
+  // the grid edits the DRAFT of the quarter the companies' figures belong to (owner decision 21): saving never creates a data point, the close does
+  const quarter = table.data?.rows?.[0]?.figures?.period ?? null
+  const year = quarter ? Number(quarter.slice(0, 4)) : null
   const rows = table.data?.rows ?? []
   const ids = rows.map((r) => r.id)
-  const snaps = useSnapshotRows(ids, year)
+  const snaps = useDraftRows(ids)
   const snapOf = useMemo(() => new Map((snaps.data ?? []).map((s) => [s.company_id, s])), [snaps.data])
   const [edits, setEdits] = useState({}) // { [companyId]: { name, base: form, changed: { field: 'typed' } } }
   const [rowErrors, setRowErrors] = useState({})
   const [saving, setSaving] = useState(null)
   const [notesOf, setNotesOf] = useState(null)
-  const [historyOf, setHistoryOf] = useState(null)
   const [exporting, setExporting] = useState(false)
   const update = (patch) => setParams(mergeSearch(params, { ...state, ...patch }), { replace: true })
 
@@ -77,33 +83,48 @@ export default function WorkspacePage() {
     })
     setRowErrors((x) => { const n = { ...x }; delete n[r.id]; return n })
   }
-  async function changeYear(value) {
-    if (dirtyIds.length > 0) {
-      const ok = await confirm({ title: d('discardTitle'), message: d('discardBody'), confirmLabel: d('discardYes'), cancelLabel: d('keep'), destructive: true })
-      if (!ok) return
-      setEdits({})
-      setRowErrors({})
-    }
-    update({ year: value ? Number(value) : null, page: 1 })
-  }
-
   async function saveAll() {
     const todo = dirtyIds.map((id) => ({ id, ...edits[id], form: { ...edits[id].base, ...edits[id].changed } }))
     if (todo.some((x) => Object.keys(validateSnapshotForm(x.form)).length > 0)) { toast.warning(d('fixErrors')); return }
     const failed = {}
+    const stale = []
     let ok = 0
     for (let i = 0; i < todo.length; i += 1) {
       setSaving({ done: i, total: todo.length })
       const x = todo[i]
       try {
-        await upsertCompanySnapshot(x.id, year, snapshotPatch(x.base, x.form))
+        // each row is saved with the version of the row the grid loaded (NEW_ROW = no row yet): a row a founder saved meanwhile is a conflict, never overwritten unseen
+        await saveCompanyFigures(x.id, snapshotPatch(x.base, x.form), snapOf.get(x.id)?.updated_at ?? NO_DRAFT)
         ok += 1
-        setEdits((e) => { const n = { ...e }; delete n[x.id]; return n })
-      } catch (e) {
-        failed[x.id] = errorText(e)
+        setEdits((cur) => { const n = { ...cur }; delete n[x.id]; return n })
+      } catch (err) {
+        if (parseAlumniError(err).token === 'alumni_stale') stale.push(x.id)
+        else failed[x.id] = errorText(err)
       }
     }
     setSaving(null)
+    // a stale row: load what the other side saved, keep what I typed, mark the figures we BOTH changed to different values
+    if (stale.length > 0) {
+      const fresh = await snaps.refetch()
+      const byCompany = new Map((fresh.data ?? []).map((s) => [s.company_id, s]))
+      const notes = {}
+      const patchEdits = {}
+      const dropIds = []
+      for (const id of stale) {
+        const cur1 = edits[id]
+        if (!cur1) continue
+        const row = byCompany.get(id) ?? null
+        const freshForm = snapshotToForm(row)
+        const mine = { ...cur1.base, ...cur1.changed }
+        const conflicts = findConflicts({ base: cur1.base, mine, fresh: freshForm, keys: Object.keys(cur1.changed) }).map((c) => c.key)
+        const changed = Object.fromEntries(Object.entries(cur1.changed).filter(([k, v]) => String(v) !== String(freshForm[k] ?? '')))
+        if (Object.keys(changed).length === 0) dropIds.push(id)
+        else patchEdits[id] = { ...cur1, base: freshForm, changed, conflicts, freshForm }
+        notes[id] = { who: e.who({ source: row?.updated_source }, 'manager'), date: row?.updated_at, open: Object.keys(changed).length > 0 }
+      }
+      setEdits((cur) => { const next = { ...cur, ...patchEdits }; for (const id of dropIds) delete next[id]; return next })
+      for (const [id, k] of Object.entries(notes)) failed[id] = t(k.open ? 'alumni.admin.ws.rowStale' : 'alumni.admin.ws.rowReloaded', { who: k.who, date: e.dateTime(k.date) })
+    }
     setRowErrors(failed)
     // one refresh for the whole batch (every refresh re-reads the table, the overview and the analytics)
     await qc.invalidateQueries({ queryKey: ['alumni'], predicate: (q) => q.queryKey[1] !== 'lookups' })
@@ -112,7 +133,6 @@ export default function WorkspacePage() {
     else toast.error(d('savedPartly', { ok, failed: bad }))
   }
 
-  const years = yearOptions(overview.data?.latest_year)
   const skeleton = <SkeletonList count={6} />
   return (
     <AdminPage
@@ -123,12 +143,7 @@ export default function WorkspacePage() {
     >
       <UnsavedGuard when={dirtyIds.length > 0} />
       <div className="flex flex-wrap items-end gap-3">
-        <div className="space-y-1">
-          <label htmlFor="ws-year" className="block text-sm font-medium text-athar-ink">{d('year')}</label>
-          <select id="ws-year" className={`${SELECT_CLASS} w-auto`} value={year ?? ''} onChange={(e) => changeYear(e.target.value)} disabled={!year}>
-            {years.concat(year && !years.includes(year) ? [year] : []).sort((a, b) => b - a).map((y) => <option key={y} value={y}>{y}</option>)}
-          </select>
-        </div>
+        <p className="pb-2 text-sm font-semibold" data-testid="ws-quarter">{quarter ? d('quarter', { quarter: periodLabel(quarter, lang) }) : ''}</p>
         <SearchBar className="min-w-60 flex-1 sm:max-w-xs" label={d('search')} placeholder={d('searchPlaceholder')} value={qText} onChange={setQText} />
         <div className="space-y-1">
           <label htmlFor="ws-program" className="block text-sm font-medium text-athar-ink">{d('program')}</label>
@@ -143,8 +158,7 @@ export default function WorkspacePage() {
 
       {/* The order matters: a query that FAILED or came back EMPTY must not wait for the next one. useSnapshotRows is disabled while there is no row, so its isPending stays true for ever:
           the snapshots are only waited for when there are rows to show. */}
-      {!year && overview.isError ? <ErrorState error={overview.error} title={d('loadFailed')} onRetry={() => overview.refetch()} />
-        : !year || table.isPending ? skeleton
+      {table.isPending ? skeleton
         : table.isError ? <ErrorState error={table.error} title={d('loadFailed')} onRetry={() => table.refetch()} />
         : rows.length === 0 ? <EmptyState title={d('empty')} body={d('emptyBody')} />
         : snaps.isError ? <ErrorState error={snaps.error} title={d('snapshotsFailed')} onRetry={() => snaps.refetch()} />
@@ -156,7 +170,7 @@ export default function WorkspacePage() {
                 <thead className="bg-surface text-xs font-bold text-athar-ink">
                   <tr>
                     <th scope="col" className="px-3 py-2 text-start">{d('colCompany')}</th>
-                    <th scope="col" className="px-3 py-2 text-start">{d('colStatus')} ({year})</th>
+                    <th scope="col" className="px-3 py-2 text-start">{d('colStatus')}</th>
                     {SNAP_FIELDS.map((f) => <th key={f} scope="col" className="px-2 py-2 text-start">{d(`col.${f}`)}{MONEY.has(f) ? ` (${t('alumni.admin.common.egp')})` : ''}</th>)}
                     <th scope="col" className="px-3 py-2 text-start"><span className="sr-only">{d('colNotes')} / {d('colHistory')}</span></th>
                   </tr>
@@ -167,7 +181,7 @@ export default function WorkspacePage() {
                     const form = formOf(r)
                     const errs = validateSnapshotForm(form)
                     const dirty = Boolean(edits[r.id]) && Object.keys(edits[r.id].changed).length > 0
-                    const has = snapOf.has(r.id)
+                    const draft = snapOf.get(r.id)
                     return (
                       <tr key={r.id} className={cn('border-t align-top', dirty && 'bg-accent/10', rowErrors[r.id] && 'bg-destructive/5')} data-testid="ws-row" data-dirty={dirty || undefined}>
                         <td className="px-3 py-2">
@@ -175,7 +189,8 @@ export default function WorkspacePage() {
                           <span className="mt-1 block text-xs text-muted-foreground">{d('colProfile')}: {r.completeness?.percent ?? 0}%</span>
                         </td>
                         <td className="px-3 py-2">
-                          <Badge tone={has ? 'green' : 'amber'}>{has ? d('reported') : d('missing')}</Badge>
+                          <FigureStatusBadge status={r.figures?.status ?? 'not_updated'} />
+                          {draft?.updated_at && <span className="mt-1 block text-[11px] text-muted-foreground" data-testid="ws-stamp">{d('stampLine', { who: e.sourceLabel(draft.updated_source), date: e.date(draft.updated_at) })}</span>}
                           {dirty && <Badge tone="blue" className="ms-1">{d('dirty')}</Badge>}
                           {rowErrors[r.id] && <p className="mt-1 max-w-48 text-xs text-destructive-text" role="alert">{d('failed')}: {rowErrors[r.id]}</p>}
                         </td>
@@ -191,15 +206,16 @@ export default function WorkspacePage() {
                               title={errs[f] ? d(`err.${errs[f]}`) : undefined}
                               value={form[f]}
                               onChange={(e) => onCell(r, f, e.target.value)}
-                              className={cn('min-h-11 w-full min-w-24 rounded-input border bg-input-bg px-2 text-end tabular-nums focus:border-primary focus:bg-background focus:outline-none focus:ring-2 focus:ring-primary/20', errs[f] ? 'border-destructive' : 'border-input', edits[r.id]?.changed[f] !== undefined && 'border-primary')}
+                              className={cn('min-h-11 w-full min-w-24 rounded-input border bg-input-bg px-2 text-end tabular-nums focus:border-primary focus:bg-background focus:outline-none focus:ring-2 focus:ring-primary/20', errs[f] || edits[r.id]?.conflicts?.includes(f) ? 'border-destructive' : 'border-input', edits[r.id]?.changed[f] !== undefined && !edits[r.id]?.conflicts?.includes(f) && 'border-primary')}
                             />
+                            {edits[r.id]?.conflicts?.includes(f) && <span className="mt-0.5 block text-xs text-destructive-text" data-testid="ws-conflict-cell">{d('nowValue', { value: edits[r.id].freshForm?.[f] || '-' })}</span>}
                             {errs[f] && <span id={`ws-${r.id}-${f}-err`} role="alert" className="mt-0.5 block text-xs text-destructive-text">{d(`err.${errs[f]}`)}</span>}
                           </td>
                         ))}
                         <td className="px-2 py-2">
                           <span className="flex gap-1">
                             <Button variant="ghost" size="sm" onClick={() => setNotesOf({ id: r.id, name, snapshot: snapOf.get(r.id) })} aria-label={`${d('colNotes')}: ${name}`} title={d('colNotes')}><NotebookPen className="h-4 w-4" aria-hidden="true" /></Button>
-                            <Button variant="ghost" size="sm" onClick={() => setHistoryOf({ id: r.id, name })} aria-label={`${d('colHistory')}: ${name}`} title={d('colHistory')}><History className="h-4 w-4" aria-hidden="true" /></Button>
+                            <Link to={`/alumni/admin/company/${r.id}#metrics`} className="inline-flex min-h-9 items-center px-2" aria-label={`${d('colHistory')}: ${name}`} title={d('colHistory')}><ExternalLink className="h-4 w-4" aria-hidden="true" /></Link>
                           </span>
                         </td>
                       </tr>
@@ -220,8 +236,7 @@ export default function WorkspacePage() {
         </div>
       </div>
 
-      {notesOf && <SnapshotNotes key={notesOf.id} year={year} company={notesOf} onClose={() => setNotesOf(null)} />}
-      {historyOf && <SnapshotHistory company={historyOf} onClose={() => setHistoryOf(null)} />}
+      {notesOf && <SnapshotNotes key={notesOf.id} quarter={quarter} company={notesOf} onClose={() => setNotesOf(null)} />}
       {exporting && <ExportDialog open onClose={() => setExporting(false)} filters={filters} count={table.data?.total ?? 0} latestYear={year} defaultYear={year} />}
     </AdminPage>
   )

@@ -12,6 +12,8 @@ import { BilingualField } from '../../ui/BilingualField.jsx'
 import { Badge } from '../../ui/Badge.jsx'
 import { ErrorState, Loading } from '../../ui/States.jsx'
 import { TemplateEditor } from '../../shared/email/TemplateEditor.jsx'
+import { SenderNotice } from '../../shared/google/SenderNotice.jsx'
+import CalendarSyncMode from './CalendarSyncMode.jsx'
 import { useBookingAdmin, useBookingExtras, useBookingLink, useBookingMutations } from '../../data/booking.js'
 import { VISIBILITY } from '../../lib/constants.js'
 import { buildPublicUrl, canonicalRef } from '../../lib/links.js'
@@ -25,8 +27,8 @@ const same = (a, b) => JSON.stringify(a) === JSON.stringify(b)
 /**
  * Settings mode (design 01 section 6.3 config + 04 section 3.9 booking_settings): preset (mode), name, visibility,
  * show-to-participants, who can book (derived from the mode), max bookings per booker, default notice, Meet link mode +
- * shared link (empty = error at save time, C-3), the Google connection (placeholder select over google_connections:
- * "not connected" until 07's OAuth ships, never blocks bookings), the two e-mail templates ar/en with preview, page texts,
+ * shared link (empty = error at save time, C-3), the Google connection (the REAL state of the acting user through the shared SenderNotice,
+ * m61, plus the select over the usable connections; never blocks bookings), the two e-mail templates ar/en with preview, page texts,
  * generator defaults, the public link. ONE explicit Save: node columns + config + `children.settings` in one save_node.
  */
 export default function BookingSettings() {
@@ -104,7 +106,7 @@ export default function BookingSettings() {
               {t(`booking.settings.visibility.${v}`)}
             </label>
           ))}
-          <label className="flex min-h-9 items-start gap-2 text-sm">
+          <label className="flex min-h-11 items-start gap-2 text-sm">
             <input type="checkbox" checked={fields.show_to_participants} onChange={(e) => setFields((f) => ({ ...f, show_to_participants: e.target.checked }))} className="mt-1 h-4 w-4" />
             <span>{t('booking.settings.showToParticipants')}<span className="block text-xs text-muted-foreground">{t('booking.settings.showToParticipantsHint')}</span></span>
           </label>
@@ -135,10 +137,12 @@ export default function BookingSettings() {
         <section className="space-y-2" data-testid="settings-calendar">
           <h3 className="text-sm font-semibold">{t('booking.settings.calendar')}</h3>
           <p className="text-xs text-muted-foreground">{t('booking.settings.calendarHint')}</p>
+          <SenderNotice scope="calendar" />
+          <CalendarSyncMode />
           <div className="flex flex-wrap items-center gap-2">
             <select aria-label={t('booking.settings.calendar')} value={s.organizer_connection_id ?? ''} onChange={(e) => patchSettings({ organizer_connection_id: e.target.value })} className="min-h-11 rounded-input border border-input bg-input-bg px-3 text-sm" data-testid="settings-connection">
               <option value="">{t('booking.settings.calendar.none')}</option>
-              {connections.map((c) => <option key={c.id} value={c.id}>{c.email} ({t(c.own ? 'booking.settings.calendar.own' : 'booking.settings.calendar.system')}{c.status === 'needs_reauth' ? `, ${t('booking.settings.calendar.needsReauth')}` : ''})</option>)}
+              {connections.map((c) => <option key={c.id} value={c.id}>{c.email} ({t(c.own ? 'booking.settings.calendar.own' : 'booking.settings.calendar.system')}{(c.status === 'needs_reconnect' || c.status === 'needs_reauth') ? `, ${t('booking.settings.calendar.needsReauth')}` : ''})</option>)}
             </select>
             {connections.length === 0 && <Badge tone="amber">{t('booking.settings.calendar.none')}</Badge>}
           </div>
@@ -147,6 +151,7 @@ export default function BookingSettings() {
         <section className="space-y-3" data-testid="settings-emails">
           <h3 className="text-sm font-semibold">{t('booking.settings.emails')}</h3>
           <p className="text-xs text-muted-foreground">{t('booking.settings.emailsHint')}</p>
+          <SenderNotice scope="email" />
           <div className="flex flex-wrap gap-1" role="tablist" aria-label={t('booking.settings.emails')}>
             {EMAIL_KEYS.map((k) => (
               <button key={k} type="button" role="tab" aria-selected={emailKey === k} onClick={() => setEmailKey(k)} className={cn('tap-target rounded-md px-3 text-sm', emailKey === k ? 'bg-foreground text-background' : 'hover:bg-surface')} data-testid={`email-${k}`}>

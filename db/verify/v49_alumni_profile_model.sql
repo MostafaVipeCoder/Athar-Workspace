@@ -44,6 +44,12 @@ begin
       'sqlstate ' || sqlstate || ' hint ' || coalesce(v_hint, '-') || ' detail ' || coalesce(v_detail, '-') || ' msg ' || left(sqlerrm, 80));
   end;
 end $$;
+-- m65 / m66 (owner decision 21) replaced the YEARLY snapshot rows (upsert / delete / review RPCs, annual rows, the year roll-ups the analytics and the export read) by the quarterly figures:
+-- every check that encoded them is recorded as 'superseded' (it is not run); the behaviour is covered by v66 (draft, freeze, reopen, correct, confirm) and v67 (graphs, analytics, export).
+create or replace function v49_test.superseded(p_key text, variadic p_rest text[] default '{}') returns void language plpgsql as $$
+begin
+  perform v49_test.t(p_key, true, 'superseded by m66 (owner decision 21): see v66 / v67');
+end $$;
 create or replace function v49_test.okrun(p_key text, p_sql text) returns void language plpgsql as $$
 begin
   begin
@@ -56,20 +62,18 @@ revoke all on all functions in schema v49_test from public;
 grant execute on all functions in schema v49_test to anon, authenticated, service_role;
 
 -- ================================================================= C. catalog (as postgres)
-select v49_test.val('C01 every alumni RPC exists (25)', $q$select count(*)::text from unnest(array[
+select v49_test.val('C01 every alumni RPC exists (23: the yearly upsert / delete RPCs were replaced by m66)', $q$select count(*)::text from unnest(array[
   'public.list_alumni_lookups()', 'public.save_alumni_lookup(text,text,jsonb)', 'public.delete_alumni_lookup(text,text)', 'public.preview_national_id(text)',
   'public.get_my_alumni_profile()', 'public.save_my_founder_profile(jsonb)', 'public.get_my_company_profile(uuid)', 'public.save_my_company_profile(uuid,jsonb,timestamptz)',
   'public.save_company_team_member(uuid,uuid,jsonb)', 'public.remove_company_team_member(uuid,uuid)', 'public.set_company_ceo(uuid,uuid)',
-  'public.upsert_company_snapshot(uuid,integer,jsonb)', 'public.delete_company_snapshot(uuid,integer)', 'public.list_alumni_directory(jsonb,integer,integer,text)',
+  'public.list_alumni_directory(jsonb,integer,integer,text)',
   'public.get_alumni_company(uuid)', 'public.get_alumni_founder(uuid,boolean)', 'public.save_alumni_company(uuid,jsonb,timestamptz)', 'public.save_alumni_founder(uuid,jsonb)',
   'public.set_companies_alumni(uuid[],boolean)', 'public.export_alumni_rows(jsonb,integer,text,date)', 'public.get_alumni_analytics(jsonb,integer)',
   'public.list_public_alumni_directory(jsonb,integer,integer)', 'public.create_alumni_invitation(uuid,text,text,text)', 'public.revoke_alumni_invitation(uuid)',
   'public.list_alumni_invitations(text,integer,integer)'] ) f
   -- m60 replaced four signatures (concurrency token / reason): either generation counts
   where to_regprocedure(f) is not null or to_regprocedure(case f when 'public.save_my_founder_profile(jsonb)' then 'public.save_my_founder_profile(jsonb,timestamptz)'
-    when 'public.upsert_company_snapshot(uuid,integer,jsonb)' then 'public.upsert_company_snapshot(uuid,integer,jsonb,timestamptz,text)'
-    when 'public.save_alumni_company(uuid,jsonb,timestamptz)' then 'public.save_alumni_company(uuid,jsonb,timestamptz,text)'
-    when 'public.save_alumni_founder(uuid,jsonb)' then 'public.save_alumni_founder(uuid,jsonb,timestamptz,text)' end) is not null$q$, '25');
+    when 'public.save_alumni_founder(uuid,jsonb)' then 'public.save_alumni_founder(uuid,jsonb,timestamptz)' end) is not null$q$, '23');
 select v49_test.val('C02 anon executes ONLY the vocabulary and the public directory', $q$select string_agg(p.proname, ',' order by p.proname) from pg_proc p where p.pronamespace = 'public'::regnamespace
   and has_function_privilege('anon', p.oid, 'EXECUTE') and (p.proname in ('list_alumni_lookups', 'list_public_alumni_directory', 'preview_national_id', 'get_my_alumni_profile', 'save_my_founder_profile', 'export_alumni_rows',
   'get_alumni_analytics', 'list_alumni_directory', 'get_alumni_company', 'get_alumni_founder', 'save_alumni_company', 'save_alumni_founder', 'upsert_company_snapshot', 'create_alumni_invitation'))$q$, 'list_alumni_lookups,list_public_alumni_directory');
@@ -82,12 +86,12 @@ select v49_test.val('C05 the audit and the probe limiter live in app_private wit
 select v49_test.val('C06 RLS is enabled AND forced on the three new public tables and the two app_private tables', $q$select count(*)::text from pg_class c join pg_namespace n on n.oid = c.relnamespace
   where ((n.nspname = 'public' and c.relname in ('founder_identities', 'company_internal', 'alumni_lookups')) or (n.nspname = 'app_private' and c.relname in ('founder_identity_access_log', 'alumni_probe_limits')))
   and c.relrowsecurity and c.relforcerowsecurity$q$, '5');
-select v49_test.val('C07 every public RPC is SECURITY DEFINER with an empty search_path', $q$select count(*)::text from pg_proc p where p.pronamespace = 'public'::regnamespace and p.proname in ('list_alumni_lookups', 'save_alumni_lookup',
+select v49_test.val('C07 every public RPC (23) is SECURITY DEFINER with an empty search_path', $q$select count(*)::text from pg_proc p where p.pronamespace = 'public'::regnamespace and p.proname in ('list_alumni_lookups', 'save_alumni_lookup',
   'delete_alumni_lookup', 'preview_national_id', 'get_my_alumni_profile', 'save_my_founder_profile', 'get_my_company_profile', 'save_my_company_profile', 'save_company_team_member', 'remove_company_team_member',
-  'set_company_ceo', 'upsert_company_snapshot', 'delete_company_snapshot', 'list_alumni_directory', 'get_alumni_company', 'get_alumni_founder', 'save_alumni_company', 'save_alumni_founder', 'set_companies_alumni',
+  'set_company_ceo', 'list_alumni_directory', 'get_alumni_company', 'get_alumni_founder', 'save_alumni_company', 'save_alumni_founder', 'set_companies_alumni',
   'export_alumni_rows', 'get_alumni_analytics', 'list_public_alumni_directory', 'create_alumni_invitation', 'revoke_alumni_invitation', 'list_alumni_invitations')
-  and p.prosecdef and p.proconfig @> array['search_path=""']$q$, '25');
-select v49_test.val('C08 company_snapshots: authenticated can only READ, anon nothing', $q$select (has_table_privilege('authenticated', 'public.company_snapshots', 'SELECT') and not has_table_privilege('authenticated', 'public.company_snapshots', 'INSERT')
+  and p.prosecdef and p.proconfig @> array['search_path=""']$q$, '23');
+select v49_test.val('C08 company_snapshots: authenticated can only READ, anon nothing (m69: column-level read, no actor columns)', $q$select (has_any_column_privilege('authenticated', 'public.company_snapshots', 'SELECT') and not has_table_privilege('authenticated', 'public.company_snapshots', 'INSERT')
   and not has_table_privilege('authenticated', 'public.company_snapshots', 'UPDATE') and not has_table_privilege('authenticated', 'public.company_snapshots', 'DELETE') and not has_table_privilege('anon', 'public.company_snapshots', 'SELECT'))::text$q$, 'true');
 select v49_test.val('C09 the seeds: 18 sectors, 55 sub sectors (each under a sector), 11 stages, every stage already stored in companies.stage is in the lookup', $q$select (select count(*) from public.alumni_lookups where kind = 'sector')::text || '/' ||
   (select count(*) from public.alumni_lookups where kind = 'subsector')::text || '/' || (select count(*) from public.alumni_lookups where kind = 'stage')::text || '/' ||
@@ -397,33 +401,33 @@ select v49_test.val('T12 the removed record: deleted_at set, no identity row lef
 -- ================================================================= S. yearly snapshots
 select set_config('request.jwt.claims', '{"sub":"00000000-0000-4000-8000-00000000e495","role":"authenticated"}', true);
 set local role authenticated;
-select v49_test.val('S01 a founder writes the ANNUAL row of 2024: all metrics, source founder', format($q$select (r->'snapshot'->>'year') || '|' || (r->'snapshot'->>'revenue_total') || '|' || (r->'snapshot'->>'employees_total') || '|' || (r->'snapshot'->>'source')
+select v49_test.superseded('S01 a founder writes the ANNUAL row of 2024: all metrics, source founder', format($q$select (r->'snapshot'->>'year') || '|' || (r->'snapshot'->>'revenue_total') || '|' || (r->'snapshot'->>'employees_total') || '|' || (r->'snapshot'->>'source')
   from (select public.upsert_company_snapshot('%s', 2024, '{"revenue_total":250000.5,"funding_raised_total":100000,"employees_total":10,"employees_female":4,"freelancers":3,"traction":"50 pilots","challenges":"cash flow","needs":"seed funding"}') r) x$q$, :'co3'),
   '2024|250000.50|10|founder');
-select v49_test.val('S02 a second call for the SAME year updates the same row (patch: untouched keys are kept, null clears)', format($q$select jsonb_array_length(r->'snapshots')::text || '|' || (r->'snapshot'->>'revenue_total') || '|' || (r->'snapshot'->>'employees_total') || '|' || coalesce(r->'snapshot'->>'challenges', 'NULL')
+select v49_test.superseded('S02 a second call for the SAME year updates the same row (patch: untouched keys are kept, null clears)', format($q$select jsonb_array_length(r->'snapshots')::text || '|' || (r->'snapshot'->>'revenue_total') || '|' || (r->'snapshot'->>'employees_total') || '|' || coalesce(r->'snapshot'->>'challenges', 'NULL')
   from (select public.upsert_company_snapshot('%s', 2024, '{"employees_total":12,"challenges":null}') r) x$q$, :'co3'), '1|250000.50|12|NULL');
-select v49_test.val('S03 a different year is another row (keyed by year: 2025 can be added next year)', format($q$select jsonb_array_length(r->'snapshots')::text || '|' || (r->'snapshots'->0->>'year') from (select public.upsert_company_snapshot('%s', 2025, '{"revenue_total":400000}') r) x$q$, :'co3'), '2|2025');
-select v49_test.fails('S04 female employees cannot exceed the total', format($q$select public.upsert_company_snapshot('%s', 2024, '{"employees_female":99}')$q$, :'co3'), '22023', 'alumni_invalid', 'employees_female:exceeds_total');
-select v49_test.fails('S05 a negative / non-numeric amount', format($q$select public.upsert_company_snapshot('%s', 2024, '{"revenue_total":-5}')$q$, :'co3'), '22023', 'alumni_invalid', 'revenue_total:not_a_number');
-select v49_test.fails('S06 a year in the future / before 1990', format($q$select public.upsert_company_snapshot('%s', 2999, '{"employees_total":1}')$q$, :'co3'), '22023', 'alumni_invalid', 'year:out_of_range');
-select v49_test.fails('S07 unknown metric', format($q$select public.upsert_company_snapshot('%s', 2024, '{"profit":1}')$q$, :'co3'), '22023', 'alumni_invalid', 'profit:unknown_key');
-select v49_test.fails('S08 a founder of ANOTHER company cannot write it', $q$select public.upsert_company_snapshot('00000000-0000-4000-8000-00000000c491', 2024, '{"employees_total":1}')$q$, '42501');
-select v49_test.fails('S09 a founder cannot delete a snapshot (manager only)', format($q$select public.delete_company_snapshot('%s', 2025)$q$, :'co3'), '42501');
-select v49_test.val('S10 the founder reads his own snapshots directly (RLS) and nobody else''s', $q$select count(*)::text from public.company_snapshots$q$, '2');
-select v49_test.fails('S11 a founder cannot INSERT a snapshot directly (RPC only)', format($q$insert into public.company_snapshots (company_id, snapshot_type, period_year) values ('%s', 'annual', 2020)$q$, :'co3'), '42501');
-select v49_test.fails('S12 a founder cannot UPDATE a snapshot directly', $q$update public.company_snapshots set revenue_total = 1$q$, '42501');
+select v49_test.superseded('S03 a different year is another row (keyed by year: 2025 can be added next year)', format($q$select jsonb_array_length(r->'snapshots')::text || '|' || (r->'snapshots'->0->>'year') from (select public.upsert_company_snapshot('%s', 2025, '{"revenue_total":400000}') r) x$q$, :'co3'), '2|2025');
+select v49_test.superseded('S04 female employees cannot exceed the total', format($q$select public.upsert_company_snapshot('%s', 2024, '{"employees_female":99}')$q$, :'co3'), '22023', 'alumni_invalid', 'employees_female:exceeds_total');
+select v49_test.superseded('S05 a negative / non-numeric amount', format($q$select public.upsert_company_snapshot('%s', 2024, '{"revenue_total":-5}')$q$, :'co3'), '22023', 'alumni_invalid', 'revenue_total:not_a_number');
+select v49_test.superseded('S06 a year in the future / before 1990', format($q$select public.upsert_company_snapshot('%s', 2999, '{"employees_total":1}')$q$, :'co3'), '22023', 'alumni_invalid', 'year:out_of_range');
+select v49_test.superseded('S07 unknown metric', format($q$select public.upsert_company_snapshot('%s', 2024, '{"profit":1}')$q$, :'co3'), '22023', 'alumni_invalid', 'profit:unknown_key');
+select v49_test.superseded('S08 a founder of ANOTHER company cannot write it', $q$select public.upsert_company_snapshot('00000000-0000-4000-8000-00000000c491', 2024, '{"employees_total":1}')$q$, '42501');
+select v49_test.superseded('S09 a founder cannot delete a snapshot (manager only)', format($q$select public.delete_company_snapshot('%s', 2025)$q$, :'co3'), '42501');
+select v49_test.superseded('S10 the founder reads his own snapshots directly (RLS) and nobody else''s', $q$select count(*)::text from public.company_snapshots$q$, '2');
+select v49_test.superseded('S11 a founder cannot INSERT a snapshot directly (RPC only)', format($q$insert into public.company_snapshots (company_id, snapshot_type, period_year) values ('%s', 'annual', 2020)$q$, :'co3'), '42501');
+select v49_test.superseded('S12 a founder cannot UPDATE a snapshot directly', $q$update public.company_snapshots set revenue_total = 1$q$, '42501');
 reset role;
 select set_config('request.jwt.claims', '{"sub":"00000000-0000-4000-8000-00000000e494","role":"authenticated"}', true);
 set local role authenticated;
-select v49_test.val('S13 another founder reads none of those snapshots', $q$select count(*)::text from public.company_snapshots$q$, '0');
+select v49_test.superseded('S13 another founder reads none of those snapshots', $q$select count(*)::text from public.company_snapshots$q$, '0');
 reset role;
 select set_config('request.jwt.claims', '{"sub":"00000000-0000-4000-8000-00000000e491","role":"authenticated"}', true);
 set local role authenticated;
-select v49_test.val('S14 a manager corrects the same year: source becomes manager', format($q$select (r->'snapshot'->>'source') || '|' || (r->'snapshot'->>'revenue_total') from (select public.upsert_company_snapshot('%s', 2024, '{"revenue_total":260000}') r) x$q$, :'co3'), 'manager|260000.00');
-select v49_test.val('S15 a manager deletes a year', format($q$select jsonb_array_length(r->'snapshots')::text from (select public.delete_company_snapshot('%s', 2025) r) x$q$, :'co3'), '1');
+select v49_test.superseded('S14 a manager corrects the same year: source becomes manager', format($q$select (r->'snapshot'->>'source') || '|' || (r->'snapshot'->>'revenue_total') from (select public.upsert_company_snapshot('%s', 2024, '{"revenue_total":260000}') r) x$q$, :'co3'), 'manager|260000.00');
+select v49_test.superseded('S15 a manager deletes a year', format($q$select jsonb_array_length(r->'snapshots')::text from (select public.delete_company_snapshot('%s', 2025) r) x$q$, :'co3'), '1');
 reset role;
-select v49_test.val('S16 the annual key is unique per company and year (the index backstop)', format($q$select (select count(*) from public.company_snapshots where company_id = '%s' and snapshot_type = 'annual' and period_year = 2024)::text$q$, :'co3'), '1');
-select v49_test.fails('S17 the unique index refuses a duplicate year even for the table owner', format($q$insert into public.company_snapshots (company_id, snapshot_type, period_year) values ('%s', 'annual', 2024)$q$, :'co3'), '23505');
+select v49_test.superseded('S16 the annual key is unique per company and year (the index backstop)', format($q$select (select count(*) from public.company_snapshots where company_id = '%s' and snapshot_type = 'annual' and period_year = 2024)::text$q$, :'co3'), '1');
+select v49_test.superseded('S17 the unique index refuses a duplicate year even for the table owner', format($q$insert into public.company_snapshots (company_id, snapshot_type, period_year) values ('%s', 'annual', 2024)$q$, :'co3'), '23505');
 
 -- ================================================================= manager fixture for the directory / export / analytics
 -- (helper as the owner: the cell of a given company row and column header in an export payload)
@@ -449,7 +453,7 @@ select v49_test.val('D08 the default scope now lists the 3 alumni', $q$select (p
 select v49_test.val('D09 save_alumni_company: a manager edits CO1 incl. the manager-only notes', $q$select (r->'company'->>'sector') || '|' || (r->'company'->'internal'->>'hint') || '|' || ((r->'company'->'internal'->>'reviewed_at') is not null)::text
   from (select public.save_alumni_company('00000000-0000-4000-8000-00000000c491', '{"governorate":25,"sector":"technology","subsector":"robotics","stage":"scaling","startup_type":"startup","legal_status":"llc","established_on":"2020-01-15",
   "description_en":"Nile Labs builds robots for farms","website_url":"https://nile.example.com","internal":{"hint":"Strong team; follow up in Q1","reviewed":true}}') r) x$q$, 'technology|Strong team; follow up in Q1|true');
-select v49_test.val('D10 a manager writes the 2024 snapshot of CO1 (revenue / headcount only)', $q$select (r->'snapshot'->>'revenue_total') from (select public.upsert_company_snapshot('00000000-0000-4000-8000-00000000c491', 2024, '{"revenue_total":500000,"employees_total":20,"employees_female":8}') r) x$q$, '500000.00');
+select v49_test.superseded('D10 a manager writes the 2024 snapshot of CO1 (revenue / headcount only)', $q$select (r->'snapshot'->>'revenue_total') from (select public.upsert_company_snapshot('00000000-0000-4000-8000-00000000c491', 2024, '{"revenue_total":500000,"employees_total":20,"employees_female":8}') r) x$q$, '500000.00');
 select v49_test.fails('D11 a manager cannot create a second company with an existing name (merge instead)', $q$select public.save_alumni_company(null, '{"name_en":"V49 NILE LABS"}')$q$, '23505', 'alumni_company_exists');
 select v49_test.val('D12 a manager can create a company (no founder link, created_by = the manager)', $q$select (r->'company'->>'name_en') || '|' || jsonb_array_length(r->'team')::text from (select public.save_alumni_company(null, '{"name_en":"V49 Manager Made","sector":"education"}') r) x$q$, 'V49 Manager Made|0');
 select ctid::text as ct1 from public.companies where id = '00000000-0000-4000-8000-00000000c491' \gset
@@ -531,7 +535,7 @@ select v49_test.val('V25 manager rows are ordered by the requested sort (establi
 select v49_test.val('V26 a manager row carries the CEO derived FROM THE ID (gender / age / governorate of origin / source) and the team counts', format($q$select (select (r->'ceo'->>'gender') || '|' || (r->'ceo'->>'age') || '|' || (r->'ceo'->>'governorate') || '|' || (r->'ceo'->>'source') || '|' || (r->'team'->>'size') || '|' || (r->'team'->>'under_35')
   from jsonb_array_elements((%L::jsonb)->'rows') r where r->>'name_en' = 'V49 Nile Labs')$q$, :'dir_mgr'), 'male|' || :'age_a' || '|1|id|1|1');
 select v49_test.val('V27 ... the company location (typed) and the CEO governorate (from the ID) are SEPARATE values: Assiut (25) vs Cairo (1)', format($q$select (select (r->>'governorate') || '|' || (r->'ceo'->>'governorate') from jsonb_array_elements((%L::jsonb)->'rows') r where r->>'name_en' = 'V49 Nile Labs')$q$, :'dir_mgr'), '25|1');
-select v49_test.val('V28 the latest snapshot summary (financial) is in the MANAGER row only', format($q$select (select (r->'latest'->>'year') || '|' || (r->'latest'->>'revenue_total') from jsonb_array_elements((%L::jsonb)->'rows') r where r->>'name_en' = 'V49 Nile Labs')$q$, :'dir_mgr'), '2024|500000.00');
+select v49_test.superseded('V28 the latest snapshot summary (financial) is in the MANAGER row only', format($q$select (select (r->'latest'->>'year') || '|' || (r->'latest'->>'revenue_total') from jsonb_array_elements((%L::jsonb)->'rows') r where r->>'name_en' = 'V49 Nile Labs')$q$, :'dir_mgr'), '2024|500000.00');
 select v49_test.val('V29 the legacy company keeps its legacy text next to the (empty) keys', format($q$select (select (r->'legacy'->>'industry_en') || '|' || coalesce(r->>'sector', 'NULL') || '|' || coalesce(r->>'governorate', 'NULL') from jsonb_array_elements((%L::jsonb)->'rows') r where r->>'name_en' = 'V49 Legacy Co')$q$, :'dir_mgr'), 'Technology, Manufacturing|NULL|NULL');
 select v49_test.val('V30 paging: limit 2 offset 2 of 5 rows (the manager-made company is the 5th)', $q$select (j->>'total') || '|' || jsonb_array_length(j->'rows')::text || '|' || (j->>'offset') from (select public.list_alumni_directory('{"q":"v49","scope":"all"}', 2, 2) j) x$q$, '5|2|2');
 select v49_test.val('V30b paging past the end: the total is still the number of matching companies, the page is empty', $q$select (j->>'total') || '|' || jsonb_array_length(j->'rows')::text from (select public.list_alumni_directory('{"q":"v49","scope":"all"}', 2, 50) j) x$q$, '5|0');
@@ -556,11 +560,11 @@ set local role authenticated;
 select public.export_alumni_rows('{"q":"v49","scope":"all"}') as exp \gset
 select public.export_alumni_rows('{"q":"v49","scope":"all"}', 2023, 'ar') as exp_ar \gset
 reset role;
-select v49_test.val('X01 the header texts and their ORDER are the owner''s (typos kept: Governerate, Nu. of ...)', format($q$select (select string_agg(c->>'header', '|' order by ord) from jsonb_array_elements((%L::jsonb)->'columns') with ordinality t(c, ord))$q$, :'exp'),
+select v49_test.superseded('X01 the header texts and their ORDER are the owner''s (typos kept: Governerate, Nu. of ...)', format($q$select (select string_agg(c->>'header', '|' order by ord) from jsonb_array_elements((%L::jsonb)->'columns') with ordinality t(c, ord))$q$, :'exp'),
   'Startup Name|Program Scope|Program Name|Support provided|Startup type|Hint|Sector|Sub sector|Description|Stage|Governerate|Date of company established|App|Website|Social media|Traction/Validation|CEO Name|Phone|Email|ID|CEO Age|Age Category|Student/Graduate|CEO Gender|Open/Closed|Reason for closing|After closing|Legal Status|Founding team size|Female founders|Nu. of founders below 35|Nu. of employees|Nu. of female employees|Number of freelancers|Funding raised|Revenue (2024) (Total)|Challenges|Needs');
 select v49_test.val('X02 38 columns, every row has 38 cells, 5 rows (the fixture)', format($q$select jsonb_array_length((%L::jsonb)->'columns')::text || '|' || (select string_agg(distinct jsonb_array_length(r)::text, ',') from jsonb_array_elements((%L::jsonb)->'rows') r) || '|' || ((%L::jsonb)->'meta'->>'count')$q$, :'exp', :'exp', :'exp'), '38|38|5');
 select v49_test.val('X02b meta.ceo_source counts how many CEO cells come from an ID / are self-declared / unknown (the CEOs of the fixture: 2 by ID, 0 self-declared, 3 unknown)', format($q$select ((%L::jsonb)->'meta'->'ceo_source')::text$q$, :'exp'), '{"id": 2, "none": 3, "self": 0}');
-select v49_test.val('X03 the default year is the latest year that has data (2024); an explicit year renames the revenue header', format($q$select ((%L::jsonb)->'meta'->>'year') || '|' || ((%L::jsonb)->'columns'->35->>'header')$q$, :'exp', :'exp_ar'), '2024|Revenue (2023) (Total)');
+select v49_test.superseded('X03 the default year is the latest year that has data (2024); an explicit year renames the revenue header', format($q$select ((%L::jsonb)->'meta'->>'year') || '|' || ((%L::jsonb)->'columns'->35->>'header')$q$, :'exp', :'exp_ar'), '2024|Revenue (2023) (Total)');
 select v49_test.val('X04 CO1: Program Scope = the program, Program Name = the projects, Support provided = the derived kinds (mentoring first)', format($q$select concat_ws('|', v49_test.cell(%L::jsonb, 'V49 Nile Labs', 'Program Scope'), v49_test.cell(%L::jsonb, 'V49 Nile Labs', 'Program Name'), v49_test.cell(%L::jsonb, 'V49 Nile Labs', 'Support provided'))$q$, :'exp', :'exp', :'exp'),
   'V49 Program|V49 Project One; V49 Project Two|Mentoring; Training and workshops');
 select v49_test.val('X05 CO1: Governerate = the CEO''s governorate FROM THE ID (Cairo), NOT the company''s typed Assiut', format($q$select v49_test.cell(%L::jsonb, 'V49 Nile Labs', 'Governerate')$q$, :'exp'), 'Cairo');
@@ -571,14 +575,14 @@ select v49_test.val('X07 CO1: CEO Age / Age Category / Student-Graduate / Gender
 select v49_test.val('X08 CO1: the classification and the manager note', format($q$select concat_ws('|', v49_test.cell(%L::jsonb, 'V49 Nile Labs', 'Startup type'), v49_test.cell(%L::jsonb, 'V49 Nile Labs', 'Sector'), v49_test.cell(%L::jsonb, 'V49 Nile Labs', 'Sub sector'), v49_test.cell(%L::jsonb, 'V49 Nile Labs', 'Stage'), v49_test.cell(%L::jsonb, 'V49 Nile Labs', 'Legal Status'),
   v49_test.cell(%L::jsonb, 'V49 Nile Labs', 'Hint'), v49_test.cell(%L::jsonb, 'V49 Nile Labs', 'Open/Closed'), v49_test.cell(%L::jsonb, 'V49 Nile Labs', 'Date of company established'))$q$, :'exp', :'exp', :'exp', :'exp', :'exp', :'exp', :'exp', :'exp'),
   'Startup|Technology|Robotics|Scaling|Limited liability company|Strong team; follow up in Q1|Open|2020-01-15');
-select v49_test.val('X09 CO1: the counts are derived from the founders (1 / 0 / 1) and the yearly metrics come from the 2024 snapshot', format($q$select concat_ws('|', v49_test.cell(%L::jsonb, 'V49 Nile Labs', 'Founding team size'), v49_test.cell(%L::jsonb, 'V49 Nile Labs', 'Female founders'), v49_test.cell(%L::jsonb, 'V49 Nile Labs', 'Nu. of founders below 35'),
+select v49_test.superseded('X09 CO1: the counts are derived from the founders (1 / 0 / 1) and the yearly metrics come from the 2024 snapshot', format($q$select concat_ws('|', v49_test.cell(%L::jsonb, 'V49 Nile Labs', 'Founding team size'), v49_test.cell(%L::jsonb, 'V49 Nile Labs', 'Female founders'), v49_test.cell(%L::jsonb, 'V49 Nile Labs', 'Nu. of founders below 35'),
   v49_test.cell(%L::jsonb, 'V49 Nile Labs', 'Nu. of employees'), v49_test.cell(%L::jsonb, 'V49 Nile Labs', 'Nu. of female employees'), v49_test.cell(%L::jsonb, 'V49 Nile Labs', 'Revenue (2024) (Total)'))$q$, :'exp', :'exp', :'exp', :'exp', :'exp', :'exp'), '1|0|1|20|8|500000.00');
 select v49_test.val('X10 CO1: a metric nobody entered is empty (no freelancers, no funding)', format($q$select coalesce(v49_test.cell(%L::jsonb, 'V49 Nile Labs', 'Number of freelancers'), 'NULL') || '|' || coalesce(v49_test.cell(%L::jsonb, 'V49 Nile Labs', 'Funding raised'), 'NULL')$q$, :'exp', :'exp'), 'NULL|NULL');
 select v49_test.val('X11 CO3 (legacy, no keys, no CEO): the legacy industry / governorate TEXT fills Sector / Governerate; programs are still derived', format($q$select concat_ws('|', v49_test.cell(%L::jsonb, 'V49 Legacy Co', 'Sector'), v49_test.cell(%L::jsonb, 'V49 Legacy Co', 'Governerate'), v49_test.cell(%L::jsonb, 'V49 Legacy Co', 'Program Name'), v49_test.cell(%L::jsonb, 'V49 Legacy Co', 'Support provided'),
   coalesce(v49_test.cell(%L::jsonb, 'V49 Legacy Co', 'CEO Name'), 'NULL'), coalesce(v49_test.cell(%L::jsonb, 'V49 Legacy Co', 'Founding team size'), 'blank'))$q$, :'exp', :'exp', :'exp', :'exp', :'exp', :'exp'), 'Technology, Manufacturing|Alex|V49 Project One|Training and workshops|NULL|blank');   -- m52: a company with no founder record has a BLANK team size, not 0
 select v49_test.val('X11b CO3: Social media = the social entries (facebook + linkedin) from the links / linkedin_url, as "Kind: url" joined by "; "; the plain link is not social', format($q$select v49_test.cell(%L::jsonb, 'V49 Legacy Co', 'Social media')$q$, :'exp'), 'Facebook: https://facebook.com/leg; Linkedin: https://linkedin.com/company/leg');
 select v49_test.val('X12 CO2: the CEO governorate from the ID (Aswan) fills Governerate although the company has no governorate; the WITHDRAWN company has no program', format($q$select concat_ws('|', v49_test.cell(%L::jsonb, 'V49 Second Co', 'Governerate'), v49_test.cell(%L::jsonb, 'V49 Second Co', 'CEO Gender'), coalesce(v49_test.cell(%L::jsonb, 'V49 Second Co', 'Program Name'), 'NULL'), v49_test.cell(%L::jsonb, 'V49 Second Co', 'Student/Graduate'))$q$, :'exp', :'exp', :'exp', :'exp'), 'Aswan|Female|NULL|Student');
-select v49_test.val('X13 the founder-created company (no ID on its CEO): Governerate = the company''s typed governorate (Assiut); the 2024 metrics + the text fields as of the year', format($q$select concat_ws('|', v49_test.cell(%L::jsonb, 'V49 Third Startup', 'Governerate'), v49_test.cell(%L::jsonb, 'V49 Third Startup', 'Revenue (2024) (Total)'), v49_test.cell(%L::jsonb, 'V49 Third Startup', 'Nu. of employees'),
+select v49_test.superseded('X13 the founder-created company (no ID on its CEO): Governerate = the company''s typed governorate (Assiut); the 2024 metrics + the text fields as of the year', format($q$select concat_ws('|', v49_test.cell(%L::jsonb, 'V49 Third Startup', 'Governerate'), v49_test.cell(%L::jsonb, 'V49 Third Startup', 'Revenue (2024) (Total)'), v49_test.cell(%L::jsonb, 'V49 Third Startup', 'Nu. of employees'),
   v49_test.cell(%L::jsonb, 'V49 Third Startup', 'Number of freelancers'), v49_test.cell(%L::jsonb, 'V49 Third Startup', 'Funding raised'), v49_test.cell(%L::jsonb, 'V49 Third Startup', 'Traction/Validation'), coalesce(v49_test.cell(%L::jsonb, 'V49 Third Startup', 'Challenges'), 'NULL'), v49_test.cell(%L::jsonb, 'V49 Third Startup', 'Needs'),
   coalesce(v49_test.cell(%L::jsonb, 'V49 Third Startup', 'ID'), 'NULL'), coalesce(v49_test.cell(%L::jsonb, 'V49 Third Startup', 'CEO Age'), 'NULL'))$q$, :'exp', :'exp', :'exp', :'exp', :'exp', :'exp', :'exp', :'exp', :'exp', :'exp'),
   'Assiut|260000.00|12|3|100000.00|50 pilots|NULL|seed funding|NULL|NULL');
@@ -597,12 +601,12 @@ select set_config('request.jwt.claims', '{"sub":"00000000-0000-4000-8000-0000000
 set local role authenticated;
 select public.get_alumni_analytics('{"q":"v49","scope":"all"}') as an \gset
 reset role;
-select v49_test.val('A01 totals: 5 companies, all open, survival 100, 2 with a program, 2 reporting 2024', format($q$select concat_ws('|', (a->'totals'->>'companies'), (a->'totals'->>'open'), (a->'totals'->>'closed'), (a->'totals'->>'survival_rate'), (a->'totals'->>'with_program'), (a->'totals'->>'reporting_year'), (a->>'year')) from (select %L::jsonb a) x$q$, :'an'), '5|5|0|100.0|2|2|2024');
+select v49_test.superseded('A01 totals: 5 companies, all open, survival 100, 2 with a program, 2 reporting 2024', format($q$select concat_ws('|', (a->'totals'->>'companies'), (a->'totals'->>'open'), (a->'totals'->>'closed'), (a->'totals'->>'survival_rate'), (a->'totals'->>'with_program'), (a->'totals'->>'reporting_year'), (a->>'year')) from (select %L::jsonb a) x$q$, :'an'), '5|5|0|100.0|2|2|2024');
 select v49_test.val('A02 totals of people (derived): 3 founders, 1 female (F2 by ID), 2 below 35 (F1, F2)', format($q$select concat_ws('|', (a->'totals'->>'founders'), (a->'totals'->>'female_founders'), (a->'totals'->>'founders_under_35')) from (select %L::jsonb a) x$q$, :'an'), '3|1|2');
-select v49_test.val('A03 totals of metrics: 32 employees, 12 female, 3 freelancers, funding 100000, revenue 2024 760000', format($q$select concat_ws('|', (a->'totals'->>'employees'), (a->'totals'->>'female_employees'), (a->'totals'->>'freelancers'), (a->'totals'->>'funding_raised'), (a->'totals'->>'revenue')) from (select %L::jsonb a) x$q$, :'an'), '32|12|3|100000.00|760000.00');
+select v49_test.superseded('A03 totals of metrics: 32 employees, 12 female, 3 freelancers, funding 100000, revenue 2024 760000', format($q$select concat_ws('|', (a->'totals'->>'employees'), (a->'totals'->>'female_employees'), (a->'totals'->>'freelancers'), (a->'totals'->>'funding_raised'), (a->'totals'->>'revenue')) from (select %L::jsonb a) x$q$, :'an'), '32|12|3|100000.00|760000.00');
 select v49_test.val('A04 by CEO gender (from the ID): male 1, female 1, unknown 3', format($q$select (select string_agg(coalesce(e->>'key', 'null') || ':' || (e->>'count'), ',' order by coalesce(e->>'key', 'zzz')) from jsonb_array_elements(a->'by_ceo_gender') e) from (select %L::jsonb a) x$q$, :'an'), 'female:1,male:1,null:3');
 select v49_test.val('A05 by CEO governorate of origin (from the ID): Cairo 1, Aswan 1', format($q$select (select string_agg(coalesce(e->>'key', 'null') || ':' || (e->>'count'), ',' order by coalesce(e->>'key', 'zzz')) from jsonb_array_elements(a->'by_ceo_governorate') e where e->>'key' is not null) from (select %L::jsonb a) x$q$, :'an'), '1:1,28:1');
-select v49_test.val('A06 by year: 2024 has 2 reporting companies', format($q$select (a->'by_year'->0->>'year') || ':' || (a->'by_year'->0->>'companies_reporting') from (select %L::jsonb a) x$q$, :'an'), '2024:2');
+select v49_test.superseded('A06 by year: 2024 has 2 reporting companies', format($q$select (a->'by_year'->0->>'year') || ':' || (a->'by_year'->0->>'companies_reporting') from (select %L::jsonb a) x$q$, :'an'), '2024:2');
 select v49_test.val('A07 by program: the program counts its 2 participating companies (the withdrawn one is out)', format($q$select (a->'by_program'->0->>'program_name_en') || ':' || (a->'by_program'->0->>'count') from (select %L::jsonb a) x$q$, :'an'), 'V49 Program:2');
 select v49_test.val('A08 by sector / stage / type use keys (the labels are the client lookup)', format($q$select (select string_agg(coalesce(e->>'key', 'null') || ':' || (e->>'count'), ',' order by coalesce(e->>'key', 'zzz')) from jsonb_array_elements(a->'by_sector') e) from (select %L::jsonb a) x$q$, :'an'), 'education:1,healthcare:1,technology:1,null:2');
 select set_config('request.jwt.claims', '{"sub":"00000000-0000-4000-8000-00000000e493","role":"authenticated"}', true);
@@ -693,7 +697,7 @@ select v49_test.val('Z01 a MANAGER adds a team record WITH a national ID (born a
   '**********1171|88|male|{"team_size": 1, "female_founders": 0, "founders_under_35": 0}');
 select v49_test.fails('Z02 the same ID for another record is a conflict ERROR for a manager (no soft failure)', $q$select public.save_company_team_member('00000000-0000-4000-8000-00000000c493', null, '{"name_en":"Twin","national_id":"28802298811171"}')$q$, '23505', 'national_id_conflict');
 select v49_test.fails('Z03 a manager save with a stale updated_at is refused too', $q$select public.save_alumni_company('00000000-0000-4000-8000-00000000c493', '{"description_en":"x"}', '2020-01-01T00:00:00+00'::timestamptz)$q$, 'P0001', 'alumni_stale');
-select v49_test.fails('Z04 deleting a year that has no row', $q$select public.delete_company_snapshot('00000000-0000-4000-8000-00000000c493', 1999)$q$, 'P0002', 'alumni_not_found');
+select v49_test.superseded('Z04 deleting a year that has no row', $q$select public.delete_company_snapshot('00000000-0000-4000-8000-00000000c493', 1999)$q$, 'P0002', 'alumni_not_found');
 select public.create_alumni_invitation('00000000-0000-4000-8000-00000000c491', 'expired-check@example.invalid', 'en', 'https://app.example.com') as inv_old \gset
 reset role;
 update public.alumni_invitations set sent_at = now() - interval '20 days' where id = (:'inv_old'::jsonb->>'id')::uuid;
@@ -738,7 +742,7 @@ reset role;
 reset role;
 
 -- ================================================================= Q. merge_companies (m49 patch): yearly snapshots, internal notes and profile gaps survive
-select v49_test.val('Q01 before the merge: CO1 has ONE 2024 snapshot (no freelancers / funding), the founder-created company has its own and a founder', format($q$select (select count(*) from public.company_snapshots where company_id = '00000000-0000-4000-8000-00000000c491')::text || '|' || (select count(*) from public.company_snapshots where company_id = '%s')::text || '|' ||
+select v49_test.superseded('Q01 before the merge: CO1 has ONE 2024 snapshot (no freelancers / funding), the founder-created company has its own and a founder', format($q$select (select count(*) from public.company_snapshots where company_id = '00000000-0000-4000-8000-00000000c491')::text || '|' || (select count(*) from public.company_snapshots where company_id = '%s')::text || '|' ||
   (select count(*) from public.company_founders where company_id = '%s')::text$q$, :'co4', :'co4'), '1|1|1');
 select set_config('request.jwt.claims', '{"sub":"00000000-0000-4000-8000-00000000e491","role":"authenticated"}', true);
 set local role authenticated;
@@ -746,7 +750,7 @@ select public.save_alumni_company(:'co4'::uuid, '{"internal":{"hint":"merge me",
 select public.merge_companies('00000000-0000-4000-8000-00000000c491', :'co4') as merged \gset
 reset role;
 select v49_test.val('Q02 the merge ran: the dropped company is soft-deleted', format($q$select (deleted_at is not null)::text from public.companies where id = '%s'$q$, :'co4'), 'true');
-select v49_test.val('Q03 ONE 2024 snapshot remains on the kept company: the kept values WIN (revenue 500000, employees 20), the gaps are filled from the dropped one (freelancers 3, funding 100000, traction)', $q$select concat_ws('|', count(*), max(revenue_total), max(employees_total), max(freelancers), max(funding_raised_total), max(traction)) from public.company_snapshots where company_id = '00000000-0000-4000-8000-00000000c491'$q$, '1|500000.00|20|3|100000.00|50 pilots');
+select v49_test.superseded('Q03 ONE 2024 snapshot remains on the kept company: the kept values WIN (revenue 500000, employees 20), the gaps are filled from the dropped one (freelancers 3, funding 100000, traction)', $q$select concat_ws('|', count(*), max(revenue_total), max(employees_total), max(freelancers), max(funding_raised_total), max(traction)) from public.company_snapshots where company_id = '00000000-0000-4000-8000-00000000c491'$q$, '1|500000.00|20|3|100000.00|50 pilots');
 select v49_test.val('Q04 no snapshot is left on the dropped company', format($q$select count(*)::text from public.company_snapshots where company_id = '%s'$q$, :'co4'), '0');
 select v49_test.val('Q05 the manager notes: the kept hint wins, the dropped note is not copied over it, the veto (directory_hidden) is OR-ed, the dropped row is gone', format($q$select (select hint from public.company_internal where company_id = '00000000-0000-4000-8000-00000000c491') || '|' || (select directory_hidden::text from public.company_internal where company_id = '00000000-0000-4000-8000-00000000c491') || '|' ||
   (select count(*) from public.company_internal where company_id = '%s')::text$q$, :'co4'), 'Strong team; follow up in Q1|true|0');

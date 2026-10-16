@@ -12,6 +12,12 @@ const FILTER_TYPES = Object.freeze({ q: 's', scope: 's', program_id: 's', projec
 export const ATT_FILTER_KEYS = Object.freeze(Object.keys(FILTER_TYPES))
 export const SEVERITIES = Object.freeze(['required', 'recommended'])
 
+/** The section of the company page that fixes each rule of the catalogue (the server sends the same in `rules[].section`; the page needs it for a deep link without the list). */
+export const RULE_SECTION = Object.freeze({
+  ceo: 'team', ceo_id: 'team', contact: 'team', ceo_education: 'team', sector: 'classification', subsector: 'classification', stage: 'classification', startup_type: 'classification',
+  legal_status: 'classification', governorate: 'location', latest_figures: 'metrics', description: 'basics', logo: 'basics', established_on: 'basics', online_presence: 'online',
+})
+
 /** The three items that need a CEO (a person) to exist: when the CEO is missing the row shows that one root cause, not three more chips (the server still counts them). */
 export const CEO_DEPENDENT = Object.freeze(['ceo_id', 'contact', 'ceo_education'])
 

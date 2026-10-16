@@ -344,6 +344,11 @@ describe('google-oauth-callback: the connect flow', () => {
     assert.equal(db.connections.size, 1)
     assert.deepEqual([row.status, row.last_error], ['active', null])
     assert.notEqual(db.vaultSecrets.get(row.id), first)
+    // the OLD grant does not stay alive at Google: only the newest refresh token works
+    const issued = (await fakeState()).refreshTokens
+    assert.deepEqual(issued.map((r) => r.revoked), [true, false])
+    assert.equal(first, issued[0].token)
+    assert.equal(db.vaultSecrets.get(row.id), issued[1].token)
   })
 
   test('SYSTEM sender: only startups@athareg.com, only by a super_admin; stored as kind system with no owner; ?target=system', async () => {

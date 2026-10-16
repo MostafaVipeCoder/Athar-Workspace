@@ -4,6 +4,8 @@
  * exactly what gets queued. Keep the two in sync.
  */
 
+import DOMPurify from 'dompurify'
+
 export const escapeHtml = (s) => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;')
 
 /** Placeholder keys whose value becomes a clickable anchor in HTML mode when it holds a URL (same list as the DB). */
@@ -25,13 +27,22 @@ export function renderTemplate(template, vars = {}, { html = false } = {}) {
   return out.replace(/\{\{\s*[a-zA-Z_]+\s*\}\}/g, '')
 }
 
-/** Strips scripts/iframes/event handlers from PM-authored HTML before a live preview renders it. */
+/**
+ * Allow-list sanitiser (DOMPurify) for PM-authored e-mail HTML before a preview renders it with dangerouslySetInnerHTML.
+ * Only the formatting tags an e-mail needs survive: no script / style / svg / math / form / media, no event handlers,
+ * no data-* attributes, and no link scheme except http(s), mailto, tel (DOMPurify default URI rule: entity-encoded or odd-spaced `javascript:` / `data:` are dropped, relative links stay).
+ */
+const PREVIEW_CONFIG = {
+  ALLOWED_TAGS: ['a', 'b', 'strong', 'i', 'em', 'u', 's', 'p', 'br', 'hr', 'div', 'span', 'ul', 'ol', 'li', 'h1', 'h2', 'h3', 'h4', 'blockquote', 'table', 'thead', 'tbody', 'tr', 'td', 'th', 'img', 'small', 'sub', 'sup', 'pre', 'code'],
+  ALLOWED_ATTR: ['href', 'title', 'alt', 'src', 'width', 'height', 'dir', 'lang', 'colspan', 'rowspan', 'align', 'target', 'rel'],
+  ALLOW_DATA_ATTR: false,
+  ALLOW_ARIA_ATTR: false,
+  FORBID_TAGS: ['script', 'style', 'svg', 'math', 'iframe', 'object', 'embed', 'form', 'input', 'button', 'textarea', 'select', 'link', 'meta', 'base', 'video', 'audio', 'source'],
+  FORBID_ATTR: ['style', 'srcset', 'formaction', 'xlink:href'],
+}
+
 export function sanitizePreviewHtml(html) {
-  return String(html ?? '')
-    .replace(/<(script|iframe|object|embed|style)[\s\S]*?<\/\1>/gi, '')
-    .replace(/<(script|iframe|object|embed|style)[^>]*\/?>/gi, '')
-    .replace(/\son[a-z]+\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)/gi, '')
-    .replace(/javascript:/gi, '')
+  return DOMPurify.sanitize(String(html ?? ''), PREVIEW_CONFIG)
 }
 
 /** `{{key}}` / `{key}` tokens of a template that are not in `allowed` (an array or Set of placeholder keys). */

@@ -67,9 +67,17 @@ export const TEAM = [
   { founder_id: 'f3', name_en: 'Hana Mostafa', name_ar: 'هناء مصطفى', role: 'Designer', is_primary: false, has_account: false, is_me: false, gender: 'female', age: 24, age_category: 'age_18_24', birth_date: '2002-05-05', source: 'self' },
 ]
 export const SNAPSHOTS = [
-  { id: 's2', year: 2024, revenue_total: 260000, funding_raised_total: 100000, employees_total: 12, employees_female: 4, freelancers: 3, traction: '3 pilots', challenges: null, needs: 'Funding', source: 'founder', updated_at: '2026-10-01T00:00:00Z' },
-  { id: 's1', year: 2023, revenue_total: 120000, funding_raised_total: 40000, employees_total: 7, employees_female: 2, freelancers: null, traction: null, challenges: null, needs: null, source: 'manager', updated_at: '2026-01-01T00:00:00Z' },
+  { id: 's2', period_key: '2026-Q2', year: 2026, status: 'frozen', reported: true, confirmed: true, corrected: false, previous_values: null, frozen_at: '2026-07-01T00:00:00Z', frozen_source: 'auto',
+    revenue_total: 260000, funding_raised_total: 100000, employees_total: 12, employees_female: 4, freelancers: 3, team_size: 3, female_founders: 2, traction: '3 pilots', challenges: null, needs: 'Funding', operating_status: 'open' },
+  { id: 's1', period_key: '2026-Q1', year: 2026, status: 'frozen', reported: true, confirmed: false, corrected: true, corrected_at: '2026-07-05T00:00:00Z', previous_values: { revenue_total: 12000 }, frozen_at: '2026-04-01T00:00:00Z', frozen_source: 'auto',
+    revenue_total: 120000, funding_raised_total: 40000, employees_total: 7, employees_female: 2, freelancers: null, team_size: 3, female_founders: 2, traction: null, challenges: null, needs: null, operating_status: 'open' },
 ]
+/** `get_company_figures` (m66): the draft, the status of the calendar quarter, the frozen quarters. */
+export const FIGURES = {
+  company_id: 'c1', calendar_period: '2026-Q4', target_period: '2026-Q4', period_start: '2026-09-30T21:00:00Z', period_end: '2026-12-31T22:00:00Z', deadline: '2026-12-31', status: 'updated', target_status: 'updated',
+  draft: { period_key: '2026-Q4', revenue_total: 90000, funding_raised_total: 100000, employees_total: 14, employees_female: 5, freelancers: 2, traction: 'Pilot', challenges: null, needs: null, updated_at: '2026-10-14T08:00:00Z', updated_source: 'founder', confirmed_period: null, confirmed_at: null, confirmed: false },
+  snapshots: SNAPSHOTS,
+}
 export const COMPANY_PAYLOAD = {
   company: COMPANY, team: TEAM, counts: { team_size: 3, female_founders: 2, founders_under_35: 2 }, ceo_founder_id: 'f1',
   programs: [{ program_id: 'g1', program_name_en: 'Finland', program_name_ar: 'فنلندا', program_type: 'accelerator', project_id: 'p1', project_name_en: 'Cohort 1', project_name_ar: 'الدفعة 1', completed: false, start_date: '2026-03-01', end_date: '2026-03-03', support: ['mentoring', 'training'] }],

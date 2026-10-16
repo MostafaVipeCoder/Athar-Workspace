@@ -98,10 +98,11 @@ insert into public.founder_identities (founder_id, self_birth_date, self_gender)
 insert into public.company_internal (company_id, hint) values ('00000000-0000-4000-8000-00000000c511', 'strong team');
 insert into public.opportunities (opportunity_id, type, title_ar, is_active) values ('00000000-0000-4000-8000-0000000b5101', 'grant', 'x', false);
 -- yearly metrics through the manager RPC later; here the table is filled directly (as the owner) to keep the numbers exact
-insert into public.company_snapshots (company_id, snapshot_type, period_year, source, revenue_total, funding_raised_total, employees_total, employees_female, freelancers, traction, challenges, needs) values
-  ('00000000-0000-4000-8000-00000000c511', 'annual', 2023, 'manager', 100000, 50000, 5, 2, 1, '100 users', 'hiring', 'funding'),
-  ('00000000-0000-4000-8000-00000000c511', 'annual', 2024, 'manager', 250000, 80000, 9, 4, 3, null, null, null),
-  ('00000000-0000-4000-8000-00000000c512', 'annual', 2024, 'founder', 5000, null, 2, 1, null, null, null, null);
+-- m66 (owner decision 21): the figures are FROZEN QUARTERS (one reported Q4 snapshot per year gives the same year totals through the roll-up the readers use)
+insert into public.company_snapshots (company_id, snapshot_type, period_year, period_key, status, frozen_at, frozen_source, reported, source, revenue_total, funding_raised_total, employees_total, employees_female, freelancers, traction, challenges, needs, operating_status) values
+  ('00000000-0000-4000-8000-00000000c511', 'quarter', 2023, '2023-Q4', 'frozen', now(), 'manual', true, 'manager', 100000, 50000, 5, 2, 1, '100 users', 'hiring', 'funding', 'open'),
+  ('00000000-0000-4000-8000-00000000c511', 'quarter', 2024, '2024-Q4', 'frozen', now(), 'manual', true, 'manager', 250000, 80000, 9, 4, 3, null, null, null, 'open'),
+  ('00000000-0000-4000-8000-00000000c512', 'quarter', 2024, '2024-Q4', 'frozen', now(), 'manual', true, 'founder', 5000, null, 2, 1, null, null, null, null, 'open');
 
 select set_config('request.jwt.claims', '{"sub":"00000000-0000-4000-8000-00000000e510","role":"authenticated"}', true);
 set local role authenticated;
@@ -210,7 +211,7 @@ select v51_test.val('O02 founders: total / with account / with national id are C
   (select count(*)::text || '|' || (count(*) filter (where auth_user_id is not null))::text || '|' || (select count(*) from public.founder_identities where national_id is not null)::text from public.founders where deleted_at is null));
 select v51_test.val('O03 the overview carries no national ID digits and no name', format($q$select (position('29501010101234' in %L) + position('Sara' in %L))::text$q$, :'ov', :'ov'), '0');
 select v51_test.val('O04 completeness: an average and the most often missing keys', format($q$select ((%L::jsonb->'completeness'->>'average') is not null)::text || '|' || (jsonb_array_length(%L::jsonb->'completeness'->'missing_by') > 0)::text$q$, :'ov', :'ov'), 'true|true');
-select v51_test.val('O05 the latest year with data is the max of the annual rows (2024 in the fixture, or later when other work left a row)', format($q$select %L::jsonb->>'latest_year'$q$, :'ov'), (select max(period_year)::text from public.company_snapshots where snapshot_type = 'annual'));
+select v51_test.val('O05 the latest year with data is the max year of the reported quarters (2024 in the fixture, or later when other work left a row)', format($q$select %L::jsonb->>'latest_year'$q$, :'ov'), (select max(period_year)::text from public.company_snapshots where snapshot_type = 'quarter' and reported));
 
 -- ================================================================= N. notifications (server-side audience)
 select set_config('request.jwt.claims', '{"sub":"00000000-0000-4000-8000-00000000e511","role":"authenticated"}', true);

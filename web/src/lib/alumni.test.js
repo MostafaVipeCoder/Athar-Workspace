@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { completenessTone, diffPatch, digitsOnly, lookupLabel, lookupOptions, missingYears, parseAlumniError, subsectorOptions } from './alumni.js'
+import { completenessTone, diffPatch, digitsOnly, lookupLabel, lookupOptions, parseAlumniError, subsectorOptions } from './alumni.js'
 
 const lookups = {
   governorates: [
@@ -84,9 +84,5 @@ describe('diffPatch (forms send only what changed)', () => {
 describe('small helpers', () => {
   it('tones the completeness meter', () => {
     expect([completenessTone(100), completenessTone(75), completenessTone(30), completenessTone('x')]).toEqual(['success', 'warning', 'danger', 'neutral'])
-  })
-  it('offers the recent years that have no row yet', () => {
-    expect(missingYears([{ year: 2025 }, { year: 2023 }], new Date('2026-06-01'), 4)).toEqual([2026, 2024])
-    expect(missingYears(undefined, new Date('2026-06-01'), 2)).toEqual([2026, 2025])
   })
 })

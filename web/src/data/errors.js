@@ -65,6 +65,8 @@ const TOKEN_KEYS = {
   booking_invalid: 'booking.err.invalid',
   booking_not_confirmed: 'booking.err.notConfirmed',
   booking_shared_link_required: 'booking.err.sharedLinkRequired',
+  // m63 calendar sync mode (hint = token)
+  calendar_mode_invalid: 'booking.sync.err.modeInvalid',
   // m35 distribution (hint = token; `distribution_invalid` carries "<field>:<reason>" in detail)
   distribution_invalid: 'distribution.err.invalid',
   distribution_day_locked: 'distribution.err.dayLocked',
@@ -98,14 +100,29 @@ const TOKEN_KEYS = {
   alumni_not_found: 'alumni.err.notFound',
   alumni_rate_limited: 'alumni.err.rateLimited',
   alumni_in_use: 'alumni.err.inUse',
+  // m70 closed-company follow-up (a question only a CLOSED company answers)
+  alumni_not_closed: 'alumni.closed.err.notClosed',
   // m50 (an application for a closed / inactive opportunity)
   opportunity_closed: 'alumni.err.opportunityClosed',
+  // m62 e-mail outbox (hint = token; `email_invalid` carries "<field>:<reason>" in detail; text: shared/outbox/i18n.js)
+  email_invalid: 'outbox.err.invalid',
+  // m75 - m77 Athar Network experts registry (hint = token; `expert_invalid` carries "<field>:<reason>" in detail; text: app/pages/experts/experts.i18n.js)
+  expert_invalid: 'experts.err.invalid',
+  expert_not_found: 'experts.err.notFound',
+  expert_stale: 'experts.err.stale',
+  expert_in_use: 'experts.err.inUse',
+  expert_merged: 'experts.err.merged',
+  expert_merge_blocked: 'experts.err.mergeBlocked',
+  expert_unavailable: 'experts.err.unavailable',
 }
 
 /** Tokens whose AppError code is not the one their SQLSTATE would give (an application error is P0001 / 22023, but the caller reasons on the MEANING). */
 const TOKEN_CODES = {
   revision_conflict: 'conflict',
   alumni_stale: 'conflict',
+  expert_stale: 'conflict',
+  expert_in_use: 'conflict',
+  expert_merge_blocked: 'conflict',
 }
 
 function tokenOf(error) {

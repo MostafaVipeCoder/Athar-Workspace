@@ -40,12 +40,13 @@ export function SkeletonList({ count = 3, className = 'space-y-2', itemClassName
   )
 }
 
-export function EmptyState({ title, body, icon: Icon = Inbox, action, className }) {
+/** `titleAs`: the heading element of the title (a page that has nothing else to show passes 'h1' so the tab gets a title). */
+export function EmptyState({ title, body, icon: Icon = Inbox, action, className, titleAs: Title = 'p' }) {
   const { t } = useLanguage()
   return (
     <div className={cn('flex flex-col items-center gap-2 rounded-card border border-dashed border-input bg-surface/60 p-8 text-center', className)}>
       <Icon className="h-8 w-8 text-muted-foreground" aria-hidden="true" />
-      <p className="font-display text-lg font-bold">{title ?? t('common.empty')}</p>
+      <Title className="font-display text-lg font-bold">{title ?? t('common.empty')}</Title>
       {body && <p className="max-w-md text-sm text-muted-foreground">{body}</p>}
       {action}
     </div>
@@ -53,14 +54,14 @@ export function EmptyState({ title, body, icon: Icon = Inbox, action, className 
 }
 
 /** `error` may be an AppError: its messageKey is translated; `onRetry` is shown only when it helps. */
-export function ErrorState({ error, title, body, onRetry, className }) {
+export function ErrorState({ error, title, body, onRetry, className, titleAs: Title = 'p' }) {
   const { t } = useLanguage()
   const message = body ?? (error?.messageKey ? t(error.messageKey) : t('errors.unknown'))
   const canRetry = onRetry && (error?.retryable ?? true)
   return (
     <div role="alert" className={cn('flex flex-col items-center gap-2 rounded-card border border-destructive/40 bg-destructive/5 p-8 text-center', className)}>
       <AlertCircle className="h-8 w-8 text-destructive-text" aria-hidden="true" />
-      {title && <p className="font-display text-lg font-bold">{title}</p>}
+      {title && <Title className="font-display text-lg font-bold">{title}</Title>}
       <p className="max-w-md text-sm text-muted-foreground">{message}</p>
       {canRetry && (
         <Button variant="outline" size="sm" onClick={onRetry}>
