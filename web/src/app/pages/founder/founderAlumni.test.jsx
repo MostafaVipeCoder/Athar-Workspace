@@ -6,6 +6,7 @@ import { renderWithProviders } from '../../../test/render.jsx'
 import { ConfirmProvider } from '../../../ui/ConfirmDialog.jsx'
 import { AuthContext } from '../../AuthContext.js'
 import { AppError } from '../../../data/errors.js'
+import { cairoToday } from '../../../lib/nationalId.js'
 import { COMPANY, COMPANY_PAYLOAD, COMPANY_ROW, FIGURES, FOUNDER, IDENTITY_ID, LOOKUPS, MY_PROFILE, PREVIEW_OK } from '../../../shared/alumni/alumni.fixtures.js'
 
 const mocks = vi.hoisted(() => ({
@@ -464,7 +465,11 @@ describe('Founder notifications page', () => {
 
 // ============================================================================ opportunities
 describe('Founder opportunities page', () => {
-  const future = (days) => new Date(Date.now() + days * 86_400_000).toISOString().slice(0, 10)
+  // deadlines on the calendar basis the page counts from (today in Cairo), so the count never depends on the machine's time zone or time of day
+  const future = (days) => {
+    const [y, m, d] = cairoToday().split('-').map(Number)
+    return new Date(Date.UTC(y, m - 1, d + days)).toISOString().slice(0, 10)
+  }
   const list = [
     { opportunity_id: 'o1', type: 'grant', title_en: 'Startup Grant', title_ar: 'منحة', description_en: 'Cash for pilots', description_ar: null, deadline: future(30), eligibility: 'Registered startups', link: null, image_url: null, order_index: 1 },
     { opportunity_id: 'o2', type: 'investment', title_en: 'Angel Round', title_ar: 'جولة', description_en: 'Pitch', description_ar: null, deadline: future(3), eligibility: null, link: 'https://example.com/angels', image_url: null, order_index: 2 },
@@ -478,8 +483,7 @@ describe('Founder opportunities page', () => {
     open()
     const cards = await screen.findAllByTestId('opportunity')
     expect(cards.map((c) => within(c).getByRole('heading').textContent)).toEqual(['Angel Round', 'Startup Grant'])
-    // the deadline is a date-only value (UTC midnight), so depending on the time of day the page shows 2 or 3 days left
-    expect(within(cards[0]).getByText(/^[23] days left$/)).toBeInTheDocument()
+    expect(within(cards[0]).getByText('3 days left')).toBeInTheDocument()
     expect(within(cards[1]).getByText(/Registered startups/)).toBeInTheDocument()
     expect(within(cards[0]).getByRole('link', { name: 'More information' })).toHaveAttribute('rel', 'noopener noreferrer')
     await user.click(screen.getByRole('button', { name: 'All' }))
